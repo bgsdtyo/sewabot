@@ -147,6 +147,12 @@ class TelegramBotService
             return;
         }
 
+        if (str_starts_with($text, '/akun') || str_starts_with($text, '/account') || $this->isButton($text, 'Akun')) {
+            $this->sendAccountInfo($bot, $member, $chatId, $from);
+
+            return;
+        }
+
         if (
             str_starts_with($text, '/otp')
             || str_starts_with($text, '/kopken')
@@ -206,14 +212,44 @@ class TelegramBotService
         return [
             'keyboard' => [
                 [['text' => '📱 Order OTP'], ['text' => '💰 Saldo']],
-                [['text' => '➕ Deposit'], ['text' => '📦 Status']],
-                [['text' => '📋 Riwayat'], ['text' => '🔄 Ulang OTP']],
-                [['text' => '🔀 Ganti Nomor'], ['text' => '❌ Batalkan']],
-                [['text' => '❓ Bantuan']],
+                [['text' => '➕ Deposit'], ['text' => '👤 Akun']],
+                [['text' => '📦 Status'], ['text' => '📋 Riwayat']],
+                [['text' => '🔄 Ulang OTP'], ['text' => '🔀 Ganti Nomor']],
+                [['text' => '❌ Batalkan'], ['text' => '❓ Bantuan']],
             ],
             'resize_keyboard' => true,
             'is_persistent' => true,
         ];
+    }
+
+    protected function sendAccountInfo(TelegramBot $bot, $member, int|string $chatId, array $from = []): void
+    {
+        $member->refresh();
+
+        $name = $member->telegram_name
+            ?: trim(($from['first_name'] ?? '').' '.($from['last_name'] ?? ''))
+            ?: '-';
+        $username = $member->telegram_username
+            ? '@'.ltrim($member->telegram_username, '@')
+            : (($from['username'] ?? null) ? '@'.$from['username'] : '-');
+        $telegramId = $member->telegram_chat_id ?: ($from['id'] ?? '-');
+        $joined = $member->created_at
+            ? $member->created_at->timezone(config('app.timezone'))->translatedFormat('d M Y, H:i')
+            : '-';
+        $status = $member->is_active ? 'Aktif' : 'Nonaktif';
+
+        $text = "<b>Informasi Akun</b>\n\n"
+            .'Nama: <b>'.e($name)."</b>\n"
+            .'Username: <b>'.e($username)."</b>\n"
+            .'Telegram ID: <code>'.e((string) $telegramId)."</code>\n"
+            .'Status: <b>'.e($status)."</b>\n"
+            .'Terdaftar: <b>'.e($joined)."</b>\n\n"
+            ."<b>Saldo</b>\n"
+            .'Total: <b>'.$member->formattedBalance()."</b>\n"
+            .'Tersedia: <b>'.$member->formattedAvailable()."</b>\n"
+            .'Ditahan: <b>Rp'.number_format($member->held_balance, 0, ',', '.').'</b>';
+
+        $this->sendMessage($bot, $chatId, $text, $this->mainKeyboard());
     }
 
     protected function sendBalance(TelegramBot $bot, $member, int|string $chatId): void
@@ -286,6 +322,7 @@ class TelegramBotService
             ."• Order OTP — minta nomor KOPKEN\n"
             ."• Saldo — cek saldo & hold\n"
             ."• Deposit — hubungi admin (manual)\n"
+            ."• Akun — nama, ID Telegram, status\n"
             ."• Status — pantau order berjalan\n"
             ."• Riwayat — 5 transaksi terakhir\n"
             ."• Ulang OTP — minta ulang kode (gratis)\n"
@@ -293,7 +330,7 @@ class TelegramBotService
             ."• Batalkan — batalkan & refund hold\n"
             ."• Bantuan — panduan ini\n\n"
             ."<b>Perintah teks</b>\n"
-            ."/otp · /saldo · /deposit · /status · /ulang · /ganti · /batal\n\n"
+            ."/otp · /saldo · /deposit · /akun · /status · /ulang · /ganti · /batal\n\n"
             .'Saldo ditahan saat order, dipotong saat OTP masuk, dan di-refund jika dibatalkan.';
     }
 
