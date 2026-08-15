@@ -638,9 +638,9 @@ class TelegramBotService
         $rows = [
             [['text' => '📱 Order OTP'], ['text' => '💰 Saldo']],
             [['text' => '➕ Deposit'], ['text' => '👤 Akun']],
-            [['text' => '📦 Status'], ['text' => '📋 Riwayat']],
             [['text' => '🔄 Ulang OTP'], ['text' => '🔀 Ganti Nomor']],
-            [['text' => '❌ Batalkan'], ['text' => '❓ Bantuan']],
+            [['text' => '❌ Batalkan'], ['text' => '📋 Riwayat']],
+            [['text' => '❓ Bantuan']],
         ];
 
         if ($this->currentBot && $this->currentFromId && $this->currentBot->isTelegramAdmin($this->currentFromId)) {
@@ -775,15 +775,13 @@ class TelegramBotService
             ."• Saldo — cek saldo & hold\n"
             ."• Deposit — hubungi admin (manual)\n"
             ."• Akun — nama, ID Telegram, status\n"
-            ."• Status — pantau order berjalan\n"
             ."• Riwayat — 5 transaksi terakhir\n"
-            ."• Cek OTP — refresh manual (opsional)\n"
             ."• Ulang OTP — minta ulang kode (gratis)\n"
             ."• Ganti Nomor — ganti nomor pending\n"
             ."• Batalkan — batalkan & kembalikan hold\n"
             ."• Bantuan — panduan ini\n\n"
             ."<b>Perintah teks</b>\n"
-            ."/otp · /saldo · /deposit · /akun · /status · /ulang · /ganti · /batal\n\n"
+            ."/otp · /saldo · /deposit · /akun · /ulang · /ganti · /batal\n\n"
             .'Saldo ditahan saat order. OTP masuk otomatis ke bubble order (status jadi SELESAI).';
     }
 
@@ -1103,11 +1101,10 @@ class TelegramBotService
         return [
             'inline_keyboard' => [
                 [
-                    ['text' => '🔎 Cek OTP', 'callback_data' => 'otp_status:'.$order->id],
                     ['text' => '🔀 Ganti Nomor', 'callback_data' => 'otp_change:'.$order->id],
+                    ['text' => '🔄 Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
                 ],
                 [
-                    ['text' => '🔄 Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
                     ['text' => '❌ Batalkan', 'callback_data' => 'otp_cancel:'.$order->id],
                 ],
             ],
