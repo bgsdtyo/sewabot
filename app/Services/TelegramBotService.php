@@ -15,6 +15,10 @@ use Illuminate\Validation\ValidationException;
 
 class TelegramBotService
 {
+    protected ?TelegramBot $currentBot = null;
+
+    protected ?string $currentFromId = null;
+
     public function activate(TelegramBot $bot): TelegramBot
     {
         $bot->syncWebhookUrl();
@@ -127,9 +131,24 @@ class TelegramBotService
         $otp = app(OtpOrderService::class);
         $member = $otp->findOrRegisterMember($bot, $from);
         $fromId = (string) ($from['id'] ?? $chatId);
+        $this->currentBot = $bot;
+        $this->currentFromId = $fromId;
 
         // Wizard admin (setelah klik tombol Cek / Add Deposit)
         if ($bot->isTelegramAdmin($fromId) && $this->handleAdminPendingInput($bot, $chatId, $text, $fromId)) {
+            return;
+        }
+
+        // Kembali ke menu user
+        if ($this->isButton($text, 'Menu User') || str_starts_with(strtolower($text), '/user')) {
+            $this->clearAdminPending($bot, $chatId);
+            $this->sendMessage(
+                $bot,
+                $chatId,
+                "<b>Menu User</b>\n\nSilakan pilih menu di bawah.",
+                $this->mainKeyboard()
+            );
+
             return;
         }
 
@@ -139,7 +158,8 @@ class TelegramBotService
                 $this->sendMessage(
                     $bot,
                     $chatId,
-                    "<b>Akses admin ditolak</b>\n\nTelegram ID kamu: <code>{$fromId}</code>\n\nDaftarkan ID ini di <b>Konfigurasi Bot → Admin Telegram ID</b> pada dashboard web."
+                    "<b>Akses admin ditolak</b>\n\nTelegram ID kamu: <code>{$fromId}</code>\n\nDaftarkan ID ini di <b>Konfigurasi Bot → Admin Telegram ID</b> pada dashboard web.",
+                    $this->mainKeyboard()
                 );
 
                 return;
@@ -297,10 +317,9 @@ class TelegramBotService
     {
         return [
             'keyboard' => [
-                [['text' => '📊 Rekap Hari Ini'], ['text' => '🛠 Menu Admin']],
-                [['text' => '🔍 Cek User'], ['text' => '➕ Add Deposit']],
-                [['text' => '📱 Order OTP'], ['text' => '💰 Saldo']],
-                [['text' => '👤 Akun'], ['text' => '❓ Bantuan']],
+                [['text' => '📊 Rekap Hari Ini'], ['text' => '🔍 Cek User']],
+                [['text' => '➕ Add Deposit'], ['text' => '🛠 Menu Admin']],
+                [['text' => '⬅️ Menu User']],
             ],
             'resize_keyboard' => true,
             'is_persistent' => true,
@@ -317,6 +336,9 @@ class TelegramBotService
                 [
                     ['text' => '🔍 Cek User', 'callback_data' => 'admin_cek'],
                     ['text' => '➕ Add Deposit', 'callback_data' => 'admin_adddeposit'],
+                ],
+                [
+                    ['text' => '⬅️ Menu User', 'callback_data' => 'admin_user_menu'],
                 ],
             ],
         ];
@@ -387,8 +409,13 @@ class TelegramBotService
             return false;
         }
 
-        // Jangan makan command admin lain
-        if ($this->isAdminCommand($text) || $this->isButton($text, 'Menu Admin') || $this->isButton($text, 'Rekap Hari Ini')) {
+        // Jangan makan command admin lain / pindah menu
+        if (
+            $this->isAdminCommand($text)
+            || $this->isButton($text, 'Menu Admin')
+            || $this->isButton($text, 'Rekap Hari Ini')
+            || $this->isButton($text, 'Menu User')
+        ) {
             $this->clearAdminPending($bot, $chatId);
 
             return false;
@@ -449,15 +476,16 @@ class TelegramBotService
     protected function sendAdminMenu(TelegramBot $bot, int|string $chatId): void
     {
         $text = "<b>Panel Admin Bot</b>\n\n"
-            ."Pilih tombol di bawah pesan ini:\n"
+            ."Mode admin aktif.\n\n"
             ."• Rekap Hari Ini\n"
             ."• Cek User\n"
             ."• Add Deposit\n\n"
-            ."Atau ketik manual:\n"
+            ."Kembali ke menu member: <b>⬅️ Menu User</b>\n\n"
+            ."Atau ketik:\n"
             ."<code>/cek 123456789</code>\n"
             .'<code>/adddeposit 123456789 50000</code>';
 
-        $this->sendMessage($bot, $chatId, $text, null, $this->adminInlineMenu());
+        $this->sendMessage($bot, $chatId, $text, $this->adminKeyboard());
     }
 
     protected function sendAdminDailyRecap(TelegramBot $bot, int|string $chatId): void
@@ -607,14 +635,20 @@ class TelegramBotService
 
     protected function mainKeyboard(): array
     {
+        $rows = [
+            [['text' => '📱 Order OTP'], ['text' => '💰 Saldo']],
+            [['text' => '➕ Deposit'], ['text' => '👤 Akun']],
+            [['text' => '📦 Status'], ['text' => '📋 Riwayat']],
+            [['text' => '🔄 Ulang OTP'], ['text' => '🔀 Ganti Nomor']],
+            [['text' => '❌ Batalkan'], ['text' => '❓ Bantuan']],
+        ];
+
+        if ($this->currentBot && $this->currentFromId && $this->currentBot->isTelegramAdmin($this->currentFromId)) {
+            $rows[] = [['text' => '🛠 Menu Admin']];
+        }
+
         return [
-            'keyboard' => [
-                [['text' => '📱 Order OTP'], ['text' => '💰 Saldo']],
-                [['text' => '➕ Deposit'], ['text' => '👤 Akun']],
-                [['text' => '📦 Status'], ['text' => '📋 Riwayat']],
-                [['text' => '🔄 Ulang OTP'], ['text' => '🔀 Ganti Nomor']],
-                [['text' => '❌ Batalkan'], ['text' => '❓ Bantuan']],
-            ],
+            'keyboard' => $rows,
             'resize_keyboard' => true,
             'is_persistent' => true,
         ];
@@ -929,6 +963,9 @@ class TelegramBotService
             return;
         }
 
+        $this->currentBot = $bot;
+        $this->currentFromId = $fromId;
+
         if ($data === 'deposit') {
             if ($messageId) {
                 $this->deleteMessage($bot, $chatId, $messageId);
@@ -940,7 +977,7 @@ class TelegramBotService
 
         if (str_starts_with($data, 'admin_')) {
             if (! $bot->isTelegramAdmin($fromId)) {
-                $this->sendMessage($bot, $chatId, 'Akses admin ditolak.');
+                $this->sendMessage($bot, $chatId, 'Akses admin ditolak.', $this->mainKeyboard());
 
                 return;
             }
@@ -965,6 +1002,11 @@ class TelegramBotService
                 $this->startAdminDepositPrompt($bot, $chatId);
 
                 return;
+            }
+
+            if ($data === 'admin_user_menu') {
+                $this->clearAdminPending($bot, $chatId);
+                $this->sendMessage($bot, $chatId, "<b>Menu User</b>\n\nSilakan pilih menu di bawah.", $this->mainKeyboard());
             }
         }
     }
