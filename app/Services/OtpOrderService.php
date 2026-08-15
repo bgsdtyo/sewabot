@@ -282,10 +282,33 @@ class OtpOrderService
     public function changeNumber(OtpOrder $order): OtpOrder
     {
         if ($order->status !== 'pending' || ! $order->provider_order_id) {
-            throw ValidationException::withMessages(['order' => 'Tidak bisa ganti nomor.']);
+            throw ValidationException::withMessages(['order' => 'Tidak bisa ganti nomor pada pesanan ini.']);
         }
 
-        $data = $this->provider->forBot($order->telegramBot)->changeNumber($order->provider_order_id);
+        $bot = $order->telegramBot;
+        if (! $bot) {
+            throw ValidationException::withMessages(['order' => 'Bot tidak ditemukan.']);
+        }
+
+        try {
+            $data = $this->provider->forBot($bot)->changeNumber($order->provider_order_id);
+        } catch (\Throwable $e) {
+            Log::warning('changeNumber API call failed, trying cancel + recreate fallback: '.$e->getMessage());
+
+            try {
+                $this->provider->forBot($bot)->cancelOrder($order->provider_order_id);
+            } catch (\Throwable $cancelErr) {
+                Log::warning('Fallback provider cancel failed: '.$cancelErr->getMessage());
+            }
+
+            $service = $order->otpService;
+            if (! $service) {
+                throw $e;
+            }
+
+            $newKey = (string) Str::uuid();
+            $data = $this->provider->forBot($bot)->createOrder($service->provider_service_id, $newKey);
+        }
 
         $order->update([
             'provider_order_id' => $data['id'] ?? $order->provider_order_id,
@@ -296,7 +319,7 @@ class OtpOrderService
             'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : $order->provider_expire_at,
         ]);
 
-        return $order->fresh();
+        return $order->fresh(['otpService', 'botMember', 'telegramBot']);
     }
 
     public function resend(OtpOrder $order): void

@@ -1088,11 +1088,24 @@ class TelegramBotService
             ->first();
 
         if (! $order) {
+            $recent = OtpOrder::query()
+                ->where('bot_member_id', $member->id)
+                ->when($orderId, fn ($q) => $q->whereKey($orderId))
+                ->latest()
+                ->first();
+
+            $msg = "Tidak ada order OTP yang sedang pending untuk ganti nomor.\n\n";
+            if ($recent && $recent->status === 'completed') {
+                $msg .= "Order sebelumnya sudah <b>SELESAI</b> (OTP sudah diterima).\nUntuk memesan nomor baru, silakan gunakan menu <b>📱 Order OTP</b>.";
+            } else {
+                $msg .= "Pilih <b>📱 Order OTP</b> untuk memesan nomor baru.";
+            }
+
             $this->replyOrSend(
                 $bot,
                 $chatId,
                 $editMessageId,
-                'Tidak ada order OTP yang sedang berjalan.',
+                $msg,
                 removeInlineKeyboard: true
             );
 
@@ -1103,12 +1116,14 @@ class TelegramBotService
 
         try {
             $order = app(OtpOrderService::class)->changeNumber($order);
+            app(OtpOrderWatcher::class)->start($order);
+
             $service = e($order->otpService?->name ?? 'OTP');
-            $text = "<b>Order {$service} — nomor diganti</b>\n\n".
+            $text = "<b>Order {$service} — Nomor Diganti</b>\n\n".
                 'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
                 'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
                 "Status: <b>PENDING</b>\n\n".
-                'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.';
+                'Nomor baru aktif. OTP masuk otomatis — bubble ini akan diupdate.';
 
             $newId = $this->replyOrSend(
                 $bot,
