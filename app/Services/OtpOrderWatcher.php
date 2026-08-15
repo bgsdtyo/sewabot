@@ -38,13 +38,23 @@ class OtpOrderWatcher
             try {
                 $order = OtpOrder::query()->find($orderId);
 
-                if (! $order || $order->status !== 'pending') {
+                if (! $order || in_array($order->status, ['cancelled', 'expired'], true)) {
                     return;
                 }
 
+                if ($order->provider_expire_at && $order->provider_expire_at->isPast()) {
+                    return;
+                }
+
+                $previousOtp = $order->otp_code;
                 $fresh = app(OtpOrderService::class)->refreshOrder($order);
 
-                if ($fresh->status !== 'pending') {
+                // If OTP arrived (either initial or resent)
+                if (filled($fresh->otp_code) && $previousOtp === null) {
+                    return;
+                }
+
+                if (in_array($fresh->status, ['cancelled', 'expired'], true)) {
                     return;
                 }
             } catch (\Throwable $e) {
@@ -58,7 +68,11 @@ class OtpOrderWatcher
 
         $order = OtpOrder::query()->find($orderId);
 
-        if (! $order || $order->status !== 'pending') {
+        if (! $order || in_array($order->status, ['cancelled', 'expired'], true)) {
+            return;
+        }
+
+        if (filled($order->otp_code)) {
             return;
         }
 

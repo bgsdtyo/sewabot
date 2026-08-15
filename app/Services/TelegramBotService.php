@@ -958,6 +958,14 @@ class TelegramBotService
             'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n\n".
             'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>';
 
+        $keyboard = [
+            'inline_keyboard' => [
+                [
+                    ['text' => '🔄 Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
+                ],
+            ],
+        ];
+
         $messageId = $this->orderMessageId($order);
 
         if ($messageId) {
@@ -966,7 +974,7 @@ class TelegramBotService
                 $member->telegram_chat_id,
                 $messageId,
                 $text,
-                null,
+                $keyboard,
                 true
             );
 
@@ -976,7 +984,7 @@ class TelegramBotService
         }
 
         // Fallback only if bubble hilang / belum tersimpan — tetap kirim OTP ke user.
-        $this->sendMessage($bot, $member->telegram_chat_id, $text);
+        $this->sendMessage($bot, $member->telegram_chat_id, $text, null, $keyboard);
     }
 
     protected function rememberOrderMessage(OtpOrder $order, ?int $messageId): void
@@ -1095,7 +1103,8 @@ class TelegramBotService
 
         try {
             $order = app(OtpOrderService::class)->changeNumber($order);
-            $text = "<b>Order KOPKEN — nomor diganti</b>\n\n".
+            $service = e($order->otpService?->name ?? 'OTP');
+            $text = "<b>Order {$service} — nomor diganti</b>\n\n".
                 'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
                 'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
                 "Status: <b>PENDING</b>\n\n".
@@ -1127,7 +1136,12 @@ class TelegramBotService
     {
         $order = OtpOrder::query()
             ->where('bot_member_id', $member->id)
-            ->where('status', 'pending')
+            ->whereIn('status', ['pending', 'completed'])
+            ->where(function ($q) {
+                $q->whereNull('provider_expire_at')
+                    ->orWhere('provider_expire_at', '>', now());
+            })
+            ->where('created_at', '>=', now()->subMinutes(25))
             ->when($orderId, fn ($q) => $q->whereKey($orderId))
             ->latest()
             ->first();
@@ -1137,7 +1151,7 @@ class TelegramBotService
                 $bot,
                 $chatId,
                 $editMessageId,
-                'Tidak ada order OTP yang sedang berjalan.',
+                'Tidak ada order OTP yang sedang berjalan atau aktif.',
                 removeInlineKeyboard: true
             );
 
@@ -1148,10 +1162,20 @@ class TelegramBotService
 
         try {
             app(OtpOrderService::class)->resend($order);
-            $text = "<b>Order KOPKEN berhasil dibuat</b>\n\n".
+
+            // Clear otp fields so newly incoming OTP triggers notification
+            $order->update([
+                'otp_code' => null,
+                'full_text' => null,
+            ]);
+
+            // Start watcher to poll for the new OTP
+            app(OtpOrderWatcher::class)->start($order);
+
+            $service = e($order->otpService?->name ?? 'OTP');
+            $text = "<b>Order {$service} — Ulang OTP</b>\n\n".
                 'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
-                'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
-                "Status: <b>PENDING</b>\n\n".
+                "Status: <b>MENUNGGU OTP BARU</b>\n\n".
                 'Permintaan ulang OTP dikirim (gratis). Menunggu OTP masuk otomatis…';
 
             $newId = $this->replyOrSend(
@@ -1159,7 +1183,14 @@ class TelegramBotService
                 $chatId,
                 $messageId,
                 $text,
-                inlineKeyboard: $this->orderActionKeyboard($order)
+                inlineKeyboard: [
+                    'inline_keyboard' => [
+                        [
+                            ['text' => '🔄 Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
+                            ['text' => '🔎 Cek OTP', 'callback_data' => 'otp_status:'.$order->id],
+                        ],
+                    ],
+                ]
             );
 
             if ($newId) {
@@ -1180,7 +1211,12 @@ class TelegramBotService
     {
         $order = OtpOrder::query()
             ->where('bot_member_id', $member->id)
-            ->where('status', 'pending')
+            ->whereIn('status', ['pending', 'completed'])
+            ->where(function ($q) {
+                $q->whereNull('provider_expire_at')
+                    ->orWhere('provider_expire_at', '>', now());
+            })
+            ->where('created_at', '>=', now()->subMinutes(25))
             ->when($orderId, fn ($q) => $q->whereKey($orderId))
             ->latest()
             ->first();
@@ -1200,11 +1236,38 @@ class TelegramBotService
         $messageId = $editMessageId ?? $this->orderMessageId($order);
         $order = app(OtpOrderService::class)->refreshOrder($order);
 
-        if ($order->status === 'completed') {
+        $service = e($order->otpService?->name ?? 'OTP');
+
+        if ($order->status === 'completed' && filled($order->otp_code)) {
+            $text = "<b>Order {$service} — OTP MASUK</b>\n\n".
+                'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
+                'OTP: <b>'.e((string) $order->otp_code)."</b>\n".
+                "Status: <b>SELESAI</b>\n".
+                'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n\n".
+                'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>';
+
+            $newId = $this->replyOrSend(
+                $bot,
+                $chatId,
+                $messageId,
+                $text,
+                inlineKeyboard: [
+                    'inline_keyboard' => [
+                        [
+                            ['text' => '🔄 Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
+                        ],
+                    ],
+                ]
+            );
+
+            if ($newId) {
+                $this->rememberOrderMessage($order, $newId);
+            }
+
             return;
         }
 
-        $text = "<b>Order KOPKEN berhasil dibuat</b>\n\n".
+        $text = "<b>Order {$service}</b>\n\n".
             'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
             'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
             'Status: <b>'.e(strtoupper($order->status))."</b>\n".

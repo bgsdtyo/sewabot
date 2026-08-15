@@ -165,10 +165,12 @@ class OtpOrderService
     public function applyProviderStatus(OtpOrder $order, array $data): OtpOrder
     {
         $status = strtolower((string) ($data['status'] ?? ''));
+        $previousOtp = $order->otp_code;
+        $newOtp = $data['otp'] ?? $order->otp_code;
 
         $order->update([
             'phone_number' => $data['phone_number'] ?? $order->phone_number,
-            'otp_code' => $data['otp'] ?? $order->otp_code,
+            'otp_code' => $newOtp,
             'full_text' => $data['full_text'] ?? $order->full_text,
             'raw_payload' => $data,
             'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : $order->provider_expire_at,
@@ -176,6 +178,16 @@ class OtpOrderService
 
         if ($status === 'completed' && $order->status === 'pending') {
             return $this->completeOrder($order->fresh());
+        }
+
+        // If order was already completed, but a new/updated OTP code arrived after resend
+        if ($order->status === 'completed' && filled($newOtp) && ($previousOtp === null || $newOtp !== $previousOtp)) {
+            $member = $order->botMember;
+            $bot = $order->telegramBot;
+
+            if ($bot && $member) {
+                $this->telegram->notifyOrderCompleted($bot, $member, $order->fresh());
+            }
         }
 
         if (in_array($status, ['cancelled', 'canceled', 'expired'], true) && $order->status === 'pending') {
@@ -289,11 +301,21 @@ class OtpOrderService
 
     public function resend(OtpOrder $order): void
     {
-        if ($order->status !== 'pending' || ! $order->provider_order_id) {
-            throw ValidationException::withMessages(['order' => 'Tidak bisa minta ulang OTP.']);
+        $isPending = $order->status === 'pending';
+        $isCompletedAndActive = $order->status === 'completed'
+            && ($order->provider_expire_at === null || $order->provider_expire_at->isFuture())
+            && $order->created_at->isAfter(now()->subMinutes(25));
+
+        if ((! $isPending && ! $isCompletedAndActive) || ! $order->provider_order_id) {
+            throw ValidationException::withMessages(['order' => 'Order sudah kedaluwarsa atau tidak bisa minta ulang OTP.']);
         }
 
-        $this->provider->forBot($order->telegramBot)->resendOtp($order->provider_order_id);
+        $bot = $order->telegramBot;
+        if (! $bot) {
+            throw ValidationException::withMessages(['order' => 'Bot tidak ditemukan.']);
+        }
+
+        $this->provider->forBot($bot)->resendOtp($order->provider_order_id);
     }
 
     public function ensureBotApiKey(TelegramBot $bot): void
