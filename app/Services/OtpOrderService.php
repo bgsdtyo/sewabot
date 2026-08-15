@@ -199,9 +199,25 @@ class OtpOrderService
                         throw $e;
                     }
 
+                    $providerOrderId = $data['id'] ?? null;
+                    $phone = $data['phone_number'] ?? null;
+
+                    // Quick verification check (gives provider 1.2s to complete its automated WhatsApp health check)
+                    if ($providerOrderId) {
+                        try {
+                            usleep(1200000); // 1.2s
+                            $check = $this->provider->forBot($bot)->getOrder($providerOrderId);
+                            if (! empty($check)) {
+                                $data = array_merge($data, $check);
+                            }
+                        } catch (\Throwable $chkErr) {
+                            // ignore check error, proceed with initial data
+                        }
+                    }
+
                     $initStatus = strtolower((string) ($data['status'] ?? 'pending'));
                     $cancelReason = $data['cancel_reason'] ?? $data['reason'] ?? $data['message'] ?? null;
-                    $phone = $data['phone_number'] ?? null;
+                    $phone = $data['phone_number'] ?? $phone;
                     $phoneFormatted = $phone ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : '';
 
                     $isInitCancelled = in_array($initStatus, ['cancelled', 'canceled', 'banned', 'blocked', 'rejected', 'failed'], true)
@@ -211,7 +227,7 @@ class OtpOrderService
                     if ($isInitCancelled) {
                         $this->wallet->releaseHold($member->fresh(), $sellPrice, OtpOrder::class, $item->id, 'Refund: nomor dibatalkan/banned');
                         $item->update([
-                            'provider_order_id' => $data['id'] ?? null,
+                            'provider_order_id' => $providerOrderId,
                             'phone_number' => $phone,
                             'status' => 'cancelled',
                             'wallet_status' => 'refunded',
@@ -224,7 +240,7 @@ class OtpOrderService
                     }
 
                     $item->update([
-                        'provider_order_id' => $data['id'] ?? null,
+                        'provider_order_id' => $providerOrderId,
                         'phone_number' => $phone,
                         'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : null,
                         'raw_payload' => $data,
@@ -447,9 +463,39 @@ class OtpOrderService
             $data = $this->provider->forBot($bot)->createOrder($service->provider_service_id, $newKey);
         }
 
+        $newOrderId = $data['id'] ?? $order->provider_order_id;
+        $phone = $data['phone_number'] ?? null;
+
+        if ($newOrderId) {
+            try {
+                usleep(1200000); // 1.2s
+                $check = $this->provider->forBot($bot)->getOrder($newOrderId);
+                if (! empty($check)) {
+                    $data = array_merge($data, $check);
+                }
+            } catch (\Throwable $chkErr) {
+                // ignore
+            }
+        }
+
+        $initStatus = strtolower((string) ($data['status'] ?? 'pending'));
+        $cancelReason = $data['cancel_reason'] ?? $data['reason'] ?? $data['message'] ?? null;
+        $phone = $data['phone_number'] ?? $phone;
+        $phoneFormatted = $phone ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : '';
+
+        $isInitCancelled = in_array($initStatus, ['cancelled', 'canceled', 'banned', 'blocked', 'rejected', 'failed'], true)
+            || stripos((string) $cancelReason, 'banned') !== false
+            || stripos((string) $cancelReason, 'terblokir') !== false;
+
+        if ($isInitCancelled) {
+            $this->refundLocal($order, 'banned', $cancelReason);
+            $targetPhone = $phoneFormatted !== '' ? " {$phoneFormatted}" : '';
+            throw new \RuntimeException("Nomor WhatsApp{$targetPhone} terblokir/banned oleh WhatsApp, jadi tidak diberikan kepada Anda.\nSaldo yang tertahan telah dikembalikan.");
+        }
+
         $order->update([
-            'provider_order_id' => $data['id'] ?? $order->provider_order_id,
-            'phone_number' => $data['phone_number'] ?? null,
+            'provider_order_id' => $newOrderId,
+            'phone_number' => $phone,
             'otp_code' => null,
             'full_text' => null,
             'raw_payload' => $data,
