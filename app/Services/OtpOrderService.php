@@ -211,13 +211,9 @@ class OtpOrderService
 
             $member = $order->botMember;
             $bot = $order->telegramBot;
-            $msg = "OTP {$order->otpService?->name} MASUK\n"
-                ."Nomor: {$order->phone_number}\n"
-                ."OTP: {$order->otp_code}\n"
-                .'Saldo: '.$member->fresh()->formattedAvailable();
 
             if ($bot && $member) {
-                $this->telegram->sendMessage($bot, $member->telegram_chat_id, $msg);
+                $this->telegram->notifyOrderCompleted($bot, $member, $order->fresh(['otpService']));
             }
 
             return $order->fresh();

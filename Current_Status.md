@@ -1,6 +1,8 @@
 # Current Status — SewaBot MVP
 
 ## Updated
+2026-08-15 — Cek OTP: edit bubble only (no spam fallback); OTP masuk edit bubble
+2026-08-15 — OTP masuk: edit bubble order (status SELESAI), simpan telegram_message_id
 2026-08-15 — Ya/Batal konfirmasi OTP: edit bubble (bukan kirim baru)
 2026-08-15 — Rapihkan teks cancel bot (newline + wording)
 2026-08-15 — QRIS dinamis (verssache/qris-dinamis port)

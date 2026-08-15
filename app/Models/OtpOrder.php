@@ -24,6 +24,7 @@ class OtpOrder extends Model
         'completed_at',
         'cancelled_at',
         'raw_payload',
+        'telegram_message_id',
     ];
 
     protected function casts(): array
