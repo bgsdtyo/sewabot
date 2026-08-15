@@ -31,7 +31,7 @@
             </div>
         @endif
 
-        <section class="grid grid-cols-2 gap-4">
+        <section class="grid grid-cols-2 gap-4 sm:grid-cols-3">
             <div class="rounded-2xl border border-brand-200 bg-white px-4 py-5">
                 <p class="text-xs text-brand-500">API Key</p>
                 <p class="mt-2 text-base font-extrabold {{ filled($telegramBot->otp_api_key) ? 'text-emerald-700' : 'text-amber-700' }}">
@@ -44,6 +44,13 @@
                     {{ $kopken ? $telegramBot->formattedSellPriceFor($kopken->provider_price) : '-' }}
                 </p>
                 <p class="mt-1 text-xs text-brand-500">Markup {{ $telegramBot->markupLabel() }}</p>
+            </div>
+            <div class="col-span-2 rounded-2xl border border-brand-200 bg-white px-4 py-5 sm:col-span-1">
+                <p class="text-xs text-brand-500">Admin Bot</p>
+                <p class="mt-2 text-base font-extrabold {{ count($telegramBot->adminTelegramIdList()) ? 'text-emerald-700' : 'text-amber-700' }}">
+                    {{ count($telegramBot->adminTelegramIdList()) ?: 0 }} ID
+                </p>
+                <p class="mt-1 text-xs text-brand-500">Akses /admin</p>
             </div>
         </section>
 
@@ -183,6 +190,15 @@
                             <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
                         @enderror
                     </div>
+                </div>
+
+                <div class="border-t border-brand-100 pt-6">
+                    <h3 class="text-sm font-extrabold text-brand-900">Akses Admin Bot (/admin)</h3>
+                    <p class="mt-1 text-sm text-brand-500">
+                        Hanya Telegram ID yang terdaftar di sini yang boleh pakai <code class="text-xs">/admin</code>,
+                        <code class="text-xs">/rekap</code>, <code class="text-xs">/cek</code>, dan <code class="text-xs">/adddeposit</code>.
+                        Member lain akan ditolak.
+                    </p>
 
                     <div class="mt-4">
                         <label class="mb-2 block text-sm font-semibold text-brand-900">Admin Telegram ID</label>
@@ -191,9 +207,18 @@
                                placeholder="123456789, 987654321"
                                class="w-full rounded-xl border-brand-200 focus:border-brand-900 focus:ring-brand-900">
                         <p class="mt-2 text-xs text-brand-500">
-                            ID numerik admin bot (bisa lebih dari satu, pisah koma). Cek lewat tombol Akun / perintah /akun.
-                            Dipakai untuk /admin, /cek, /adddeposit, rekap.
+                            ID numerik saja (bukan @username). Bisa lebih dari satu, pisahkan koma.
+                            Cara dapatkan ID: di bot ketik tombol <strong>Akun</strong> → salin Telegram ID.
                         </p>
+                        @if ($telegramBot->adminTelegramIdList() !== [])
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                @foreach ($telegramBot->adminTelegramIdList() as $adminId)
+                                    <span class="rounded-lg bg-brand-50 px-2.5 py-1 font-mono text-xs font-semibold text-brand-900">{{ $adminId }}</span>
+                                @endforeach
+                            </div>
+                        @else
+                            <p class="mt-3 text-xs font-medium text-amber-700">Belum ada admin. /admin tidak bisa dipakai siapa pun sampai ID diisi.</p>
+                        @endif
                         @error('admin_telegram_ids')
                             <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
                         @enderror

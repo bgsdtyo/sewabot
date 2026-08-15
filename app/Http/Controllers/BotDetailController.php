@@ -34,8 +34,17 @@ class BotDetailController extends Controller
             'deposit_whatsapp' => ['nullable', 'string', 'max:100'],
             'deposit_telegram' => ['nullable', 'string', 'max:100'],
             'deposit_note' => ['nullable', 'string', 'max:1000'],
-            'admin_telegram_ids' => ['nullable', 'string', 'max:500'],
+            'admin_telegram_ids' => ['nullable', 'string', 'max:500', 'regex:/^[\d\s,;]*$/'],
+        ], [
+            'admin_telegram_ids.regex' => 'Admin Telegram ID hanya boleh angka, dipisah koma. Contoh: 123456789, 987654321',
         ]);
+
+        $adminIds = collect(preg_split('/[\s,;]+/', trim((string) ($data['admin_telegram_ids'] ?? ''))) ?: [])
+            ->map(fn ($id) => preg_replace('/\D+/', '', (string) $id) ?: '')
+            ->filter()
+            ->unique()
+            ->values()
+            ->implode(', ');
 
         $updates = [
             'otp_markup_type' => $data['otp_markup_type'],
@@ -43,7 +52,7 @@ class BotDetailController extends Controller
             'deposit_whatsapp' => filled($data['deposit_whatsapp'] ?? null) ? trim($data['deposit_whatsapp']) : null,
             'deposit_telegram' => filled($data['deposit_telegram'] ?? null) ? trim($data['deposit_telegram']) : null,
             'deposit_note' => filled($data['deposit_note'] ?? null) ? trim($data['deposit_note']) : null,
-            'admin_telegram_ids' => filled($data['admin_telegram_ids'] ?? null) ? trim($data['admin_telegram_ids']) : null,
+            'admin_telegram_ids' => $adminIds !== '' ? $adminIds : null,
         ];
 
         if ($request->boolean('clear_api_key')) {
