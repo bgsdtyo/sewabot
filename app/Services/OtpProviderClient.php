@@ -136,6 +136,27 @@ class OtpProviderClient
         return $response->json('data') ?? [];
     }
 
+    /**
+     * GET /balance — saldo pusat akun provider (API key bot).
+     *
+     * @return array{balance: int|float, currency: string}
+     */
+    public function getBalance(): array
+    {
+        $response = $this->client()->get('/balance');
+
+        if (! $response->successful()) {
+            $this->throwFromResponse($response, 'Gagal cek saldo pusat');
+        }
+
+        $data = $response->json('data') ?? [];
+
+        return [
+            'balance' => $data['balance'] ?? 0,
+            'currency' => (string) ($data['currency'] ?? 'IDR'),
+        ];
+    }
+
     protected function throwFromResponse($response, string $fallback): void
     {
         $body = $response->json();

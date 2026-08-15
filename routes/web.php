@@ -21,6 +21,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/bots/{telegramBot}', [BotDetailController::class, 'show'])->name('bots.show');
     Route::put('/bots/{telegramBot}/settings', [BotDetailController::class, 'updateSettings'])->name('bots.settings');
     Route::post('/bots/{telegramBot}/sync-services', [BotDetailController::class, 'syncServices'])->name('bots.sync-services');
+    Route::post('/bots/{telegramBot}/provider-balance', [BotDetailController::class, 'checkProviderBalance'])->name('bots.provider-balance');
     Route::post('/bots/{telegramBot}/members/{member}/topup', [BotDetailController::class, 'topup'])->name('bots.members.topup');
 
     Route::get('/checkout/{product}/select-bot', [CheckoutController::class, 'selectBot'])->name('checkout.select-bot');

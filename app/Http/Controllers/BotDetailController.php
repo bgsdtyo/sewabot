@@ -6,6 +6,7 @@ use App\Models\BotMember;
 use App\Models\OtpService;
 use App\Models\TelegramBot;
 use App\Services\OtpOrderService;
+use App\Services\OtpProviderClient;
 use App\Services\WalletService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -91,6 +92,31 @@ class BotDetailController extends Controller
             return back()->with('success', "Sync KOPKEN berhasil ({$count} layanan) memakai API key bot ini.");
         } catch (\Throwable $e) {
             return back()->withErrors(['otp_api_key' => $e->getMessage()]);
+        }
+    }
+
+    public function checkProviderBalance(TelegramBot $telegramBot, OtpProviderClient $client): RedirectResponse
+    {
+        $this->authorizeOwner($telegramBot);
+
+        try {
+            $data = $client->forBot($telegramBot)->getBalance();
+            $balance = (int) ($data['balance'] ?? 0);
+            $currency = (string) ($data['currency'] ?? 'IDR');
+
+            return redirect()
+                ->route('bots.show', $telegramBot)
+                ->with('provider_balance', [
+                    'balance' => $balance,
+                    'currency' => $currency,
+                    'formatted' => 'Rp'.number_format($balance, 0, ',', '.'),
+                    'checked_at' => now()->timezone(config('app.timezone'))->format('d M Y H:i'),
+                ])
+                ->with('success', 'Saldo pusat: Rp'.number_format($balance, 0, ',', '.').' '.$currency);
+        } catch (\Throwable $e) {
+            return redirect()
+                ->route('bots.show', $telegramBot)
+                ->withErrors(['provider_balance' => $e->getMessage()]);
         }
     }
 

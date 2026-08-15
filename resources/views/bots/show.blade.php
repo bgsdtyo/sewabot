@@ -31,7 +31,7 @@
             </div>
         @endif
 
-        <section class="grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <section class="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div class="rounded-2xl border border-brand-200 bg-white px-4 py-5">
                 <p class="text-xs text-brand-500">API Key</p>
                 <p class="mt-2 text-base font-extrabold {{ filled($telegramBot->otp_api_key) ? 'text-emerald-700' : 'text-amber-700' }}">
@@ -45,13 +45,51 @@
                 </p>
                 <p class="mt-1 text-xs text-brand-500">Markup {{ $telegramBot->markupLabel() }}</p>
             </div>
-            <div class="col-span-2 rounded-2xl border border-brand-200 bg-white px-4 py-5 sm:col-span-1">
+            <div class="rounded-2xl border border-brand-200 bg-white px-4 py-5">
+                <p class="text-xs text-brand-500">Saldo Pusat API</p>
+                @if (session('provider_balance'))
+                    <p class="mt-2 text-base font-extrabold text-emerald-700">{{ session('provider_balance.formatted') }}</p>
+                    <p class="mt-1 text-xs text-brand-500">{{ session('provider_balance.checked_at') }}</p>
+                @else
+                    <p class="mt-2 text-base font-extrabold text-brand-500">—</p>
+                    <p class="mt-1 text-xs text-brand-500">Belum dicek</p>
+                @endif
+            </div>
+            <div class="rounded-2xl border border-brand-200 bg-white px-4 py-5">
                 <p class="text-xs text-brand-500">Admin Bot</p>
                 <p class="mt-2 text-base font-extrabold {{ count($telegramBot->adminTelegramIdList()) ? 'text-emerald-700' : 'text-amber-700' }}">
                     {{ count($telegramBot->adminTelegramIdList()) ?: 0 }} ID
                 </p>
                 <p class="mt-1 text-xs text-brand-500">Akses /admin</p>
             </div>
+        </section>
+
+        @error('provider_balance')
+            <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {{ $message }}
+            </div>
+        @enderror
+
+        <section class="rounded-2xl border border-brand-200 bg-white p-5 sm:p-6">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h2 class="text-lg font-extrabold text-brand-900">Saldo Pusat Provider</h2>
+                    <p class="mt-1 text-sm text-brand-500">
+                        Cek saldo akun API (<code class="text-xs">GET /balance</code>) memakai API key bot ini.
+                    </p>
+                </div>
+                <form method="POST" action="{{ route('bots.provider-balance', $telegramBot) }}">
+                    @csrf
+                    <button type="submit"
+                            class="w-full rounded-xl bg-brand-900 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                            @disabled(! filled($telegramBot->otp_api_key))>
+                        Cek Saldo Pusat
+                    </button>
+                </form>
+            </div>
+            @if (! filled($telegramBot->otp_api_key))
+                <p class="mt-3 text-sm text-amber-700">Isi & simpan API Key dulu sebelum cek saldo.</p>
+            @endif
         </section>
 
         <section>
