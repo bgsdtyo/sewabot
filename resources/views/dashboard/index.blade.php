@@ -109,7 +109,8 @@
         </section>
 
         @if ($bot)
-            <section x-data="{
+            <div x-data="{
+                activeTab: '{{ request()->has('otp_page') ? 'otp' : 'members' }}',
                 openTopup: false,
                 memberId: null,
                 memberName: '',
@@ -140,15 +141,55 @@
                         this.$refs.amountInput?.focus();
                     });
                 }
-            }">
-                <div class="flex items-end justify-between gap-4">
+            }" class="space-y-6">
+
+                {{-- Tabs Header Bar --}}
+                <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-brand-200 pb-4">
                     <div>
-                        <h2 class="text-lg font-extrabold text-brand-900">Member & Saldo</h2>
-                        <p class="mt-1 text-sm text-brand-500">Topup saldo member untuk transaksi OTP.</p>
+                        <h2 class="text-xl font-extrabold text-brand-900" x-text="activeTab === 'members' ? 'Member & Saldo' : 'Riwayat Transaksi OTP'"></h2>
+                        <p class="mt-1 text-sm text-brand-500" x-text="activeTab === 'members' ? 'Kelola saldo & topup member bot Telegram Anda.' : 'Pantau riwayat pembelian nomor dan kode OTP member.'"></p>
+                    </div>
+
+                    {{-- Tab Switcher Pills --}}
+                    <div class="inline-flex rounded-2xl bg-brand-100 p-1.5 shadow-inner">
+                        <button type="button"
+                                @click="activeTab = 'members'"
+                                :class="activeTab === 'members' ? 'bg-brand-900 text-white shadow-sm' : 'text-brand-600 hover:text-brand-900 hover:bg-white/60'"
+                                class="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition active:scale-95">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                            </svg>
+                            <span>Member & Saldo</span>
+                            @if ($members && $members->total() > 0)
+                                <span :class="activeTab === 'members' ? 'bg-brand-700 text-white' : 'bg-brand-200 text-brand-700'" class="rounded-full px-2 py-0.5 text-[10px] font-extrabold">
+                                    {{ $members->total() }}
+                                </span>
+                            @endif
+                        </button>
+
+                        <button type="button"
+                                @click="activeTab = 'otp'"
+                                :class="activeTab === 'otp' ? 'bg-brand-900 text-white shadow-sm' : 'text-brand-600 hover:text-brand-900 hover:bg-white/60'"
+                                class="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition active:scale-95">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+                            </svg>
+                            <span>Riwayat OTP</span>
+                            @if ($otpOrders && $otpOrders->total() > 0)
+                                <span :class="activeTab === 'otp' ? 'bg-brand-700 text-white' : 'bg-brand-200 text-brand-700'" class="rounded-full px-2 py-0.5 text-[10px] font-extrabold">
+                                    {{ $otpOrders->total() }}
+                                </span>
+                            @endif
+                        </button>
                     </div>
                 </div>
 
-                <div class="mt-6 space-y-4">
+                {{-- Tab 1: Member & Saldo --}}
+                <div x-show="activeTab === 'members'"
+                     x-transition:enter="transition ease-out duration-150"
+                     x-transition:enter-start="opacity-0 translate-y-1"
+                     x-transition:enter-end="opacity-100 translate-y-0"
+                     class="space-y-4">
                     @forelse ($members as $member)
                         <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-soft transition hover:border-brand-300">
                             <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -194,11 +235,64 @@
                             Belum ada member. Ajak user membuka bot Telegram dan ketik <b>/start</b>.
                         </div>
                     @endforelse
+
+                    @if ($members->hasPages())
+                        <div class="mt-6">{{ $members->withQueryString()->links() }}</div>
+                    @endif
                 </div>
 
-                @if ($members->hasPages())
-                    <div class="mt-6">{{ $members->withQueryString()->links() }}</div>
-                @endif
+                {{-- Tab 2: Riwayat OTP --}}
+                <div x-show="activeTab === 'otp'"
+                     x-transition:enter="transition ease-out duration-150"
+                     x-transition:enter-start="opacity-0 translate-y-1"
+                     x-transition:enter-end="opacity-100 translate-y-0"
+                     class="space-y-3">
+                    @forelse ($otpOrders as $order)
+                        <div class="rounded-2xl border border-brand-200 bg-white px-5 py-4 shadow-soft transition hover:border-brand-300">
+                            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                    <p class="font-semibold text-brand-900">{{ $order->otpService?->name ?? 'OTP' }}</p>
+                                    <p class="mt-1 text-sm text-brand-500">
+                                        {{ $order->botMember?->displayName() }}
+                                        · {{ $order->created_at->timezone(config('app.timezone', 'Asia/Jakarta'))->format('d M Y, H:i') }}
+                                    </p>
+                                </div>
+                                <p @class([
+                                    'text-xs font-bold uppercase tracking-wide',
+                                    'text-amber-700' => $order->status === 'pending',
+                                    'text-emerald-700' => $order->status === 'completed',
+                                    'text-red-600' => in_array($order->status, ['cancelled', 'expired']),
+                                ])>{{ $order->status }}</p>
+                            </div>
+                            <div class="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                                <div>
+                                    <p class="text-xs text-brand-500">Nomor</p>
+                                    <p class="mt-1 font-mono text-xs font-medium">{{ $order->phone_number ?: '-' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-brand-500">OTP</p>
+                                    <p class="mt-1 font-mono font-semibold">{{ $order->otp_code ?: '-' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-brand-500">Harga</p>
+                                    <p class="mt-1 font-medium">Rp{{ number_format($order->sell_price, 0, ',', '.') }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-brand-500">Wallet</p>
+                                    <p class="mt-1 font-medium">{{ $order->wallet_status }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    @empty
+                        <div class="rounded-2xl border border-dashed border-brand-200 px-5 py-10 text-center text-sm text-brand-500">
+                            Belum ada order OTP.
+                        </div>
+                    @endforelse
+
+                    @if ($otpOrders->hasPages())
+                        <div class="mt-6">{{ $otpOrders->withQueryString()->links() }}</div>
+                    @endif
+                </div>
 
                 {{-- Modal Topup Pop-up --}}
                 <div x-cloak x-show="openTopup"
@@ -326,58 +420,7 @@
                         </form>
                     </div>
                 </div>
-            </section>
-
-            <section>
-                <h2 class="text-lg font-extrabold text-brand-900">Riwayat OTP</h2>
-                <div class="mt-6 space-y-3">
-                    @forelse ($otpOrders as $order)
-                        <div class="rounded-2xl border border-brand-200 bg-white px-5 py-4">
-                            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                    <p class="font-semibold text-brand-900">{{ $order->otpService?->name ?? 'OTP' }}</p>
-                                    <p class="mt-1 text-sm text-brand-500">
-                                        {{ $order->botMember?->displayName() }}
-                                        · {{ $order->created_at->timezone(config('app.timezone', 'Asia/Jakarta'))->format('d M Y, H:i') }}
-                                    </p>
-                                </div>
-                                <p @class([
-                                    'text-xs font-bold uppercase tracking-wide',
-                                    'text-amber-700' => $order->status === 'pending',
-                                    'text-emerald-700' => $order->status === 'completed',
-                                    'text-red-600' => in_array($order->status, ['cancelled', 'expired']),
-                                ])>{{ $order->status }}</p>
-                            </div>
-                            <div class="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-                                <div>
-                                    <p class="text-xs text-brand-500">Nomor</p>
-                                    <p class="mt-1 font-mono text-xs font-medium">{{ $order->phone_number ?: '-' }}</p>
-                                </div>
-                                <div>
-                                    <p class="text-xs text-brand-500">OTP</p>
-                                    <p class="mt-1 font-mono font-semibold">{{ $order->otp_code ?: '-' }}</p>
-                                </div>
-                                <div>
-                                    <p class="text-xs text-brand-500">Harga</p>
-                                    <p class="mt-1 font-medium">Rp{{ number_format($order->sell_price, 0, ',', '.') }}</p>
-                                </div>
-                                <div>
-                                    <p class="text-xs text-brand-500">Wallet</p>
-                                    <p class="mt-1 font-medium">{{ $order->wallet_status }}</p>
-                                </div>
-                            </div>
-                        </div>
-                    @empty
-                        <div class="rounded-2xl border border-dashed border-brand-200 px-5 py-10 text-center text-sm text-brand-500">
-                            Belum ada order OTP.
-                        </div>
-                    @endforelse
-                </div>
-
-                @if ($otpOrders->hasPages())
-                    <div class="mt-6">{{ $otpOrders->withQueryString()->links() }}</div>
-                @endif
-            </section>
+            </div>
         @endif
     </div>
 </x-app-layout>
