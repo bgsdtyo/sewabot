@@ -199,9 +199,33 @@ class OtpOrderService
                         throw $e;
                     }
 
+                    $initStatus = strtolower((string) ($data['status'] ?? 'pending'));
+                    $cancelReason = $data['cancel_reason'] ?? $data['reason'] ?? $data['message'] ?? null;
+                    $phone = $data['phone_number'] ?? null;
+                    $phoneFormatted = $phone ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : '';
+
+                    $isInitCancelled = in_array($initStatus, ['cancelled', 'canceled', 'banned', 'blocked', 'rejected', 'failed'], true)
+                        || stripos((string) $cancelReason, 'banned') !== false
+                        || stripos((string) $cancelReason, 'terblokir') !== false;
+
+                    if ($isInitCancelled) {
+                        $this->wallet->releaseHold($member->fresh(), $sellPrice, OtpOrder::class, $item->id, 'Refund: nomor dibatalkan/banned');
+                        $item->update([
+                            'provider_order_id' => $data['id'] ?? null,
+                            'phone_number' => $phone,
+                            'status' => 'cancelled',
+                            'wallet_status' => 'refunded',
+                            'cancelled_at' => now(),
+                            'raw_payload' => $data,
+                        ]);
+
+                        $targetPhone = $phoneFormatted !== '' ? " {$phoneFormatted}" : '';
+                        throw new \RuntimeException("Nomor WhatsApp{$targetPhone} terblokir/banned oleh WhatsApp, jadi tidak diberikan kepada Anda.\nSaldo yang tertahan telah dikembalikan.");
+                    }
+
                     $item->update([
                         'provider_order_id' => $data['id'] ?? null,
-                        'phone_number' => $data['phone_number'] ?? null,
+                        'phone_number' => $phone,
                         'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : null,
                         'raw_payload' => $data,
                     ]);

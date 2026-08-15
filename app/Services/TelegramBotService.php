@@ -1106,6 +1106,25 @@ class TelegramBotService
                 $errMessage = 'Server pemesanan nomor sedang sibuk (koneksi timeout). Silakan coba pesan kembali.';
             }
 
+            if (stripos($errMessage, 'terblokir') !== false || stripos($errMessage, 'banned') !== false) {
+                $text = "❌ <b>Pesanan Dibatalkan</b>\n\n"
+                    ."{$errMessage}";
+
+                $this->replyOrSend(
+                    $bot,
+                    $chatId,
+                    $previewMessageId,
+                    $text,
+                    inlineKeyboard: [
+                        'inline_keyboard' => [
+                            [['text' => '📱 Pesan nomor baru', 'callback_data' => 'otp_reorder:'.$service->id]],
+                        ],
+                    ]
+                );
+
+                return;
+            }
+
             $this->replyOrSend(
                 $bot,
                 $chatId,
@@ -1393,21 +1412,17 @@ class TelegramBotService
         ?string $customReason = null
     ): void {
         $phone = $this->formatPhoneNumber($order->phone_number);
-        $phoneStr = $phone !== '' ? '<code>'.e($phone).'</code>' : '';
+        $phoneFormatted = $phone !== '' ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : '';
         $service = e($order->otpService?->name ?? 'Kopken');
 
-        if ($reasonType === 'banned' || stripos((string) $customReason, 'banned') !== false || stripos((string) $customReason, 'terblokir') !== false) {
-            $targetPhone = $phoneStr !== '' ? " {$phoneStr}" : '';
-            $text = "❌ <b>Pesanan Dibatalkan</b>\n\n"
-                ."Nomor WhatsApp{$targetPhone} terblokir/banned oleh WhatsApp, jadi tidak diberikan kepada Anda.\n"
-                ."Saldo yang tertahan telah dikembalikan.";
-        } elseif ($reasonType === 'expired') {
+        if ($reasonType === 'expired') {
             $text = "⏳ <b>Pesanan Kedaluwarsa</b>\n\n"
                 ."Waktu pemesanan OTP untuk layanan <b>{$service}</b> telah habis.\n"
                 ."Saldo yang tertahan telah dikembalikan.";
         } else {
+            $targetPhone = $phoneFormatted !== '' ? " {$phoneFormatted}" : '';
             $text = "❌ <b>Pesanan Dibatalkan</b>\n\n"
-                ."Pesanan nomor <b>{$service}</b> telah dibatalkan.\n"
+                ."Nomor WhatsApp{$targetPhone} terblokir/banned oleh WhatsApp, jadi tidak diberikan kepada Anda.\n"
                 ."Saldo yang tertahan telah dikembalikan.";
         }
 
