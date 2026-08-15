@@ -1,11 +1,4 @@
 <x-app-layout>
-    <x-slot name="header">
-        <div>
-            <h1 class="text-2xl font-extrabold tracking-tight text-brand-900">Dashboard</h1>
-            <p class="mt-1 text-sm text-brand-500">Halo, {{ $user->name }}</p>
-        </div>
-    </x-slot>
-
     <div class="mx-auto max-w-3xl space-y-12 px-4 py-10 sm:px-6 lg:px-8">
         @if (session('success'))
             <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
