@@ -1082,21 +1082,32 @@ class TelegramBotService
             return;
         }
 
+        $loadingText = "⏳ <b>Memeriksa Ketersediaan Nomor</b>\n\n"
+            ."Mohon tunggu, sistem sedang memverifikasi nomor sebelum diberikan kepada Anda...";
+
+        $workingMessageId = $this->replyOrSend(
+            $bot,
+            $chatId,
+            $previewMessageId,
+            $loadingText,
+            removeInlineKeyboard: true
+        );
+
         try {
             if ($quantity > 1) {
                 $orders = $otpOrderService->requestBulkOtp($bot, $member, $service, $quantity);
-                $this->sendBatchOrderCreatedMessage($bot, $chatId, $orders, $previewMessageId);
+                $this->sendBatchOrderCreatedMessage($bot, $chatId, $orders, $workingMessageId ?? $previewMessageId);
                 app(OtpOrderWatcher::class)->startBatch($orders);
             } else {
                 $order = $otpOrderService->requestOtp($bot, $member, $service);
-                $this->sendOrderCreatedMessage($bot, $chatId, $order, $previewMessageId);
+                $this->sendOrderCreatedMessage($bot, $chatId, $order, $workingMessageId ?? $previewMessageId);
                 app(OtpOrderWatcher::class)->start($order);
             }
         } catch (ValidationException $e) {
             $this->replyOrSend(
                 $bot,
                 $chatId,
-                $previewMessageId,
+                $workingMessageId ?? $previewMessageId,
                 collect($e->errors())->flatten()->first() ?? 'Gagal membuat order.',
                 removeInlineKeyboard: true
             );
@@ -1113,7 +1124,7 @@ class TelegramBotService
                 $this->replyOrSend(
                     $bot,
                     $chatId,
-                    $previewMessageId,
+                    $workingMessageId ?? $previewMessageId,
                     $text,
                     inlineKeyboard: [
                         'inline_keyboard' => [
@@ -1128,7 +1139,7 @@ class TelegramBotService
             $this->replyOrSend(
                 $bot,
                 $chatId,
-                $previewMessageId,
+                $workingMessageId ?? $previewMessageId,
                 "⚠️ <b>Gagal Membuat Order</b>\n\n{$errMessage}",
                 removeInlineKeyboard: true
             );
@@ -1693,6 +1704,18 @@ class TelegramBotService
         }
 
         $messageId = $editMessageId ?? $this->orderMessageId($order);
+
+        $loadingText = "⏳ <b>Memeriksa Ketersediaan Nomor</b>\n\n"
+            ."Mohon tunggu, sistem sedang memverifikasi nomor sebelum diberikan kepada Anda...";
+
+        $workingMessageId = $this->replyOrSend(
+            $bot,
+            $chatId,
+            $messageId,
+            $loadingText,
+            removeInlineKeyboard: true
+        );
+        $messageId = $workingMessageId ?? $messageId;
 
         try {
             $order = app(OtpOrderService::class)->changeNumber($order);
