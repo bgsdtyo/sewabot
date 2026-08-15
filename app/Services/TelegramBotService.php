@@ -235,7 +235,7 @@ class TelegramBotService
             return;
         }
 
-        if ($this->isButton($text, 'Riwayat')) {
+        if (str_starts_with($text, '/riwayat') || str_starts_with($text, '/history') || $this->isButton($text, 'Riwayat')) {
             $this->showHistory($bot, $member, $chatId);
 
             return;
