@@ -67,7 +67,7 @@ class CronController extends Controller
     }
 
     /**
-     * Check provider balance for active bots and send low-balance alert to Telegram admins.
+     * Check & update provider API balance for all bots and send low-balance alert to Telegram admins if configured.
      */
     public function checkProviderBalance(
         Request $request,
@@ -75,11 +75,8 @@ class CronController extends Controller
         \App\Services\OtpProviderClient $client
     ): JsonResponse {
         $bots = TelegramBot::query()
-            ->where('status', 'active')
             ->whereNotNull('otp_api_key')
-            ->whereNotNull('token')
-            ->whereNotNull('min_provider_balance_alert')
-            ->where('min_provider_balance_alert', '>', 0)
+            ->where('otp_api_key', '!=', '')
             ->get();
 
         $checked = 0;
@@ -97,7 +94,7 @@ class CronController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Pengecekan saldo pusat & reminder admin selesai dijalankan.',
+            'message' => 'Update saldo API provider untuk semua bot berhasil disinkronkan.',
             'bots_checked' => $checked,
             'alerts_sent' => $alertsSent,
             'results' => $results,
