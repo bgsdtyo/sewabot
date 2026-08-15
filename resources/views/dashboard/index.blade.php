@@ -45,12 +45,19 @@
                     </p>
 
                     <div class="mt-auto flex gap-2 pt-6">
-                        <a href="{{ route('bots.show', $bot) }}" class="inline-flex flex-1 items-center justify-center rounded-xl bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
-                            Konfigurasi
+                        <a href="{{ route('bots.show', $bot) }}" class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition active:scale-95 shadow-sm">
+                            <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            <span>Konfigurasi</span>
                         </a>
                         @if ($bot->telegramUrl())
-                            <a href="{{ $bot->telegramUrl() }}" target="_blank" class="inline-flex flex-1 items-center justify-center rounded-xl border border-brand-200 px-4 py-2.5 text-sm font-semibold text-brand-900 hover:bg-brand-50">
-                                Telegram
+                            <a href="{{ $bot->telegramUrl() }}" target="_blank" class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-brand-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-900 hover:bg-brand-50 transition active:scale-95 shadow-sm">
+                                <svg class="h-4 w-4 fill-sky-500 shrink-0" viewBox="0 0 24 24">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+                                </svg>
+                                <span>Telegram</span>
                             </a>
                         @endif
                     </div>
@@ -65,8 +72,11 @@
                     <div class="mt-auto pt-6">
                         @php $product = \App\Models\Product::where('is_active', true)->first(); @endphp
                         @if ($product)
-                            <a href="{{ route('checkout.select-bot', $product) }}" class="inline-flex w-full items-center justify-center rounded-xl bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
-                                Sewa Bot
+                            <a href="{{ route('checkout.select-bot', $product) }}" class="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition active:scale-95 shadow-sm">
+                                <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                </svg>
+                                <span>Sewa Bot</span>
                             </a>
                         @endif
                     </div>
@@ -91,8 +101,11 @@
                     </p>
 
                     <div class="mt-auto pt-6">
-                        <a href="{{ route('subscriptions.renew', $subscription) }}" class="inline-flex w-full items-center justify-center rounded-xl border border-brand-200 px-4 py-2.5 text-sm font-semibold text-brand-900 hover:bg-brand-50">
-                            Perpanjang {{ $subscription->product->formattedRenewalPrice() }}
+                        <a href="{{ route('subscriptions.renew', $subscription) }}" class="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-brand-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-900 hover:bg-brand-50 transition active:scale-95 shadow-sm">
+                            <svg class="h-4 w-4 text-brand-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            <span>Perpanjang {{ $subscription->product->formattedRenewalPrice() }}</span>
                         </a>
                     </div>
                 @else
