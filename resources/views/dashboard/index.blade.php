@@ -109,51 +109,89 @@
         </section>
 
         @if ($bot)
-            <section>
+            <section x-data="{
+                openTopup: false,
+                memberId: null,
+                memberName: '',
+                memberChatId: '',
+                memberAvailable: '',
+                amount: '',
+                note: '',
+                formAction: '',
+                isSubmitting: false,
+                setAmount(val) {
+                    this.amount = val;
+                },
+                addAmount(val) {
+                    const current = parseInt(this.amount) || 0;
+                    this.amount = current + val;
+                },
+                openModal(id, name, chatId, available, actionUrl) {
+                    this.memberId = id;
+                    this.memberName = name;
+                    this.memberChatId = chatId;
+                    this.memberAvailable = available;
+                    this.amount = '';
+                    this.note = '';
+                    this.formAction = actionUrl;
+                    this.isSubmitting = false;
+                    this.openTopup = true;
+                    this.$nextTick(() => {
+                        this.$refs.amountInput?.focus();
+                    });
+                }
+            }">
                 <div class="flex items-end justify-between gap-4">
                     <div>
                         <h2 class="text-lg font-extrabold text-brand-900">Member & Saldo</h2>
-                        <p class="mt-1 text-sm text-brand-500">Topup saldo member untuk OTP.</p>
+                        <p class="mt-1 text-sm text-brand-500">Topup saldo member untuk transaksi OTP.</p>
                     </div>
                 </div>
 
                 <div class="mt-6 space-y-4">
                     @forelse ($members as $member)
-                        <div class="rounded-2xl border border-brand-200 bg-white p-5">
-                            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                    <p class="font-semibold text-brand-900">{{ $member->displayName() }}</p>
-                                    <p class="mt-1 text-xs text-brand-500">ID {{ $member->telegram_chat_id }}</p>
+                        <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-soft transition hover:border-brand-300">
+                            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-100 text-brand-700 font-bold text-sm">
+                                        {{ strtoupper(substr($member->displayName(), 0, 2)) }}
+                                    </div>
+                                    <div>
+                                        <p class="font-bold text-brand-900">{{ $member->displayName() }}</p>
+                                        <p class="text-xs text-brand-500">ID {{ $member->telegram_chat_id }}</p>
+                                    </div>
                                 </div>
-                                <div class="grid grid-cols-3 gap-3 text-sm sm:text-right">
-                                    <div>
-                                        <p class="text-xs text-brand-500">Saldo</p>
-                                        <p class="mt-1 font-semibold">{{ $member->formattedBalance() }}</p>
+
+                                <div class="flex flex-wrap items-center justify-between gap-4 border-t border-brand-100 pt-3 sm:border-t-0 sm:pt-0 sm:justify-end">
+                                    <div class="grid grid-cols-3 gap-3 text-sm text-left sm:text-right">
+                                        <div>
+                                            <p class="text-xs text-brand-500">Saldo</p>
+                                            <p class="mt-0.5 font-semibold text-brand-900">{{ $member->formattedBalance() }}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-brand-500">Hold</p>
+                                            <p class="mt-0.5 font-semibold text-brand-900">Rp{{ number_format($member->held_balance, 0, ',', '.') }}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-brand-500">Tersedia</p>
+                                            <p class="mt-0.5 font-bold text-emerald-600">{{ $member->formattedAvailable() }}</p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p class="text-xs text-brand-500">Hold</p>
-                                        <p class="mt-1 font-semibold">Rp{{ number_format($member->held_balance, 0, ',', '.') }}</p>
-                                    </div>
-                                    <div>
-                                        <p class="text-xs text-brand-500">Tersedia</p>
-                                        <p class="mt-1 font-semibold text-emerald-700">{{ $member->formattedAvailable() }}</p>
-                                    </div>
+
+                                    <button type="button"
+                                            @click="openModal('{{ $member->id }}', '{{ addslashes($member->displayName()) }}', '{{ $member->telegram_chat_id }}', '{{ $member->formattedAvailable() }}', '{{ route('bots.members.topup', ['telegramBot' => $bot, 'botMember' => $member]) }}')"
+                                            class="inline-flex items-center gap-1.5 rounded-xl bg-brand-900 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-brand-700 active:scale-95 sm:shrink-0">
+                                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
+                                        </svg>
+                                        <span>Topup Saldo</span>
+                                    </button>
                                 </div>
                             </div>
-
-                            <form method="POST" action="{{ route('bots.members.topup', ['telegramBot' => $bot, 'botMember' => $member]) }}"
-                                  class="mt-5 flex flex-col gap-3 border-t border-brand-100 pt-4 sm:flex-row sm:items-center">
-                                @csrf
-                                <input type="number" name="amount" min="100" step="100" required placeholder="Nominal topup"
-                                       class="w-full rounded-xl border-brand-200 text-sm focus:border-brand-900 focus:ring-brand-900 sm:max-w-[180px]">
-                                <button type="submit" class="rounded-xl bg-brand-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 sm:shrink-0">
-                                    Topup
-                                </button>
-                            </form>
                         </div>
                     @empty
                         <div class="rounded-2xl border border-dashed border-brand-200 px-5 py-10 text-center text-sm text-brand-500">
-                            Belum ada member. Suruh user ketik /start di bot.
+                            Belum ada member. Ajak user membuka bot Telegram dan ketik <b>/start</b>.
                         </div>
                     @endforelse
                 </div>
@@ -161,6 +199,133 @@
                 @if ($members->hasPages())
                     <div class="mt-6">{{ $members->withQueryString()->links() }}</div>
                 @endif
+
+                {{-- Modal Topup Pop-up --}}
+                <div x-cloak x-show="openTopup"
+                     class="fixed inset-0 z-50 flex items-center justify-center p-4"
+                     role="dialog" aria-modal="true">
+                    {{-- Backdrop --}}
+                    <div x-show="openTopup"
+                         x-transition:enter="ease-out duration-200"
+                         x-transition:enter-start="opacity-0"
+                         x-transition:enter-end="opacity-100"
+                         x-transition:leave="ease-in duration-150"
+                         x-transition:leave-start="opacity-100"
+                         x-transition:leave-end="opacity-0"
+                         @click="openTopup = false"
+                         class="fixed inset-0 bg-brand-900/60 backdrop-blur-sm"></div>
+
+                    {{-- Modal Body --}}
+                    <div x-show="openTopup"
+                         x-transition:enter="ease-out duration-200"
+                         x-transition:enter-start="opacity-0 scale-95"
+                         x-transition:enter-end="opacity-100 scale-100"
+                         x-transition:leave="ease-in duration-150"
+                         x-transition:leave-start="opacity-100 scale-100"
+                         x-transition:leave-end="opacity-0 scale-95"
+                         class="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
+                        {{-- Modal Header --}}
+                        <div class="flex items-center justify-between border-b border-brand-100 px-6 py-5">
+                            <div>
+                                <h3 class="text-lg font-extrabold text-brand-900">Topup Saldo Member</h3>
+                                <p class="text-xs text-brand-500">Tambahkan saldo instan ke akun Telegram member.</p>
+                            </div>
+                            <button type="button" @click="openTopup = false" class="rounded-xl p-1.5 text-brand-400 hover:bg-brand-100 hover:text-brand-900">
+                                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        {{-- Modal Form --}}
+                        <form :action="formAction" method="POST" @submit="isSubmitting = true" class="p-6">
+                            @csrf
+
+                            {{-- Target Member Card --}}
+                            <div class="mb-5 rounded-2xl border border-brand-100 bg-brand-50/80 p-4">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="font-bold text-brand-900 text-sm" x-text="memberName"></p>
+                                        <p class="text-xs text-brand-500">ID: <span class="font-mono font-medium" x-text="memberChatId"></span></p>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="text-xs text-brand-500">Saldo Saat Ini</p>
+                                        <p class="font-bold text-emerald-600 text-sm" x-text="memberAvailable"></p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {{-- Quick Preset Chips --}}
+                            <div class="mb-4">
+                                <label class="block text-xs font-bold uppercase tracking-wider text-brand-500 mb-2">Pilihan Cepat (Nominal)</label>
+                                <div class="grid grid-cols-3 gap-2">
+                                    <button type="button" @click="setAmount(5000)"
+                                            class="rounded-xl border border-brand-200 bg-white py-2 text-xs font-bold text-brand-700 transition hover:border-brand-900 hover:bg-brand-900 hover:text-white active:scale-95">
+                                        +5.000
+                                    </button>
+                                    <button type="button" @click="setAmount(10000)"
+                                            class="rounded-xl border border-brand-200 bg-white py-2 text-xs font-bold text-brand-700 transition hover:border-brand-900 hover:bg-brand-900 hover:text-white active:scale-95">
+                                        +10.000
+                                    </button>
+                                    <button type="button" @click="setAmount(20000)"
+                                            class="rounded-xl border border-brand-200 bg-white py-2 text-xs font-bold text-brand-700 transition hover:border-brand-900 hover:bg-brand-900 hover:text-white active:scale-95">
+                                        +20.000
+                                    </button>
+                                    <button type="button" @click="setAmount(50000)"
+                                            class="rounded-xl border border-brand-200 bg-white py-2 text-xs font-bold text-brand-700 transition hover:border-brand-900 hover:bg-brand-900 hover:text-white active:scale-95">
+                                        +50.000
+                                    </button>
+                                    <button type="button" @click="setAmount(100000)"
+                                            class="rounded-xl border border-brand-200 bg-white py-2 text-xs font-bold text-brand-700 transition hover:border-brand-900 hover:bg-brand-900 hover:text-white active:scale-95">
+                                        +100.000
+                                    </button>
+                                    <button type="button" @click="setAmount(200000)"
+                                            class="rounded-xl border border-brand-200 bg-white py-2 text-xs font-bold text-brand-700 transition hover:border-brand-900 hover:bg-brand-900 hover:text-white active:scale-95">
+                                        +200.000
+                                    </button>
+                                </div>
+                            </div>
+
+                            {{-- Input Nominal --}}
+                            <div class="mb-4">
+                                <label for="topup-amount" class="block text-xs font-bold uppercase tracking-wider text-brand-500 mb-1.5">
+                                    Nominal Topup (Rp) <span class="text-rose-500">*</span>
+                                </label>
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-sm font-bold text-brand-400">Rp</span>
+                                    <input type="number" id="topup-amount" name="amount" x-model="amount" x-ref="amountInput"
+                                           min="100" step="100" required placeholder="0"
+                                           class="w-full rounded-2xl border-brand-200 pl-10 pr-4 py-3 text-base font-bold text-brand-900 placeholder:text-brand-300 focus:border-brand-900 focus:ring-brand-900">
+                                </div>
+                            </div>
+
+                            {{-- Input Catatan --}}
+                            <div class="mb-6">
+                                <label for="topup-note" class="block text-xs font-bold uppercase tracking-wider text-brand-500 mb-1.5">
+                                    Catatan (Opsional)
+                                </label>
+                                <input type="text" id="topup-note" name="note" x-model="note" maxlength="200" placeholder="Contoh: Deposit manual via BCA"
+                                       class="w-full rounded-2xl border-brand-200 px-4 py-2.5 text-sm text-brand-900 placeholder:text-brand-400 focus:border-brand-900 focus:ring-brand-900">
+                            </div>
+
+                            {{-- Action Buttons --}}
+                            <div class="flex items-center justify-end gap-3 pt-2">
+                                <button type="button" @click="openTopup = false"
+                                        class="rounded-xl border border-brand-200 px-5 py-2.5 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition">
+                                    Batal
+                                </button>
+                                <button type="submit" :disabled="isSubmitting || !amount || amount < 100"
+                                        class="inline-flex items-center gap-2 rounded-xl bg-brand-900 px-6 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <svg x-show="isSubmitting" class="h-4 w-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <span x-text="isSubmitting ? 'Memproses...' : 'Konfirmasi Topup'"></span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
             </section>
 
             <section>
