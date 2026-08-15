@@ -1,6 +1,8 @@
 # Current Status — SewaBot MVP
 
 ## Updated
+2026-08-15 — Ya/Batal konfirmasi OTP: edit bubble (bukan kirim baru)
+2026-08-15 — Rapihkan teks cancel bot (newline + wording)
 2026-08-15 — QRIS dinamis (verssache/qris-dinamis port)
 
 ## Payment QRIS

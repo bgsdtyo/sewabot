@@ -776,11 +776,11 @@ class TelegramBotService
             ."• Riwayat — 5 transaksi terakhir\n"
             ."• Ulang OTP — minta ulang kode (gratis)\n"
             ."• Ganti Nomor — ganti nomor pending\n"
-            ."• Batalkan — batalkan & refund hold\n"
+            ."• Batalkan — batalkan & kembalikan hold\n"
             ."• Bantuan — panduan ini\n\n"
             ."<b>Perintah teks</b>\n"
             ."/otp · /saldo · /deposit · /akun · /status · /ulang · /ganti · /batal\n\n"
-            .'Saldo ditahan saat order, dipotong saat OTP masuk, dan di-refund jika dibatalkan.';
+            .'Saldo ditahan saat order, dipotong saat OTP masuk, dan dikembalikan jika dibatalkan.';
     }
 
     protected function kopkenService(): ?OtpService
@@ -894,37 +894,53 @@ class TelegramBotService
         $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService();
 
         if (! $service) {
-            $this->sendMessage($bot, $chatId, 'Layanan tidak tersedia.', $this->mainKeyboard());
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $previewMessageId,
+                'Layanan tidak tersedia.',
+                removeInlineKeyboard: true
+            );
 
             return;
         }
 
-        if ($previewMessageId) {
-            $this->deleteMessage($bot, $chatId, $previewMessageId);
-        }
-
         try {
             $order = app(OtpOrderService::class)->requestOtp($bot, $member, $service);
-            $this->sendOrderCreatedMessage($bot, $chatId, $order);
+            $this->sendOrderCreatedMessage($bot, $chatId, $order, $previewMessageId);
         } catch (ValidationException $e) {
-            $this->sendMessage($bot, $chatId, collect($e->errors())->flatten()->first() ?? 'Gagal membuat order.', $this->mainKeyboard());
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $previewMessageId,
+                collect($e->errors())->flatten()->first() ?? 'Gagal membuat order.',
+                removeInlineKeyboard: true
+            );
         } catch (\Throwable $e) {
-            $this->sendMessage($bot, $chatId, 'Gagal: '.$e->getMessage(), $this->mainKeyboard());
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $previewMessageId,
+                'Gagal: '.$e->getMessage(),
+                removeInlineKeyboard: true
+            );
         }
     }
 
-    protected function sendOrderCreatedMessage(TelegramBot $bot, int|string $chatId, OtpOrder $order): void
+    protected function sendOrderCreatedMessage(TelegramBot $bot, int|string $chatId, OtpOrder $order, ?int $editMessageId = null): void
     {
-        $this->sendMessage(
-            $bot,
-            $chatId,
-            "<b>Order KOPKEN berhasil dibuat</b>\n\n".
+        $text = "<b>Order KOPKEN berhasil dibuat</b>\n\n".
             'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
             'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
             "Status: <b>PENDING</b>\n\n".
-            'Saldo ditahan hingga OTP masuk. Gunakan tombol di bawah untuk mengelola order.',
-            null,
-            $this->orderActionKeyboard($order)
+            'Saldo ditahan hingga OTP masuk. Gunakan tombol di bawah untuk mengelola order.';
+
+        $this->replyOrSend(
+            $bot,
+            $chatId,
+            $editMessageId,
+            $text,
+            inlineKeyboard: $this->orderActionKeyboard($order)
         );
     }
 
@@ -944,7 +960,7 @@ class TelegramBotService
         ];
     }
 
-    protected function cancelPending(TelegramBot $bot, $member, $chatId, ?int $orderId = null): void
+    protected function cancelPending(TelegramBot $bot, $member, $chatId, ?int $orderId = null, ?int $editMessageId = null): void
     {
         $order = OtpOrder::query()
             ->where('bot_member_id', $member->id)
@@ -954,21 +970,36 @@ class TelegramBotService
             ->first();
 
         if (! $order) {
-            $this->sendMessage($bot, $chatId, 'Tidak ada order OTP yang sedang berjalan.', $this->mainKeyboard());
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $editMessageId,
+                'Tidak ada order OTP yang sedang berjalan.',
+                removeInlineKeyboard: true
+            );
 
             return;
         }
 
         try {
             app(OtpOrderService::class)->cancelOrder($order);
-            $this->sendMessage(
+            $this->replyOrSend(
                 $bot,
                 $chatId,
-                'Pesanan dibatalkan. Hold saldo telah di-refund.\nSaldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>',
-                $this->mainKeyboard()
+                $editMessageId,
+                "<b>Pesanan dibatalkan</b>\n\n".
+                "Hold saldo sudah dikembalikan.\n".
+                'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>',
+                removeInlineKeyboard: true
             );
         } catch (\Throwable $e) {
-            $this->sendMessage($bot, $chatId, 'Gagal membatalkan: '.$e->getMessage(), $this->mainKeyboard());
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $editMessageId,
+                'Gagal membatalkan: '.$e->getMessage(),
+                removeInlineKeyboard: true
+            );
         }
     }
 
@@ -1100,10 +1131,13 @@ class TelegramBotService
         }
 
         if ($data === 'otp_preview_cancel') {
-            if ($messageId) {
-                $this->deleteMessage($bot, $chatId, $messageId);
-            }
-            $this->sendMessage($bot, $chatId, 'Order dibatalkan. Tidak ada saldo yang ditahan.', $this->mainKeyboard());
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $messageId ? (int) $messageId : null,
+                "<b>Pesanan dibatalkan</b>\n\nTidak ada saldo yang ditahan.",
+                removeInlineKeyboard: true
+            );
 
             return;
         }
@@ -1138,10 +1172,7 @@ class TelegramBotService
 
         if (str_starts_with($data, 'otp_cancel:')) {
             $orderId = (int) substr($data, strlen('otp_cancel:'));
-            if ($messageId) {
-                $this->deleteMessage($bot, $chatId, (int) $messageId);
-            }
-            $this->cancelPending($bot, $member, $chatId, $orderId);
+            $this->cancelPending($bot, $member, $chatId, $orderId, $messageId ? (int) $messageId : null);
 
             return;
         }
@@ -1191,6 +1222,69 @@ class TelegramBotService
             ]);
         } catch (\Throwable $e) {
             Log::warning('Telegram deleteMessage failed: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Edit existing bubble when possible; otherwise send a new message.
+     */
+    protected function replyOrSend(
+        TelegramBot $bot,
+        int|string $chatId,
+        ?int $messageId,
+        string $text,
+        ?array $replyMarkup = null,
+        ?array $inlineKeyboard = null,
+        bool $removeInlineKeyboard = false
+    ): void {
+        if ($messageId) {
+            $edited = $this->editMessage(
+                $bot,
+                $chatId,
+                $messageId,
+                $text,
+                $inlineKeyboard,
+                $removeInlineKeyboard
+            );
+
+            if ($edited) {
+                return;
+            }
+        }
+
+        $this->sendMessage($bot, $chatId, $text, $replyMarkup, $inlineKeyboard);
+    }
+
+    public function editMessage(
+        TelegramBot $bot,
+        int|string $chatId,
+        int $messageId,
+        string $text,
+        ?array $inlineKeyboard = null,
+        bool $removeInlineKeyboard = false
+    ): bool {
+        try {
+            $payload = [
+                'chat_id' => $chatId,
+                'message_id' => $messageId,
+                'text' => $text,
+                'parse_mode' => 'HTML',
+                'disable_web_page_preview' => true,
+            ];
+
+            if ($removeInlineKeyboard) {
+                $payload['reply_markup'] = ['inline_keyboard' => []];
+            } elseif ($inlineKeyboard) {
+                $payload['reply_markup'] = $inlineKeyboard;
+            }
+
+            $response = Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/editMessageText", $payload);
+
+            return (bool) $response->successful();
+        } catch (\Throwable $e) {
+            Log::warning('Telegram editMessage failed: '.$e->getMessage());
+
+            return false;
         }
     }
 
