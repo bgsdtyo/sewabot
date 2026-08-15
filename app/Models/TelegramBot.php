@@ -20,6 +20,7 @@ class TelegramBot extends Model
         'deposit_whatsapp',
         'deposit_telegram',
         'deposit_note',
+        'admin_telegram_ids',
         'webhook_url',
         'status',
         'notes',
@@ -189,5 +190,30 @@ class TelegramBot extends Model
     public function hasDepositContacts(): bool
     {
         return $this->depositWhatsappUrl() || $this->depositTelegramUrl();
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function adminTelegramIdList(): array
+    {
+        $raw = trim((string) $this->admin_telegram_ids);
+        if ($raw === '') {
+            return [];
+        }
+
+        $parts = preg_split('/[\s,;]+/', $raw) ?: [];
+
+        return array_values(array_filter(array_map(
+            static fn ($id) => preg_replace('/\D+/', '', (string) $id) ?: '',
+            $parts
+        )));
+    }
+
+    public function isTelegramAdmin(int|string $telegramId): bool
+    {
+        $id = preg_replace('/\D+/', '', (string) $telegramId) ?: '';
+
+        return $id !== '' && in_array($id, $this->adminTelegramIdList(), true);
     }
 }

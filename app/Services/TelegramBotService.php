@@ -2,9 +2,12 @@
 
 namespace App\Services;
 
+use App\Models\BotMember;
 use App\Models\OtpOrder;
 use App\Models\OtpService;
 use App\Models\TelegramBot;
+use App\Models\WalletTransaction;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -122,6 +125,24 @@ class TelegramBotService
 
         $otp = app(OtpOrderService::class);
         $member = $otp->findOrRegisterMember($bot, $from);
+        $fromId = (string) ($from['id'] ?? $chatId);
+
+        // —— Admin commands ——
+        if ($this->isAdminCommand($text) || $this->isButton($text, 'Rekap Hari Ini') || $this->isButton($text, 'Menu Admin')) {
+            if (! $bot->isTelegramAdmin($fromId)) {
+                $this->sendMessage(
+                    $bot,
+                    $chatId,
+                    "<b>Akses admin ditolak</b>\n\nTelegram ID kamu: <code>{$fromId}</code>\n\nDaftarkan ID ini di <b>Konfigurasi Bot → Admin Telegram ID</b> pada dashboard web."
+                );
+
+                return;
+            }
+
+            $this->handleAdminCommand($bot, $chatId, $text, $fromId);
+
+            return;
+        }
 
         if (str_starts_with($text, '/start')) {
             $this->sendMessage($bot, $chatId, $this->welcomeText($bot, $member), $this->mainKeyboard());
@@ -200,6 +221,237 @@ class TelegramBotService
             "Perintah tidak dikenali.\n\n".$this->helpText($bot, $member),
             $this->mainKeyboard()
         );
+    }
+
+    protected function isAdminCommand(string $text): bool
+    {
+        $cmd = strtolower(strtok($text, ' ') ?: '');
+
+        return in_array($cmd, ['/admin', '/rekap', '/cek', '/adddeposit', '/menuadmin'], true)
+            || str_starts_with(strtolower($text), '/cek@')
+            || str_starts_with(strtolower($text), '/admin@')
+            || str_starts_with(strtolower($text), '/rekap@')
+            || str_starts_with(strtolower($text), '/adddeposit@');
+    }
+
+    protected function handleAdminCommand(TelegramBot $bot, int|string $chatId, string $text, string $fromId): void
+    {
+        $parts = preg_split('/\s+/', trim($text)) ?: [];
+        $cmd = strtolower(explode('@', $parts[0] ?? '')[0]);
+
+        if ($cmd === '/admin' || $cmd === '/menuadmin' || $this->isButton($text, 'Menu Admin')) {
+            $this->sendAdminMenu($bot, $chatId);
+
+            return;
+        }
+
+        if ($cmd === '/rekap' || $this->isButton($text, 'Rekap Hari Ini')) {
+            $this->sendAdminDailyRecap($bot, $chatId);
+
+            return;
+        }
+
+        if ($cmd === '/cek') {
+            $targetId = $parts[1] ?? null;
+            if (! $targetId) {
+                $this->sendMessage($bot, $chatId, "Format: <code>/cek ID_TELEGRAM</code>\nContoh: <code>/cek 123456789</code>", $this->adminKeyboard());
+
+                return;
+            }
+            $this->sendAdminUserCheck($bot, $chatId, $targetId);
+
+            return;
+        }
+
+        if ($cmd === '/adddeposit') {
+            $targetId = $parts[1] ?? null;
+            $amountRaw = $parts[2] ?? null;
+            if (! $targetId || $amountRaw === null) {
+                $this->sendMessage(
+                    $bot,
+                    $chatId,
+                    "Format: <code>/adddeposit ID_TELEGRAM NOMINAL</code>\nContoh: <code>/adddeposit 123456789 50000</code>",
+                    $this->adminKeyboard()
+                );
+
+                return;
+            }
+
+            $amount = (int) preg_replace('/\D+/', '', $amountRaw);
+            $this->adminAddDeposit($bot, $chatId, $targetId, $amount, $fromId);
+
+            return;
+        }
+
+        $this->sendAdminMenu($bot, $chatId);
+    }
+
+    protected function adminKeyboard(): array
+    {
+        return [
+            'keyboard' => [
+                [['text' => '📊 Rekap Hari Ini'], ['text' => '🛠 Menu Admin']],
+                [['text' => '📱 Order OTP'], ['text' => '💰 Saldo']],
+                [['text' => '👤 Akun'], ['text' => '❓ Bantuan']],
+            ],
+            'resize_keyboard' => true,
+            'is_persistent' => true,
+        ];
+    }
+
+    protected function sendAdminMenu(TelegramBot $bot, int|string $chatId): void
+    {
+        $text = "<b>Panel Admin Bot</b>\n\n"
+            ."Perintah tersedia:\n"
+            ."• <code>/rekap</code> — rekap transaksi hari ini\n"
+            ."• <code>/cek ID</code> — cek data member\n"
+            ."• <code>/adddeposit ID NOMINAL</code> — tambah saldo member\n\n"
+            ."Contoh:\n"
+            ."<code>/cek 123456789</code>\n"
+            ."<code>/adddeposit 123456789 50000</code>\n\n"
+            .'Atau pakai tombol <b>Rekap Hari Ini</b> di bawah.';
+
+        $this->sendMessage($bot, $chatId, $text, $this->adminKeyboard());
+    }
+
+    protected function sendAdminDailyRecap(TelegramBot $bot, int|string $chatId): void
+    {
+        $tz = config('app.timezone', 'Asia/Jakarta');
+        $today = Carbon::now($tz)->toDateString();
+
+        $wallet = WalletTransaction::query()
+            ->where('telegram_bot_id', $bot->id)
+            ->whereDate('created_at', $today);
+
+        $topup = (int) (clone $wallet)->where('type', 'topup')->sum('amount');
+        $charge = abs((int) (clone $wallet)->where('type', 'charge')->sum('amount'));
+        $refund = (int) (clone $wallet)->where('type', 'refund')->sum('amount');
+        $txCount = (clone $wallet)->count();
+
+        $otpBase = OtpOrder::query()
+            ->where('telegram_bot_id', $bot->id)
+            ->whereDate('created_at', $today);
+
+        $otpTotal = (clone $otpBase)->count();
+        $otpDone = (clone $otpBase)->where('status', 'completed')->count();
+        $otpPending = (clone $otpBase)->where('status', 'pending')->count();
+        $otpCancel = (clone $otpBase)->whereIn('status', ['cancelled', 'expired'])->count();
+        $otpRevenue = (int) (clone $otpBase)->where('status', 'completed')->sum('sell_price');
+
+        $membersNew = BotMember::query()
+            ->where('telegram_bot_id', $bot->id)
+            ->whereDate('created_at', $today)
+            ->count();
+
+        $dateLabel = Carbon::now($tz)->translatedFormat('d M Y');
+
+        $text = "<b>Rekap Hari Ini</b> — {$dateLabel}\n\n"
+            ."<b>Wallet</b>\n"
+            .'Deposit/topup: <b>Rp'.number_format((int) $topup, 0, ',', '.')."</b>\n"
+            .'Charge OTP: <b>Rp'.number_format($charge, 0, ',', '.')."</b>\n"
+            .'Refund: <b>Rp'.number_format((int) $refund, 0, ',', '.')."</b>\n"
+            ."Transaksi wallet: <b>{$txCount}</b>\n\n"
+            ."<b>OTP</b>\n"
+            ."Order: <b>{$otpTotal}</b> · Selesai: <b>{$otpDone}</b>\n"
+            ."Pending: <b>{$otpPending}</b> · Batal/expired: <b>{$otpCancel}</b>\n"
+            .'Omzet OTP selesai: <b>Rp'.number_format($otpRevenue, 0, ',', '.')."</b>\n\n"
+            ."Member baru hari ini: <b>{$membersNew}</b>";
+
+        $this->sendMessage($bot, $chatId, $text, $this->adminKeyboard());
+    }
+
+    protected function sendAdminUserCheck(TelegramBot $bot, int|string $chatId, string $targetId): void
+    {
+        $id = preg_replace('/\D+/', '', $targetId) ?: '';
+        $target = BotMember::query()
+            ->where('telegram_bot_id', $bot->id)
+            ->where('telegram_chat_id', $id)
+            ->first();
+
+        if (! $target) {
+            $this->sendMessage($bot, $chatId, "Member tidak ditemukan.\nID: <code>{$id}</code>", $this->adminKeyboard());
+
+            return;
+        }
+
+        $orders = OtpOrder::query()->where('bot_member_id', $target->id)->count();
+        $ordersToday = OtpOrder::query()
+            ->where('bot_member_id', $target->id)
+            ->whereDate('created_at', Carbon::today(config('app.timezone')))
+            ->count();
+        $joined = $target->created_at?->timezone(config('app.timezone'))->translatedFormat('d M Y H:i') ?? '-';
+        $username = $target->telegram_username ? '@'.ltrim($target->telegram_username, '@') : '-';
+
+        $text = "<b>Data Member</b>\n\n"
+            .'Nama: <b>'.e($target->telegram_name ?: '-')."</b>\n"
+            .'Username: <b>'.e($username)."</b>\n"
+            .'Telegram ID: <code>'.e((string) $target->telegram_chat_id)."</code>\n"
+            .'Status: <b>'.($target->is_active ? 'Aktif' : 'Nonaktif')."</b>\n"
+            .'Terdaftar: <b>'.e($joined)."</b>\n\n"
+            ."<b>Saldo</b>\n"
+            .'Total: <b>'.$target->formattedBalance()."</b>\n"
+            .'Tersedia: <b>'.$target->formattedAvailable()."</b>\n"
+            .'Ditahan: <b>Rp'.number_format($target->held_balance, 0, ',', '.')."</b>\n\n"
+            ."Order OTP: <b>{$orders}</b> (hari ini: <b>{$ordersToday}</b>)";
+
+        $this->sendMessage($bot, $chatId, $text, $this->adminKeyboard());
+    }
+
+    protected function adminAddDeposit(
+        TelegramBot $bot,
+        int|string $chatId,
+        string $targetId,
+        int $amount,
+        string $adminId
+    ): void {
+        if ($amount < 100) {
+            $this->sendMessage($bot, $chatId, 'Nominal minimal Rp100.', $this->adminKeyboard());
+
+            return;
+        }
+
+        $id = preg_replace('/\D+/', '', $targetId) ?: '';
+        $target = BotMember::query()
+            ->where('telegram_bot_id', $bot->id)
+            ->where('telegram_chat_id', $id)
+            ->first();
+
+        if (! $target) {
+            $this->sendMessage($bot, $chatId, "Member tidak ditemukan.\nID: <code>{$id}</code>", $this->adminKeyboard());
+
+            return;
+        }
+
+        try {
+            $updated = app(WalletService::class)->topup(
+                $target,
+                $amount,
+                'Deposit admin TG #'.$adminId
+            );
+
+            $this->sendMessage(
+                $bot,
+                $chatId,
+                "<b>Deposit berhasil</b>\n\n"
+                .'Member: <b>'.e($updated->displayName())."</b>\n"
+                .'ID: <code>'.e((string) $updated->telegram_chat_id)."</code>\n"
+                .'Ditambah: <b>Rp'.number_format($amount, 0, ',', '.')."</b>\n"
+                .'Saldo sekarang: <b>'.$updated->formattedBalance().'</b>',
+                $this->adminKeyboard()
+            );
+
+            $this->sendMessage(
+                $bot,
+                $updated->telegram_chat_id,
+                "<b>Saldo ditambahkan</b>\n\n"
+                .'Nominal: <b>Rp'.number_format($amount, 0, ',', '.')."</b>\n"
+                .'Saldo tersedia: <b>'.$updated->formattedAvailable().'</b>'
+            );
+        } catch (ValidationException $e) {
+            $this->sendMessage($bot, $chatId, collect($e->errors())->flatten()->first() ?? 'Gagal deposit.', $this->adminKeyboard());
+        } catch (\Throwable $e) {
+            $this->sendMessage($bot, $chatId, 'Gagal: '.$e->getMessage(), $this->adminKeyboard());
+        }
     }
 
     protected function isButton(string $text, string $label): bool

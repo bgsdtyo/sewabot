@@ -34,6 +34,7 @@ class BotDetailController extends Controller
             'deposit_whatsapp' => ['nullable', 'string', 'max:100'],
             'deposit_telegram' => ['nullable', 'string', 'max:100'],
             'deposit_note' => ['nullable', 'string', 'max:1000'],
+            'admin_telegram_ids' => ['nullable', 'string', 'max:500'],
         ]);
 
         $updates = [
@@ -42,6 +43,7 @@ class BotDetailController extends Controller
             'deposit_whatsapp' => filled($data['deposit_whatsapp'] ?? null) ? trim($data['deposit_whatsapp']) : null,
             'deposit_telegram' => filled($data['deposit_telegram'] ?? null) ? trim($data['deposit_telegram']) : null,
             'deposit_note' => filled($data['deposit_note'] ?? null) ? trim($data['deposit_note']) : null,
+            'admin_telegram_ids' => filled($data['admin_telegram_ids'] ?? null) ? trim($data['admin_telegram_ids']) : null,
         ];
 
         if ($request->boolean('clear_api_key')) {

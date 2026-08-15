@@ -69,6 +69,11 @@ class TelegramBotResource extends Resource
                         ->label('Catatan deposit')
                         ->rows(3)
                         ->columnSpanFull(),
+                    Forms\Components\TextInput::make('admin_telegram_ids')
+                        ->label('Admin Telegram ID')
+                        ->placeholder('123456789, 987654321')
+                        ->helperText('ID numerik admin (pisah koma). Untuk /admin /cek /adddeposit /rekap.')
+                        ->columnSpanFull(),
                 ])
                 ->columns(2)
                 ->collapsed(),

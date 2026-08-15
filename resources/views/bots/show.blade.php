@@ -183,6 +183,21 @@
                             <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
                         @enderror
                     </div>
+
+                    <div class="mt-4">
+                        <label class="mb-2 block text-sm font-semibold text-brand-900">Admin Telegram ID</label>
+                        <input type="text" name="admin_telegram_ids"
+                               value="{{ old('admin_telegram_ids', $telegramBot->admin_telegram_ids) }}"
+                               placeholder="123456789, 987654321"
+                               class="w-full rounded-xl border-brand-200 focus:border-brand-900 focus:ring-brand-900">
+                        <p class="mt-2 text-xs text-brand-500">
+                            ID numerik admin bot (bisa lebih dari satu, pisah koma). Cek lewat tombol Akun / perintah /akun.
+                            Dipakai untuk /admin, /cek, /adddeposit, rekap.
+                        </p>
+                        @error('admin_telegram_ids')
+                            <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
+                        @enderror
+                    </div>
                 </div>
 
                 <div class="border-t border-brand-100 pt-6">
