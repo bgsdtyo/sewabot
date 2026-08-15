@@ -845,7 +845,7 @@ class TelegramBotService
                 $bot,
                 $chatId,
                 "<b>Masih ada order aktif</b>\n\n".
-                'Nomor: <code>'.e((string) $pending->phone_number)."</code>\n".
+                'Nomor: <code>'.e($this->formatPhoneNumber($pending->phone_number))."</code>\n".
                 'Hold: <b>Rp'.number_format($pending->sell_price, 0, ',', '.')."</b>\n".
                 "Status: <b>PENDING</b>\n\n".
                 'Selesaikan / batalkan order ini dulu sebelum order baru.',
@@ -932,7 +932,7 @@ class TelegramBotService
     protected function sendOrderCreatedMessage(TelegramBot $bot, int|string $chatId, OtpOrder $order, ?int $editMessageId = null): void
     {
         $text = "<b>Order KOPKEN berhasil dibuat</b>\n\n".
-            'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
+            'Nomor: <code>'.e($this->formatPhoneNumber($order->phone_number))."</code>\n".
             'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
             "Status: <b>PENDING</b>\n\n".
             'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.';
@@ -952,7 +952,7 @@ class TelegramBotService
     {
         $service = e($order->otpService?->name ?? 'OTP');
         $text = "<b>Order {$service} — OTP MASUK</b>\n\n".
-            'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
+            'Nomor: <code>'.e($this->formatPhoneNumber($order->phone_number))."</code>\n".
             'OTP: <code>'.e((string) $order->otp_code)."</code>\n".
             "Status: <b>SELESAI</b>\n".
             'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n\n".
@@ -1020,6 +1020,25 @@ class TelegramBotService
     protected function orderMessageCacheKey(int $orderId): string
     {
         return 'otp_order_tg_msg:'.$orderId;
+    }
+
+    public function formatPhoneNumber(?string $phone): string
+    {
+        if (! $phone) {
+            return '';
+        }
+
+        $digits = preg_replace('/\D+/', '', $phone);
+
+        if (str_starts_with($digits, '62')) {
+            return substr($digits, 2);
+        }
+
+        if (str_starts_with($digits, '0')) {
+            return substr($digits, 1);
+        }
+
+        return $digits;
     }
 
     protected function orderActionKeyboard(OtpOrder $order): array
@@ -1123,7 +1142,7 @@ class TelegramBotService
 
             $service = e($order->otpService?->name ?? 'OTP');
             $text = "<b>Order {$service} — Nomor Diganti</b>\n\n".
-                'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
+                'Nomor: <code>'.e($this->formatPhoneNumber($order->phone_number))."</code>\n".
                 'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
                 "Status: <b>PENDING</b>\n\n".
                 'Nomor baru aktif. OTP masuk otomatis — bubble ini akan diupdate.';
@@ -1192,7 +1211,7 @@ class TelegramBotService
 
             $service = e($order->otpService?->name ?? 'OTP');
             $text = "<b>Order {$service} — Ulang OTP</b>\n\n".
-                'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
+                'Nomor: <code>'.e($this->formatPhoneNumber($order->phone_number))."</code>\n".
                 "Status: <b>MENUNGGU OTP BARU</b>\n\n".
                 'Permintaan ulang OTP dikirim (gratis). Menunggu OTP masuk otomatis…';
 
@@ -1258,7 +1277,7 @@ class TelegramBotService
 
         if ($order->status === 'completed' && filled($order->otp_code)) {
             $text = "<b>Order {$service} — OTP MASUK</b>\n\n".
-                'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
+                'Nomor: <code>'.e($this->formatPhoneNumber($order->phone_number))."</code>\n".
                 'OTP: <code>'.e((string) $order->otp_code)."</code>\n".
                 "Status: <b>SELESAI</b>\n".
                 'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n\n".
@@ -1286,7 +1305,7 @@ class TelegramBotService
         }
 
         $text = "<b>Order {$service}</b>\n\n".
-            'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
+            'Nomor: <code>'.e($this->formatPhoneNumber($order->phone_number))."</code>\n".
             'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
             'Status: <b>'.e(strtoupper($order->status))."</b>\n".
             'OTP: '.(filled($order->otp_code) ? '<code>'.e((string) $order->otp_code).'</code>' : '<b>belum masuk</b>')."\n\n".
