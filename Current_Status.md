@@ -1,6 +1,7 @@
 # Current Status — SewaBot MVP
 
 ## Updated
+2026-08-15 — Admin dashboard: stats bot aktif, chart OTP/revenue, tabel performa bot
 2026-08-15 — Fix 403 checkout pembayaran (cast user_id + auth compare)
 2026-08-15 — Admin `/admin/orders`: hapus order (single + bulk)
 2026-08-15 — Auto-watch OTP tiap 2s setelah order (tanpa klik Cek OTP / tanpa andalkan cron)
