@@ -768,7 +768,7 @@ class TelegramBotService
             ."Saldo tersedia: <b>{$member->formattedAvailable()}</b>\n"
             ."Tarif KOPKEN: <b>{$price}</b>\n\n"
             ."<b>Menu</b>\n"
-            ."• Order OTP — minta nomor KOPKEN\n"
+            ."• Order OTP — preview konfirmasi lalu pesan nomor\n"
             ."• Saldo — cek saldo & hold\n"
             ."• Deposit — hubungi admin (manual)\n"
             ."• Akun — nama, ID Telegram, status\n"
@@ -833,17 +833,79 @@ class TelegramBotService
             return;
         }
 
-        try {
-            $order = app(OtpOrderService::class)->requestOtp($bot, $member, $service);
-            $this->sendMessage($bot, $chatId,
-                "<b>Order KOPKEN berhasil dibuat</b>\n\n".
-                "Nomor: <code>{$order->phone_number}</code>\n".
-                'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
+        $pending = OtpOrder::query()
+            ->where('bot_member_id', $member->id)
+            ->where('status', 'pending')
+            ->latest()
+            ->first();
+
+        if ($pending) {
+            $this->sendMessage(
+                $bot,
+                $chatId,
+                "<b>Masih ada order aktif</b>\n\n".
+                'Nomor: <code>'.e((string) $pending->phone_number)."</code>\n".
+                'Hold: <b>Rp'.number_format($pending->sell_price, 0, ',', '.')."</b>\n".
                 "Status: <b>PENDING</b>\n\n".
-                "Saldo ditahan hingga OTP masuk.\n".
-                'Gunakan Status, Ulang OTP, Ganti Nomor, atau Batalkan bila diperlukan.',
+                'Selesaikan / batalkan order ini dulu sebelum order baru.',
+                null,
+                $this->orderActionKeyboard($pending)
+            );
+
+            return;
+        }
+
+        $price = $bot->sellPriceFor($service->provider_price);
+        $available = $member->availableBalance();
+
+        if ($available < $price) {
+            $this->sendMessage(
+                $bot,
+                $chatId,
+                "<b>Saldo tidak cukup</b>\n\n".
+                'Dibutuhkan: <b>Rp'.number_format($price, 0, ',', '.')."</b>\n".
+                'Tersedia: <b>'.$member->formattedAvailable()."</b>\n\n".
+                'Silakan deposit dulu lewat menu Deposit.',
                 $this->mainKeyboard()
             );
+
+            return;
+        }
+
+        $text = "<b>Konfirmasi Order OTP</b>\n\n"
+            .'Layanan: <b>'.e($service->name)."</b>\n"
+            .'Harga (hold): <b>Rp'.number_format($price, 0, ',', '.')."</b>\n"
+            .'Saldo tersedia: <b>'.$member->formattedAvailable()."</b>\n\n"
+            ."Jika dilanjutkan, sistem akan memesan nomor dan menahan saldo.\n"
+            .'Saldo baru dipotong saat OTP masuk.';
+
+        $this->sendMessage($bot, $chatId, $text, null, [
+            'inline_keyboard' => [
+                [
+                    ['text' => '✅ Ya, Order', 'callback_data' => 'otp_confirm:'.$service->id],
+                    ['text' => '❌ Batal', 'callback_data' => 'otp_preview_cancel'],
+                ],
+            ],
+        ]);
+    }
+
+    protected function confirmKopkenOrder(TelegramBot $bot, $member, int|string $chatId, int $serviceId, ?int $previewMessageId = null): void
+    {
+        $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService();
+
+        if (! $service) {
+            $this->sendMessage($bot, $chatId, 'Layanan tidak tersedia.', $this->mainKeyboard());
+
+            return;
+        }
+
+        if ($previewMessageId) {
+            $this->deleteMessage($bot, $chatId, $previewMessageId);
+        }
+
+        try {
+            $order = app(OtpOrderService::class)->requestOtp($bot, $member, $service);
+            $this->sendOrderCreatedMessage($bot, $chatId, $order);
         } catch (ValidationException $e) {
             $this->sendMessage($bot, $chatId, collect($e->errors())->flatten()->first() ?? 'Gagal membuat order.', $this->mainKeyboard());
         } catch (\Throwable $e) {
@@ -851,11 +913,43 @@ class TelegramBotService
         }
     }
 
-    protected function cancelPending(TelegramBot $bot, $member, $chatId): void
+    protected function sendOrderCreatedMessage(TelegramBot $bot, int|string $chatId, OtpOrder $order): void
+    {
+        $this->sendMessage(
+            $bot,
+            $chatId,
+            "<b>Order KOPKEN berhasil dibuat</b>\n\n".
+            'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
+            'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
+            "Status: <b>PENDING</b>\n\n".
+            'Saldo ditahan hingga OTP masuk. Gunakan tombol di bawah untuk mengelola order.',
+            null,
+            $this->orderActionKeyboard($order)
+        );
+    }
+
+    protected function orderActionKeyboard(OtpOrder $order): array
+    {
+        return [
+            'inline_keyboard' => [
+                [
+                    ['text' => '🔎 Cek OTP', 'callback_data' => 'otp_status:'.$order->id],
+                    ['text' => '🔀 Ganti Nomor', 'callback_data' => 'otp_change:'.$order->id],
+                ],
+                [
+                    ['text' => '🔄 Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
+                    ['text' => '❌ Batalkan', 'callback_data' => 'otp_cancel:'.$order->id],
+                ],
+            ],
+        ];
+    }
+
+    protected function cancelPending(TelegramBot $bot, $member, $chatId, ?int $orderId = null): void
     {
         $order = OtpOrder::query()
             ->where('bot_member_id', $member->id)
             ->where('status', 'pending')
+            ->when($orderId, fn ($q) => $q->whereKey($orderId))
             ->latest()
             ->first();
 
@@ -878,11 +972,12 @@ class TelegramBotService
         }
     }
 
-    protected function changePending(TelegramBot $bot, $member, $chatId): void
+    protected function changePending(TelegramBot $bot, $member, $chatId, ?int $orderId = null): void
     {
         $order = OtpOrder::query()
             ->where('bot_member_id', $member->id)
             ->where('status', 'pending')
+            ->when($orderId, fn ($q) => $q->whereKey($orderId))
             ->latest()
             ->first();
 
@@ -897,19 +992,21 @@ class TelegramBotService
             $this->sendMessage(
                 $bot,
                 $chatId,
-                "<b>Nomor diganti</b>\n\nNomor baru: <code>{$order->phone_number}</code>\nStatus: <b>PENDING</b>",
-                $this->mainKeyboard()
+                "<b>Nomor diganti</b>\n\nNomor baru: <code>".e((string) $order->phone_number)."</code>\nStatus: <b>PENDING</b>",
+                null,
+                $this->orderActionKeyboard($order)
             );
         } catch (\Throwable $e) {
             $this->sendMessage($bot, $chatId, 'Gagal ganti nomor: '.$e->getMessage(), $this->mainKeyboard());
         }
     }
 
-    protected function resendPending(TelegramBot $bot, $member, $chatId): void
+    protected function resendPending(TelegramBot $bot, $member, $chatId, ?int $orderId = null): void
     {
         $order = OtpOrder::query()
             ->where('bot_member_id', $member->id)
             ->where('status', 'pending')
+            ->when($orderId, fn ($q) => $q->whereKey($orderId))
             ->latest()
             ->first();
 
@@ -921,17 +1018,24 @@ class TelegramBotService
 
         try {
             app(OtpOrderService::class)->resend($order);
-            $this->sendMessage($bot, $chatId, 'Permintaan ulang OTP telah dikirim (gratis). Pantau lewat menu Status.', $this->mainKeyboard());
+            $this->sendMessage(
+                $bot,
+                $chatId,
+                'Permintaan ulang OTP telah dikirim (gratis). Pantau lewat tombol Cek OTP.',
+                null,
+                $this->orderActionKeyboard($order)
+            );
         } catch (\Throwable $e) {
             $this->sendMessage($bot, $chatId, 'Gagal mengirim ulang: '.$e->getMessage(), $this->mainKeyboard());
         }
     }
 
-    protected function statusPending(TelegramBot $bot, $member, $chatId): void
+    protected function statusPending(TelegramBot $bot, $member, $chatId, ?int $orderId = null): void
     {
         $order = OtpOrder::query()
             ->where('bot_member_id', $member->id)
             ->where('status', 'pending')
+            ->when($orderId, fn ($q) => $q->whereKey($orderId))
             ->latest()
             ->first();
 
@@ -954,7 +1058,8 @@ class TelegramBotService
             'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
             'OTP: <b>'.e($order->otp_code ?: '-')."</b>\n".
             'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.').'</b>',
-            $this->mainKeyboard()
+            null,
+            $this->orderActionKeyboard($order)
         );
     }
 
@@ -963,7 +1068,8 @@ class TelegramBotService
         $data = (string) ($callback['data'] ?? '');
         $chatId = $callback['message']['chat']['id'] ?? null;
         $messageId = $callback['message']['message_id'] ?? null;
-        $fromId = (string) ($callback['from']['id'] ?? $chatId);
+        $from = $callback['from'] ?? [];
+        $fromId = (string) ($from['id'] ?? $chatId);
         $callbackId = $callback['id'] ?? null;
 
         if ($callbackId) {
@@ -982,12 +1088,60 @@ class TelegramBotService
 
         $this->currentBot = $bot;
         $this->currentFromId = $fromId;
+        $member = app(OtpOrderService::class)->findOrRegisterMember($bot, $from);
 
         if ($data === 'deposit') {
             if ($messageId) {
                 $this->deleteMessage($bot, $chatId, $messageId);
             }
             $this->sendDepositInfo($bot, $chatId);
+
+            return;
+        }
+
+        if ($data === 'otp_preview_cancel') {
+            if ($messageId) {
+                $this->deleteMessage($bot, $chatId, $messageId);
+            }
+            $this->sendMessage($bot, $chatId, 'Order dibatalkan. Tidak ada saldo yang ditahan.', $this->mainKeyboard());
+
+            return;
+        }
+
+        if (str_starts_with($data, 'otp_confirm:')) {
+            $serviceId = (int) substr($data, strlen('otp_confirm:'));
+            $this->confirmKopkenOrder($bot, $member, $chatId, $serviceId, $messageId ? (int) $messageId : null);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'otp_status:')) {
+            $orderId = (int) substr($data, strlen('otp_status:'));
+            $this->statusPending($bot, $member, $chatId, $orderId);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'otp_change:')) {
+            $orderId = (int) substr($data, strlen('otp_change:'));
+            $this->changePending($bot, $member, $chatId, $orderId);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'otp_resend:')) {
+            $orderId = (int) substr($data, strlen('otp_resend:'));
+            $this->resendPending($bot, $member, $chatId, $orderId);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'otp_cancel:')) {
+            $orderId = (int) substr($data, strlen('otp_cancel:'));
+            if ($messageId) {
+                $this->deleteMessage($bot, $chatId, (int) $messageId);
+            }
+            $this->cancelPending($bot, $member, $chatId, $orderId);
 
             return;
         }
