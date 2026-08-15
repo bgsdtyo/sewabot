@@ -894,12 +894,22 @@ class TelegramBotService
             return;
         }
 
+        $otpOrderService = app(OtpOrderService::class);
+        $stock = $otpOrderService->getServiceStock($service, $bot);
+        $stockFormatted = $stock > 0 ? number_format($stock, 0, ',', '.').' nomor' : '⚠️ Habis (0)';
+
         $text = "<b>Konfirmasi Order OTP</b>\n\n"
             .'Layanan: <b>'.e($service->name)."</b>\n"
+            ."Stok Provider: <b>{$stockFormatted}</b>\n"
             .'Harga (hold): <b>Rp'.number_format($price, 0, ',', '.')."</b>\n"
-            .'Saldo tersedia: <b>'.$member->formattedAvailable()."</b>\n\n"
-            ."Jika dilanjutkan, sistem akan memesan nomor dan menahan saldo.\n"
-            .'Saldo baru dipotong saat OTP masuk.';
+            .'Saldo tersedia: <b>'.$member->formattedAvailable()."</b>\n\n";
+
+        if ($stock <= 0) {
+            $text .= "⚠️ <i>Stok nomor saat ini sedang kosong di provider pusat. Jika tetap di-order dan stok belum terisi, saldo tidak akan berkurang.</i>\n\n";
+        } else {
+            $text .= "Jika dilanjutkan, sistem akan memesan nomor dan menahan saldo.\n";
+        }
+        $text .= 'Saldo baru dipotong saat OTP masuk.';
 
         $this->sendMessage($bot, $chatId, $text, null, [
             'inline_keyboard' => [
@@ -940,11 +950,12 @@ class TelegramBotService
                 removeInlineKeyboard: true
             );
         } catch (\Throwable $e) {
+            $errMessage = (string) $e->getMessage();
             $this->replyOrSend(
                 $bot,
                 $chatId,
                 $previewMessageId,
-                'Gagal: '.$e->getMessage(),
+                "⚠️ <b>Gagal Membuat Order</b>\n\n{$errMessage}",
                 removeInlineKeyboard: true
             );
         }

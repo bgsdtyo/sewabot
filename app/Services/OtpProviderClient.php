@@ -160,11 +160,41 @@ class OtpProviderClient
     protected function throwFromResponse($response, string $fallback): void
     {
         $body = $response->json();
-        $message = $body['message'] ?? $body['error'] ?? $fallback.' (HTTP '.$response->status().')';
+        $rawMessage = $body['message'] ?? $body['error'] ?? $body['errors'] ?? null;
+
+        if (is_array($rawMessage)) {
+            $flattened = [];
+            array_walk_recursive($rawMessage, function ($val) use (&$flattened) {
+                if (is_string($val) || is_numeric($val)) {
+                    $flattened[] = (string) $val;
+                }
+            });
+            $message = ! empty($flattened) ? implode(', ', $flattened) : (string) json_encode($rawMessage);
+        } elseif (is_string($rawMessage) && trim($rawMessage) !== '') {
+            $message = trim($rawMessage);
+        } else {
+            $message = $fallback.' (HTTP '.$response->status().')';
+        }
+
+        // Friendly Indonesian translations for provider errors
+        if (
+            stripos($message, 'out of stock') !== false ||
+            stripos($message, 'no stock') !== false ||
+            stripos($message, 'stock empty') !== false ||
+            stripos($message, 'habis') !== false ||
+            stripos($message, 'no number') !== false ||
+            stripos($message, 'empty') !== false ||
+            stripos($message, 'stok') !== false
+        ) {
+            $message = 'Stok nomor untuk layanan ini sedang habis di provider pusat. Silakan coba beberapa saat lagi.';
+        } elseif (stripos($message, 'balance') !== false || stripos($message, 'saldo') !== false) {
+            $message = 'Saldo API provider pusat bot tidak mencukupi untuk memesan nomor. Silakan hubungi admin bot.';
+        }
 
         Log::warning('OTP provider error', [
             'status' => $response->status(),
             'body' => $response->body(),
+            'parsed_message' => $message,
         ]);
 
         throw new RuntimeException($message);

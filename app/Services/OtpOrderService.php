@@ -56,6 +56,33 @@ class OtpOrderService
         return $count;
     }
 
+    public function getServiceStock(OtpService $service, ?TelegramBot $bot = null): int
+    {
+        if ($bot && filled($bot->otp_api_key)) {
+            try {
+                $cacheKey = "bot_{$bot->id}_svc_{$service->provider_service_id}_stock";
+
+                return (int) cache()->remember($cacheKey, 15, function () use ($bot, $service) {
+                    $services = $this->provider->forBot($bot)->getServices();
+                    foreach ($services as $item) {
+                        if ((int) ($item['id'] ?? 0) === (int) $service->provider_service_id) {
+                            $stock = (int) ($item['stock'] ?? $item['count'] ?? $item['available'] ?? 0);
+                            $service->update(['stock' => $stock]);
+
+                            return $stock;
+                        }
+                    }
+
+                    return (int) $service->stock;
+                });
+            } catch (\Throwable $e) {
+                Log::warning('Failed fetching live stock from provider: '.$e->getMessage());
+            }
+        }
+
+        return (int) $service->stock;
+    }
+
     public function findOrRegisterMember(TelegramBot $bot, array $from): BotMember
     {
         $chatId = (string) ($from['id'] ?? '');
