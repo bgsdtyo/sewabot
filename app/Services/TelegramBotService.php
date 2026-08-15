@@ -909,6 +909,7 @@ class TelegramBotService
         try {
             $order = app(OtpOrderService::class)->requestOtp($bot, $member, $service);
             $this->sendOrderCreatedMessage($bot, $chatId, $order, $previewMessageId);
+            app(OtpOrderWatcher::class)->start($order);
         } catch (ValidationException $e) {
             $this->replyOrSend(
                 $bot,

@@ -4,6 +4,7 @@ use App\Http\Controllers\BotDetailController;
 use App\Http\Controllers\CheckoutController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LandingController;
+use App\Http\Controllers\OtpWatchController;
 use App\Http\Controllers\PaymentHistoryController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\TelegramWebhookController;
@@ -13,6 +14,10 @@ Route::get('/', LandingController::class)->name('landing');
 
 Route::post('/telegram/webhook/{telegramBot}', TelegramWebhookController::class)
     ->name('telegram.webhook');
+
+Route::get('/internal/otp-watch/{order}', OtpWatchController::class)
+    ->middleware('signed')
+    ->name('otp.watch');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');

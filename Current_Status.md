@@ -1,6 +1,7 @@
 # Current Status — SewaBot MVP
 
 ## Updated
+2026-08-15 — Auto-watch OTP tiap 2s setelah order (tanpa klik Cek OTP / tanpa andalkan cron)
 2026-08-15 — OTP masuk otomatis edit bubble (tanpa klik Cek OTP); poll 30s; cache message_id
 2026-08-15 — Cek OTP: edit bubble only (no spam fallback); OTP masuk edit bubble
 2026-08-15 — OTP masuk: edit bubble order (status SELESAI), simpan telegram_message_id
