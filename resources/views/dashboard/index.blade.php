@@ -148,7 +148,7 @@
                                 </div>
                             </div>
 
-                            <form method="POST" action="{{ route('bots.members.topup', [$bot, $member]) }}"
+                            <form method="POST" action="{{ route('bots.members.topup', ['telegramBot' => $bot, 'botMember' => $member]) }}"
                                   class="mt-5 flex flex-col gap-3 border-t border-brand-100 pt-4 sm:flex-row sm:items-center">
                                 @csrf
                                 <input type="number" name="amount" min="100" step="100" required placeholder="Nominal topup"

@@ -126,21 +126,21 @@ class BotDetailController extends Controller
         }
     }
 
-    public function topup(Request $request, TelegramBot $telegramBot, BotMember $member, WalletService $wallet): RedirectResponse
+    public function topup(Request $request, TelegramBot $telegramBot, BotMember $botMember, WalletService $wallet): RedirectResponse
     {
         $this->authorizeOwner($telegramBot);
-        abort_unless($member->telegram_bot_id === $telegramBot->id, 404);
+        abort_unless((int) $botMember->telegram_bot_id === (int) $telegramBot->id, 404);
 
         $data = $request->validate([
             'amount' => ['required', 'integer', 'min:100'],
             'note' => ['nullable', 'string', 'max:200'],
         ]);
 
-        $wallet->topup($member, (int) $data['amount'], $data['note'] ?? 'Topup oleh owner');
+        $wallet->topup($botMember, (int) $data['amount'], $data['note'] ?? 'Topup oleh owner');
 
         return redirect()
-            ->route('dashboard', ['members' => $request->query('members')])
-            ->with('success', 'Saldo '.$member->displayName().' ditambah Rp'.number_format($data['amount'], 0, ',', '.'));
+            ->route('dashboard')
+            ->with('success', 'Saldo '.$botMember->displayName().' ditambah Rp'.number_format($data['amount'], 0, ',', '.'));
     }
 
     protected function authorizeOwner(TelegramBot $bot): void
