@@ -115,7 +115,6 @@ class TelegramBotService
         $chatId = $message['chat']['id'] ?? null;
         $from = $message['from'] ?? [];
         $text = trim((string) ($message['text'] ?? ''));
-        $userMessageId = $message['message_id'] ?? null;
 
         if (! $chatId) {
             return;
@@ -124,47 +123,77 @@ class TelegramBotService
         $otp = app(OtpOrderService::class);
         $member = $otp->findOrRegisterMember($bot, $from);
 
-        $handled = true;
-
         if (str_starts_with($text, '/start')) {
             $this->sendMessage($bot, $chatId, $this->welcomeText($bot, $member), $this->mainKeyboard());
-        } elseif (str_starts_with($text, '/help') || $this->isButton($text, 'Bantuan')) {
+
+            return;
+        }
+
+        if (str_starts_with($text, '/help') || $this->isButton($text, 'Bantuan')) {
             $this->sendMessage($bot, $chatId, $this->helpText($bot, $member), $this->mainKeyboard());
-        } elseif (str_starts_with($text, '/saldo') || str_starts_with($text, '/balance') || $this->isButton($text, 'Saldo')) {
+
+            return;
+        }
+
+        if (str_starts_with($text, '/saldo') || str_starts_with($text, '/balance') || $this->isButton($text, 'Saldo')) {
             $this->sendBalance($bot, $member, $chatId);
-        } elseif (str_starts_with($text, '/deposit') || $this->isButton($text, 'Deposit')) {
+
+            return;
+        }
+
+        if (str_starts_with($text, '/deposit') || $this->isButton($text, 'Deposit')) {
             $this->sendDepositInfo($bot, $chatId);
-        } elseif (
+
+            return;
+        }
+
+        if (
             str_starts_with($text, '/otp')
             || str_starts_with($text, '/kopken')
             || strcasecmp($text, 'KOPKEN') === 0
             || $this->isButton($text, 'Order OTP')
         ) {
             $this->startKopken($bot, $member, $chatId);
-        } elseif (str_starts_with($text, '/batal') || str_starts_with($text, '/cancel') || $this->isButton($text, 'Batalkan')) {
-            $this->cancelPending($bot, $member, $chatId);
-        } elseif (str_starts_with($text, '/ganti') || $this->isButton($text, 'Ganti Nomor')) {
-            $this->changePending($bot, $member, $chatId);
-        } elseif (str_starts_with($text, '/ulang') || str_starts_with($text, '/resend') || $this->isButton($text, 'Ulang OTP')) {
-            $this->resendPending($bot, $member, $chatId);
-        } elseif (str_starts_with($text, '/status') || $this->isButton($text, 'Status')) {
-            $this->statusPending($bot, $member, $chatId);
-        } elseif ($this->isButton($text, 'Riwayat')) {
-            $this->showHistory($bot, $member, $chatId);
-        } else {
-            $handled = false;
-            $this->sendMessage(
-                $bot,
-                $chatId,
-                "Perintah tidak dikenali.\n\n".$this->helpText($bot, $member),
-                $this->mainKeyboard()
-            );
+
+            return;
         }
 
-        // Unsend bubble tombol user (menu reply keyboard) biar chat rapi.
-        if ($handled && $userMessageId && ! str_starts_with($text, '/')) {
-            $this->deleteMessage($bot, $chatId, (int) $userMessageId);
+        if (str_starts_with($text, '/batal') || str_starts_with($text, '/cancel') || $this->isButton($text, 'Batalkan')) {
+            $this->cancelPending($bot, $member, $chatId);
+
+            return;
         }
+
+        if (str_starts_with($text, '/ganti') || $this->isButton($text, 'Ganti Nomor')) {
+            $this->changePending($bot, $member, $chatId);
+
+            return;
+        }
+
+        if (str_starts_with($text, '/ulang') || str_starts_with($text, '/resend') || $this->isButton($text, 'Ulang OTP')) {
+            $this->resendPending($bot, $member, $chatId);
+
+            return;
+        }
+
+        if (str_starts_with($text, '/status') || $this->isButton($text, 'Status')) {
+            $this->statusPending($bot, $member, $chatId);
+
+            return;
+        }
+
+        if ($this->isButton($text, 'Riwayat')) {
+            $this->showHistory($bot, $member, $chatId);
+
+            return;
+        }
+
+        $this->sendMessage(
+            $bot,
+            $chatId,
+            "Perintah tidak dikenali.\n\n".$this->helpText($bot, $member),
+            $this->mainKeyboard()
+        );
     }
 
     protected function isButton(string $text, string $label): bool
