@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class OtpOrder extends Model
 {
     protected $fillable = [
+        'batch_id',
         'telegram_bot_id',
         'bot_member_id',
         'otp_service_id',
@@ -52,5 +53,22 @@ class OtpOrder extends Model
     public function otpService(): BelongsTo
     {
         return $this->belongsTo(OtpService::class);
+    }
+
+    public function isPartOfBatch(): bool
+    {
+        return filled($this->batch_id);
+    }
+
+    public function getBatchOrders()
+    {
+        if (! $this->isPartOfBatch()) {
+            return collect([$this]);
+        }
+
+        return static::query()
+            ->where('batch_id', $this->batch_id)
+            ->orderBy('id', 'asc')
+            ->get();
     }
 }

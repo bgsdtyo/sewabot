@@ -845,8 +845,10 @@ class TelegramBotService
         ?int $serviceId = null,
         ?int $editMessageId = null,
         bool $forceFreshStock = false,
-        ?string $callbackId = null
+        ?string $callbackId = null,
+        int $quantity = 1
     ): void {
+        $quantity = max(1, min(5, $quantity));
         $service = ($serviceId ? OtpService::sellable()->whereKey($serviceId)->first() : null) ?? $this->kopkenService();
 
         if (! $service) {
@@ -868,31 +870,45 @@ class TelegramBotService
             ->first();
 
         if ($pending) {
-            $text = $this->formatOrderCard(
-                $pending,
-                title: 'Masih Ada Order Aktif ⚠️',
-                footer: 'Selesaikan / batalkan order ini dulu sebelum membuat order baru.'
-            );
+            if ($pending->isPartOfBatch()) {
+                $batchOrders = $pending->getBatchOrders();
+                $text = $this->formatBatchOrderCard(
+                    $batchOrders,
+                    title: 'Masih Ada Order Aktif ⚠️',
+                    footer: 'Selesaikan / batalkan order ini dulu sebelum membuat order baru.'
+                );
+                $kb = $this->batchOrderActionKeyboard($batchOrders);
+            } else {
+                $text = $this->formatOrderCard(
+                    $pending,
+                    title: 'Masih Ada Order Aktif ⚠️',
+                    footer: 'Selesaikan / batalkan order ini dulu sebelum membuat order baru.'
+                );
+                $kb = $this->orderActionKeyboard($pending);
+            }
 
             $this->replyOrSend(
                 $bot,
                 $chatId,
                 $editMessageId,
                 $text,
-                inlineKeyboard: $this->orderActionKeyboard($pending)
+                inlineKeyboard: $kb
             );
 
             return;
         }
 
-        $price = $bot->sellPriceFor($service->provider_price);
+        $unitPrice = $bot->sellPriceFor($service->provider_price);
+        $totalPrice = $unitPrice * $quantity;
         $available = $member->availableBalance();
+        $afterHold = max(0, $available - $totalPrice);
 
-        if ($available < $price) {
-            $formattedPrice = 'Rp '.number_format($price, 0, ',', '.');
+        if ($available < $totalPrice) {
+            $formattedTotal = 'Rp '.number_format($totalPrice, 0, ',', '.');
             $text = "<b>Saldo Tidak Cukup</b> ⚠️\n\n"
                 ."❏ Layanan: <b>".e($service->name)."</b>\n"
-                ."├  Harga: <b>{$formattedPrice}</b>\n"
+                ."├  Jumlah: <b>{$quantity}x nomor</b>\n"
+                ."├  Total Biaya: <b>{$formattedTotal}</b>\n"
                 ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
                 ."└  Status: <b>Perlu Deposit</b>\n\n"
                 ."<i>Silakan deposit saldo terlebih dahulu melalui menu Deposit.</i>";
@@ -916,7 +932,9 @@ class TelegramBotService
         $otpOrderService = app(OtpOrderService::class);
         $stock = $otpOrderService->getServiceStock($service, $bot, $forceFreshStock);
         $stockFormatted = $stock > 0 ? number_format($stock, 0, ',', '.').' nomor' : '0 (Habis)';
-        $formattedPrice = 'Rp '.number_format($price, 0, ',', '.');
+        $formattedUnitPrice = 'Rp '.number_format($unitPrice, 0, ',', '.');
+        $formattedTotalHold = 'Rp '.number_format($totalPrice, 0, ',', '.');
+        $formattedAfterHold = 'Rp '.number_format($afterHold, 0, ',', '.');
         $tz = config('app.timezone', 'Asia/Jakarta');
         $checkTime = now()->timezone($tz)->format('H:i:s');
 
@@ -939,7 +957,7 @@ class TelegramBotService
         if ($stock <= 0) {
             $text = "<b>Stok Nomor Habis</b> ⚠️\n\n"
                 ."❏ Layanan: <b>".e($service->name)."</b>\n"
-                ."├  Harga: <b>{$formattedPrice}</b>\n"
+                ."├  Harga: <b>{$formattedUnitPrice}</b>\n"
                 ."├  Stok Nomor: <b>0 (Habis)</b>\n"
                 ."├  Cek Terakhir: <b>{$checkTime} WIB</b>\n"
                 ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
@@ -953,20 +971,32 @@ class TelegramBotService
                 ],
             ];
         } else {
-            $text = "<b>Konfirmasi Order OTP</b> 📲\n\n"
+            $text = "<b>Konfirmasi Pesanan</b> 📲\n\n"
                 ."❏ Layanan: <b>".e($service->name)."</b>\n"
-                ."├  Harga: <b>{$formattedPrice}</b> (Hold)\n"
+                ."├  Harga: <b>{$formattedUnitPrice} × {$quantity}</b>\n"
+                ."├  Total Hold: <b>{$formattedTotalHold}</b>\n"
+                ."├  Waktu: <b>20 menit</b>\n"
                 ."├  Stok Nomor: <b>{$stockFormatted}</b>\n"
-                ."├  Cek Terakhir: <b>{$checkTime} WIB</b>\n"
                 ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
-                ."└  Status: <b>Siap Dipesan</b>\n\n"
-                ."<i>Jika dilanjutkan, sistem akan memesan nomor dan menahan saldo. Saldo baru dipotong saat OTP masuk.</i>";
+                ."└  Setelah Hold: <b>{$formattedAfterHold}</b>\n\n"
+                ."💡 <i>Saldo akan otomatis terpotong setelah OTP berhasil diterima, jika terjadi pembatalan, saldo otomatis dikembalikan atau 'refund'</i>";
+
+            // Row 1: Quantity selector (1x - 5x)
+            $qtyRow = [];
+            for ($q = 1; $q <= 5; $q++) {
+                $label = $q === $quantity ? "✅ {$q}x" : "{$q}x";
+                $qtyRow[] = ['text' => $label, 'callback_data' => "otp_qty:{$service->id}:{$q}"];
+            }
+
+            // Row 2: Actions
+            $actionRow = [
+                ['text' => '❌ Batal', 'callback_data' => 'otp_preview_cancel'],
+                ['text' => '⚡ Konfirmasi', 'callback_data' => "otp_confirm:{$service->id}:{$quantity}"],
+            ];
 
             $buttons = [
-                [
-                    ['text' => '✅ Ya, Order', 'callback_data' => 'otp_confirm:'.$service->id],
-                    ['text' => '❌ Batal', 'callback_data' => 'otp_preview_cancel'],
-                ],
+                $qtyRow,
+                $actionRow,
             ];
         }
 
@@ -975,8 +1005,15 @@ class TelegramBotService
         ]);
     }
 
-    protected function confirmKopkenOrder(TelegramBot $bot, $member, int|string $chatId, int $serviceId, ?int $previewMessageId = null): void
-    {
+    protected function confirmKopkenOrder(
+        TelegramBot $bot,
+        $member,
+        int|string $chatId,
+        int $serviceId,
+        int $quantity = 1,
+        ?int $previewMessageId = null
+    ): void {
+        $quantity = max(1, min(5, $quantity));
         $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService();
 
         if (! $service) {
@@ -1006,9 +1043,17 @@ class TelegramBotService
         }
 
         try {
-            $order = app(OtpOrderService::class)->requestOtp($bot, $member, $service);
-            $this->sendOrderCreatedMessage($bot, $chatId, $order, $previewMessageId);
-            app(OtpOrderWatcher::class)->start($order);
+            if ($quantity > 1) {
+                $orders = $otpOrderService->requestBulkOtp($bot, $member, $service, $quantity);
+                $this->sendBatchOrderCreatedMessage($bot, $chatId, $orders, $previewMessageId);
+                foreach ($orders as $order) {
+                    app(OtpOrderWatcher::class)->start($order);
+                }
+            } else {
+                $order = $otpOrderService->requestOtp($bot, $member, $service);
+                $this->sendOrderCreatedMessage($bot, $chatId, $order, $previewMessageId);
+                app(OtpOrderWatcher::class)->start($order);
+            }
         } catch (ValidationException $e) {
             $this->replyOrSend(
                 $bot,
@@ -1074,6 +1119,147 @@ class TelegramBotService
         }
 
         return implode('', $lines);
+    }
+
+    public function formatBatchOrderCard(
+        $orders,
+        ?string $title = null,
+        ?string $footer = null
+    ): string {
+        $orders = collect($orders);
+        $first = $orders->first();
+        $totalHold = $orders->sum('sell_price');
+
+        $lines = [];
+        if ($title) {
+            $lines[] = "<b>{$title}</b>\n\n";
+        }
+
+        $numIcons = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣'];
+
+        foreach ($orders as $index => $order) {
+            $numIcon = $numIcons[$index] ?? ('#'.($index + 1));
+            $phone = $this->formatPhoneNumber($order->phone_number);
+            $phoneStr = $phone !== '' ? '<code>'.e($phone).'</code>' : '<i>Menunggu nomor...</i>';
+            $otp = filled($order->otp_code) ? '<code>'.e((string) $order->otp_code).'</code> ✅' : '<code>⏳ Menunggu OTP...</code>';
+            $status = match (strtolower((string) $order->status)) {
+                'completed' => '<b>Berhasil</b> 🎉',
+                'pending' => 'Pending',
+                'cancelled', 'canceled' => 'Dibatalkan',
+                'expired' => 'Kedaluwarsa',
+                default => ucfirst((string) $order->status),
+            };
+
+            $lines[] = "{$numIcon} {$phoneStr}\n"
+                ."├  OTP: {$otp}\n"
+                ."└  Status: {$status}\n\n";
+        }
+
+        $formattedTotalHold = 'Rp '.number_format($totalHold, 0, ',', '.');
+        $lines[] = "Total Hold: <b>{$formattedTotalHold}</b>";
+
+        if ($footer) {
+            $lines[] = "\n{$footer}";
+        }
+
+        return implode('', $lines);
+    }
+
+    public function batchOrderActionKeyboard($orders): array
+    {
+        $orders = collect($orders);
+        $pendingOrders = $orders->where('status', 'pending');
+        $first = $orders->first();
+        $serviceId = $first?->otp_service_id ?: 0;
+        $batchId = $first?->batch_id;
+
+        $buttons = [];
+
+        if ($pendingOrders->isNotEmpty() && $batchId) {
+            $buttons[] = [
+                ['text' => '🔄 Cek Status Semua', 'callback_data' => 'otp_batch_status:'.$batchId],
+                ['text' => '❌ Batalkan Semua', 'callback_data' => 'otp_batch_cancel:'.$batchId],
+            ];
+        } else {
+            $buttons[] = [
+                ['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.$serviceId],
+            ];
+        }
+
+        return ['inline_keyboard' => $buttons];
+    }
+
+    protected function sendBatchOrderCreatedMessage(TelegramBot $bot, int|string $chatId, array $orders, ?int $editMessageId = null): void
+    {
+        $ordersColl = collect($orders);
+        $first = $ordersColl->first();
+        $service = e($first?->otpService?->name ?? 'Kopken');
+        $count = $ordersColl->count();
+
+        $text = $this->formatBatchOrderCard(
+            $ordersColl,
+            title: "Order {$service} ({$count} Nomor) Sedang Diproses 📲",
+            footer: 'Saldo ditahan. Bubble ini akan otomatis terupdate saat OTP masuk.'
+        );
+
+        $messageId = $this->replyOrSend(
+            $bot,
+            $chatId,
+            $editMessageId,
+            $text,
+            inlineKeyboard: $this->batchOrderActionKeyboard($ordersColl)
+        );
+
+        foreach ($ordersColl as $order) {
+            $this->rememberOrderMessage($order, $messageId);
+        }
+    }
+
+    public function notifyBatchOrderUpdated(TelegramBot $bot, $member, $orders): void
+    {
+        $orders = collect($orders);
+        if ($orders->isEmpty()) {
+            return;
+        }
+
+        $first = $orders->first();
+        $service = e($first->otpService?->name ?? 'Kopken');
+        $hasCompleted = $orders->where('status', 'completed')->isNotEmpty();
+        $allCompleted = $orders->every(fn ($o) => $o->status === 'completed');
+        $allCancelledOrExpired = $orders->every(fn ($o) => in_array($o->status, ['cancelled', 'expired'], true));
+
+        $title = match (true) {
+            $allCompleted => "Order {$service} — Semua OTP Berhasil 🎉",
+            $hasCompleted => "Order {$service} — Update OTP Masuk 🎉",
+            $allCancelledOrExpired => "Order {$service} — Selesai / Dibatalkan",
+            default => "Order {$service} ({$orders->count()} Nomor) 📲",
+        };
+
+        $text = $this->formatBatchOrderCard(
+            $orders,
+            title: $title,
+            footer: 'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>'
+        );
+
+        $keyboard = $this->batchOrderActionKeyboard($orders);
+        $messageId = $this->orderMessageId($first);
+
+        if ($messageId) {
+            $edited = $this->editMessage(
+                $bot,
+                $member->telegram_chat_id,
+                $messageId,
+                $text,
+                $keyboard,
+                false
+            );
+
+            if ($edited) {
+                return;
+            }
+        }
+
+        $this->sendMessage($bot, $member->telegram_chat_id, $text, null, $keyboard);
     }
 
     protected function sendOrderCreatedMessage(TelegramBot $bot, int|string $chatId, OtpOrder $order, ?int $editMessageId = null): void
@@ -1234,9 +1420,9 @@ class TelegramBotService
 
             $service = e($order->otpService?->name ?? 'Kopken');
             $text = $this->formatOrderCard(
-                $order,
-                title: "Order {$service} — Dibatalkan ❌",
-                footer: "Hold saldo sudah dikembalikan.\nSaldo tersedia: <b>".$member->fresh()->formattedAvailable().'</b>',
+                $order->fresh(),
+                title: "Order {$service} Dibatalkan ❌",
+                footer: 'Saldo telah dikembalikan: <b>'.$member->fresh()->formattedAvailable().'</b>',
                 statusOverride: 'Dibatalkan'
             );
 
@@ -1245,17 +1431,103 @@ class TelegramBotService
                 $chatId,
                 $editMessageId ?? $this->orderMessageId($order),
                 $text,
-                removeInlineKeyboard: true
+                inlineKeyboard: [
+                    'inline_keyboard' => [
+                        [['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)]],
+                    ],
+                ]
             );
         } catch (\Throwable $e) {
             $this->replyOrSend(
                 $bot,
                 $chatId,
-                $editMessageId,
-                'Gagal membatalkan: '.$e->getMessage(),
-                removeInlineKeyboard: true
+                $editMessageId ?? $this->orderMessageId($order),
+                'Gagal membatalkan order: '.$e->getMessage(),
+                inlineKeyboard: $this->orderActionKeyboard($order)
             );
         }
+    }
+
+    protected function statusBatchPending(
+        TelegramBot $bot,
+        $member,
+        int|string $chatId,
+        string $batchId,
+        ?int $messageId = null,
+        ?string $callbackId = null
+    ): void {
+        $orders = OtpOrder::query()
+            ->where('batch_id', $batchId)
+            ->where('bot_member_id', $member->id)
+            ->get();
+
+        if ($orders->isEmpty()) {
+            $this->replyOrSend($bot, $chatId, $messageId, 'Pesanan tidak ditemukan.', removeInlineKeyboard: true);
+
+            return;
+        }
+
+        $otpService = app(OtpOrderService::class);
+        $freshOrders = collect();
+        foreach ($orders as $order) {
+            if ($order->status === 'pending') {
+                $fresh = $otpService->refreshOrder($order);
+                $freshOrders->push($fresh);
+            } else {
+                $freshOrders->push($order);
+            }
+        }
+
+        $tz = config('app.timezone', 'Asia/Jakarta');
+        $checkTime = now()->timezone($tz)->format('H:i:s');
+        $completedCount = $freshOrders->where('status', 'completed')->count();
+        $totalCount = $freshOrders->count();
+
+        if ($callbackId) {
+            try {
+                $toast = "Status diperbarui ({$completedCount}/{$totalCount} OTP masuk) pada {$checkTime} WIB";
+                Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                    'callback_query_id' => $callbackId,
+                    'text' => $toast,
+                    'show_alert' => false,
+                ]);
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
+
+        $this->notifyBatchOrderUpdated($bot, $member, $freshOrders);
+    }
+
+    protected function cancelBatchPending(
+        TelegramBot $bot,
+        $member,
+        int|string $chatId,
+        string $batchId,
+        ?int $messageId = null
+    ): void {
+        $orders = OtpOrder::query()
+            ->where('batch_id', $batchId)
+            ->where('bot_member_id', $member->id)
+            ->where('status', 'pending')
+            ->get();
+
+        $otpService = app(OtpOrderService::class);
+
+        foreach ($orders as $order) {
+            try {
+                $otpService->cancelOrder($order);
+            } catch (\Throwable $e) {
+                Log::warning("Gagal cancel order #{$order->id} in batch: ".$e->getMessage());
+            }
+        }
+
+        $allOrders = OtpOrder::query()
+            ->where('batch_id', $batchId)
+            ->where('bot_member_id', $member->id)
+            ->get();
+
+        $this->notifyBatchOrderUpdated($bot, $member, $allOrders);
     }
 
     protected function changePending(TelegramBot $bot, $member, $chatId, ?int $orderId = null, ?int $editMessageId = null): void
@@ -1553,9 +1825,41 @@ class TelegramBotService
             return;
         }
 
+        if (str_starts_with($data, 'otp_qty:')) {
+            $parts = explode(':', substr($data, strlen('otp_qty:')));
+            $serviceId = (int) ($parts[0] ?? 0);
+            $qty = (int) ($parts[1] ?? 1);
+            $this->startOrderForService(
+                $bot,
+                $member,
+                $chatId,
+                $serviceId,
+                $messageId ? (int) $messageId : null,
+                quantity: $qty
+            );
+
+            return;
+        }
+
         if (str_starts_with($data, 'otp_confirm:')) {
-            $serviceId = (int) substr($data, strlen('otp_confirm:'));
-            $this->confirmKopkenOrder($bot, $member, $chatId, $serviceId, $messageId ? (int) $messageId : null);
+            $parts = explode(':', substr($data, strlen('otp_confirm:')));
+            $serviceId = (int) ($parts[0] ?? 0);
+            $qty = (int) ($parts[1] ?? 1);
+            $this->confirmKopkenOrder($bot, $member, $chatId, $serviceId, $qty, $messageId ? (int) $messageId : null);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'otp_batch_status:')) {
+            $batchId = substr($data, strlen('otp_batch_status:'));
+            $this->statusBatchPending($bot, $member, $chatId, $batchId, $messageId ? (int) $messageId : null, $callbackId);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'otp_batch_cancel:')) {
+            $batchId = substr($data, strlen('otp_batch_cancel:'));
+            $this->cancelBatchPending($bot, $member, $chatId, $batchId, $messageId ? (int) $messageId : null);
 
             return;
         }

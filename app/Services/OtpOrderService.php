@@ -128,6 +128,19 @@ class OtpOrderService
 
     public function requestOtp(TelegramBot $bot, BotMember $member, OtpService $service): OtpOrder
     {
+        $orders = $this->requestBulkOtp($bot, $member, $service, 1);
+
+        return $orders[0];
+    }
+
+    /**
+     * Create 1x - 5x bulk OTP orders under a single batch.
+     *
+     * @return array<OtpOrder>
+     */
+    public function requestBulkOtp(TelegramBot $bot, BotMember $member, OtpService $service, int $quantity = 1): array
+    {
+        $quantity = max(1, min(5, $quantity));
         $this->ensureBotApiKey($bot);
 
         if (! $service->is_enabled || ! $service->is_active) {
@@ -135,10 +148,11 @@ class OtpOrderService
         }
 
         $sellPrice = $bot->sellPriceFor($service->provider_price);
+        $totalPrice = $sellPrice * $quantity;
 
-        if ($member->availableBalance() < $sellPrice) {
+        if ($member->availableBalance() < $totalPrice) {
             throw ValidationException::withMessages([
-                'balance' => 'Saldo tidak cukup. Harga Rp'.number_format($sellPrice, 0, ',', '.').', tersedia '.$member->formattedAvailable(),
+                'balance' => 'Saldo tidak cukup untuk '.$quantity.' nomor. Total: Rp '.number_format($totalPrice, 0, ',', '.').', tersedia: '.$member->formattedAvailable(),
             ]);
         }
 
@@ -151,42 +165,62 @@ class OtpOrderService
             throw ValidationException::withMessages(['order' => 'Masih ada OTP pending. Batalkan dulu atau tunggu selesai.']);
         }
 
-        return DB::transaction(function () use ($bot, $member, $service, $sellPrice) {
-            $order = OtpOrder::create([
-                'telegram_bot_id' => $bot->id,
-                'bot_member_id' => $member->id,
-                'otp_service_id' => $service->id,
-                'idempotency_key' => (string) Str::uuid(),
-                'provider_price' => $service->provider_price,
-                'sell_price' => $sellPrice,
-                'status' => 'pending',
-                'wallet_status' => 'none',
-            ]);
+        $batchId = $quantity > 1 ? (string) Str::uuid() : null;
+        $orders = [];
+        $errors = [];
 
-            $this->wallet->hold($member, $sellPrice, OtpOrder::class, $order->id);
-            $order->update(['wallet_status' => 'held']);
-
+        for ($i = 0; $i < $quantity; $i++) {
             try {
-                $data = $this->provider->forBot($bot)->createOrder($service->provider_service_id, $order->idempotency_key);
+                $order = DB::transaction(function () use ($bot, $member, $service, $sellPrice, $batchId) {
+                    $item = OtpOrder::create([
+                        'batch_id' => $batchId,
+                        'telegram_bot_id' => $bot->id,
+                        'bot_member_id' => $member->id,
+                        'otp_service_id' => $service->id,
+                        'idempotency_key' => (string) Str::uuid(),
+                        'provider_price' => $service->provider_price,
+                        'sell_price' => $sellPrice,
+                        'status' => 'pending',
+                        'wallet_status' => 'none',
+                    ]);
+
+                    $this->wallet->hold($member, $sellPrice, OtpOrder::class, $item->id);
+                    $item->update(['wallet_status' => 'held']);
+
+                    try {
+                        $data = $this->provider->forBot($bot)->createOrder($service->provider_service_id, $item->idempotency_key);
+                    } catch (\Throwable $e) {
+                        $this->wallet->releaseHold($member->fresh(), $sellPrice, OtpOrder::class, $item->id, 'Refund: gagal order provider');
+                        $item->update([
+                            'status' => 'cancelled',
+                            'wallet_status' => 'refunded',
+                            'cancelled_at' => now(),
+                        ]);
+                        throw $e;
+                    }
+
+                    $item->update([
+                        'provider_order_id' => $data['id'] ?? null,
+                        'phone_number' => $data['phone_number'] ?? null,
+                        'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : null,
+                        'raw_payload' => $data,
+                    ]);
+
+                    return $item->fresh(['otpService', 'botMember']);
+                });
+
+                $orders[] = $order;
             } catch (\Throwable $e) {
-                $this->wallet->releaseHold($member->fresh(), $sellPrice, OtpOrder::class, $order->id, 'Refund: gagal order provider');
-                $order->update([
-                    'status' => 'cancelled',
-                    'wallet_status' => 'refunded',
-                    'cancelled_at' => now(),
-                ]);
-                throw $e;
+                $errors[] = $e->getMessage();
             }
+        }
 
-            $order->update([
-                'provider_order_id' => $data['id'] ?? null,
-                'phone_number' => $data['phone_number'] ?? null,
-                'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : null,
-                'raw_payload' => $data,
-            ]);
+        if (empty($orders)) {
+            $lastErr = ! empty($errors) ? end($errors) : 'Gagal membuat pesanan OTP.';
+            throw new \RuntimeException($lastErr);
+        }
 
-            return $order->fresh(['otpService', 'botMember']);
-        });
+        return $orders;
     }
 
     public function refreshOrder(OtpOrder $order): OtpOrder
@@ -234,7 +268,11 @@ class OtpOrderService
             $bot = $order->telegramBot;
 
             if ($bot && $member) {
-                $this->telegram->notifyOrderCompleted($bot, $member, $order->fresh());
+                if ($order->isPartOfBatch()) {
+                    $this->telegram->notifyBatchOrderUpdated($bot, $member, $order->getBatchOrders());
+                } else {
+                    $this->telegram->notifyOrderCompleted($bot, $member, $order->fresh());
+                }
             }
         }
 
@@ -280,7 +318,11 @@ class OtpOrderService
         $bot = $completed->telegramBot;
 
         if ($bot && $member) {
-            $this->telegram->notifyOrderCompleted($bot, $member, $completed);
+            if ($completed->isPartOfBatch()) {
+                $this->telegram->notifyBatchOrderUpdated($bot, $member, $completed->getBatchOrders());
+            } else {
+                $this->telegram->notifyOrderCompleted($bot, $member, $completed);
+            }
         }
 
         return $completed;
@@ -305,7 +347,7 @@ class OtpOrderService
 
     protected function refundLocal(OtpOrder $order, string $status): OtpOrder
     {
-        return DB::transaction(function () use ($order, $status) {
+        $refunded = DB::transaction(function () use ($order, $status) {
             $order = OtpOrder::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
 
             if ($order->wallet_status === 'held') {
@@ -323,8 +365,18 @@ class OtpOrderService
             $order->cancelled_at = now();
             $order->save();
 
-            return $order->fresh();
+            return $order->fresh(['otpService', 'botMember', 'telegramBot']);
         });
+
+        if ($refunded->isPartOfBatch()) {
+            $bot = $refunded->telegramBot;
+            $member = $refunded->botMember;
+            if ($bot && $member) {
+                $this->telegram->notifyBatchOrderUpdated($bot, $member, $refunded->getBatchOrders());
+            }
+        }
+
+        return $refunded;
     }
 
     public function changeNumber(OtpOrder $order): OtpOrder
