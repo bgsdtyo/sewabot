@@ -202,16 +202,28 @@ class OtpOrderService
                     $providerOrderId = $data['id'] ?? null;
                     $phone = $data['phone_number'] ?? null;
 
-                    // Quick verification check (gives provider 1.2s to complete its automated WhatsApp health check)
+                    // Verification check loop (gives provider up to ~3.6s to complete its automated WhatsApp health check)
                     if ($providerOrderId) {
-                        try {
-                            usleep(1200000); // 1.2s
-                            $check = $this->provider->forBot($bot)->getOrder($providerOrderId);
-                            if (! empty($check)) {
-                                $data = array_merge($data, $check);
+                        for ($attempt = 1; $attempt <= 3; $attempt++) {
+                            try {
+                                usleep(1200000); // 1.2s per tick
+                                $check = $this->provider->forBot($bot)->getOrder($providerOrderId);
+                                if (! empty($check)) {
+                                    $data = array_merge($data, $check);
+                                    $checkStatus = strtolower((string) ($check['status'] ?? ''));
+                                    $checkReason = $check['cancel_reason'] ?? $check['reason'] ?? $check['message'] ?? null;
+
+                                    if (
+                                        in_array($checkStatus, ['cancelled', 'canceled', 'banned', 'blocked', 'rejected', 'failed', 'completed'], true)
+                                        || stripos((string) $checkReason, 'banned') !== false
+                                        || stripos((string) $checkReason, 'terblokir') !== false
+                                    ) {
+                                        break; // Definite status reached!
+                                    }
+                                }
+                            } catch (\Throwable $chkErr) {
+                                // ignore check error, proceed
                             }
-                        } catch (\Throwable $chkErr) {
-                            // ignore check error, proceed with initial data
                         }
                     }
 
@@ -467,14 +479,26 @@ class OtpOrderService
         $phone = $data['phone_number'] ?? null;
 
         if ($newOrderId) {
-            try {
-                usleep(1200000); // 1.2s
-                $check = $this->provider->forBot($bot)->getOrder($newOrderId);
-                if (! empty($check)) {
-                    $data = array_merge($data, $check);
+            for ($attempt = 1; $attempt <= 3; $attempt++) {
+                try {
+                    usleep(1200000); // 1.2s per tick
+                    $check = $this->provider->forBot($bot)->getOrder($newOrderId);
+                    if (! empty($check)) {
+                        $data = array_merge($data, $check);
+                        $checkStatus = strtolower((string) ($check['status'] ?? ''));
+                        $checkReason = $check['cancel_reason'] ?? $check['reason'] ?? $check['message'] ?? null;
+
+                        if (
+                            in_array($checkStatus, ['cancelled', 'canceled', 'banned', 'blocked', 'rejected', 'failed', 'completed'], true)
+                            || stripos((string) $checkReason, 'banned') !== false
+                            || stripos((string) $checkReason, 'terblokir') !== false
+                        ) {
+                            break; // Definite status reached!
+                        }
+                    }
+                } catch (\Throwable $chkErr) {
+                    // ignore
                 }
-            } catch (\Throwable $chkErr) {
-                // ignore
             }
         }
 
