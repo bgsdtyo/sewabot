@@ -986,7 +986,7 @@ class TelegramBotService
 
         $lines = [];
         if ($title) {
-            $lines[] = "<b>{$title}</b>\n";
+            $lines[] = "<b>{$title}</b>\n\n";
         }
 
         $lines[] = "❏ ID: <code>{$id}</code>\n"
