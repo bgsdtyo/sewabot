@@ -738,37 +738,26 @@ class TelegramBotService
 
     protected function sendDepositInfo(TelegramBot $bot, int|string $chatId): void
     {
-        $bank = trim((string) ($bot->deposit_bank_name ?? ''));
-        $number = trim((string) ($bot->deposit_account_number ?? ''));
-        $name = trim((string) ($bot->deposit_account_name ?? ''));
-
-        if ($bank !== '' || $number !== '' || $name !== '') {
-            $bankStr = $bank !== '' ? e($bank) : '-';
-            $numStr = $number !== '' ? '<code>'.e($number).'</code>' : '-';
-            $nameStr = $name !== '' ? e($name) : '-';
-
-            $text = "<b>Deposit Saldo</b> 📥\n\n"
-                ."❏ Metode: Transfer Manual\n"
-                ."├  Bank / E-Wallet: <b>{$bankStr}</b>\n"
-                ."├  No. Rekening / HP: {$numStr}\n"
-                ."├  Atas Nama: <b>{$nameStr}</b>\n"
-                ."└  Konfirmasi: Hubungi Admin\n\n"
-                ."<i>Setelah transfer, kirim bukti pembayaran ke kontak admin melalui tombol di bawah.</i>";
+        $tgUsername = trim((string) $bot->deposit_telegram);
+        if ($tgUsername !== '') {
+            $adminHandle = str_starts_with($tgUsername, '@') ? $tgUsername : '@'.ltrim($tgUsername, '@');
         } else {
-            $text = "<b>Deposit Saldo</b> 📥\n\n"
-                ."<i>Data rekening belum diisi pemilik bot. Hubungi admin untuk informasi deposit.</i>";
+            $adminHandle = 'Admin';
         }
+
+        $text = "<b>Deposit Saldo</b> 📥\n\n"
+            ."Silakan hubungi admin <b>".e($adminHandle)."</b> atau klik tombol di bawah untuk info pembayaran & konfirmasi deposit saldo.";
 
         $row = [];
-        if ($wa = $bot->depositWhatsappUrl()) {
-            $row[] = ['text' => '💬 WhatsApp', 'url' => $wa];
-        }
         if ($tg = $bot->depositTelegramUrl()) {
-            $row[] = ['text' => '✈️ Telegram', 'url' => $tg];
+            $row[] = ['text' => '✈️ Hubungi Admin Telegram', 'url' => $tg];
+        }
+        if ($wa = $bot->depositWhatsappUrl()) {
+            $row[] = ['text' => '💬 Hubungi WhatsApp', 'url' => $wa];
         }
 
         if ($row === []) {
-            $text .= "\n\n<i>Kontak admin belum dikonfigurasi di Konfigurasi Bot.</i>";
+            $text .= "\n\n<i>Kontak admin belum dikonfigurasi di dashboard web.</i>";
             $this->sendMessage($bot, $chatId, $text, $this->mainKeyboard());
 
             return;

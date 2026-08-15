@@ -289,39 +289,6 @@
                             @enderror
                         </div>
                     </div>
-
-                    <div class="mt-4 grid gap-4 sm:grid-cols-3">
-                        <div>
-                            <label class="mb-2 block text-sm font-semibold text-brand-900">Nama bank / e-wallet</label>
-                            <input type="text" name="deposit_bank_name"
-                                   value="{{ old('deposit_bank_name', $telegramBot->deposit_bank_name) }}"
-                                   placeholder="BCA / DANA / GoPay"
-                                   class="w-full rounded-xl border-brand-200 focus:border-brand-900 focus:ring-brand-900">
-                            @error('deposit_bank_name')
-                                <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
-                            @enderror
-                        </div>
-                        <div>
-                            <label class="mb-2 block text-sm font-semibold text-brand-900">No. rekening / no. HP</label>
-                            <input type="text" name="deposit_account_number"
-                                   value="{{ old('deposit_account_number', $telegramBot->deposit_account_number) }}"
-                                   placeholder="1234567890"
-                                   class="w-full rounded-xl border-brand-200 focus:border-brand-900 focus:ring-brand-900">
-                            @error('deposit_account_number')
-                                <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
-                            @enderror
-                        </div>
-                        <div>
-                            <label class="mb-2 block text-sm font-semibold text-brand-900">Atas nama</label>
-                            <input type="text" name="deposit_account_name"
-                                   value="{{ old('deposit_account_name', $telegramBot->deposit_account_name) }}"
-                                   placeholder="Nama pemilik rekening"
-                                   class="w-full rounded-xl border-brand-200 focus:border-brand-900 focus:ring-brand-900">
-                            @error('deposit_account_name')
-                                <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
-                            @enderror
-                        </div>
-                    </div>
                 </div>
 
                 <div class="border-t border-brand-100 pt-6">
