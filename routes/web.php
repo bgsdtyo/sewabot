@@ -1,0 +1,43 @@
+<?php
+
+use App\Http\Controllers\BotDetailController;
+use App\Http\Controllers\CheckoutController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\LandingController;
+use App\Http\Controllers\PaymentHistoryController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\TelegramWebhookController;
+use Illuminate\Support\Facades\Route;
+
+Route::get('/', LandingController::class)->name('landing');
+
+Route::post('/telegram/webhook/{telegramBot}', TelegramWebhookController::class)
+    ->name('telegram.webhook');
+
+Route::middleware(['auth', 'verified'])->group(function () {
+    Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::get('/payments', PaymentHistoryController::class)->name('payments.index');
+
+    Route::get('/bots/{telegramBot}', [BotDetailController::class, 'show'])->name('bots.show');
+    Route::put('/bots/{telegramBot}/settings', [BotDetailController::class, 'updateSettings'])->name('bots.settings');
+    Route::post('/bots/{telegramBot}/sync-services', [BotDetailController::class, 'syncServices'])->name('bots.sync-services');
+    Route::post('/bots/{telegramBot}/members/{member}/topup', [BotDetailController::class, 'topup'])->name('bots.members.topup');
+
+    Route::get('/checkout/{product}/select-bot', [CheckoutController::class, 'selectBot'])->name('checkout.select-bot');
+    Route::post('/checkout/{product}/duration', [CheckoutController::class, 'saveDuration'])->name('checkout.duration');
+    Route::post('/checkout/{product}/start', [CheckoutController::class, 'start'])->name('checkout.start');
+    Route::get('/checkout/order/{order}', [CheckoutController::class, 'show'])->name('checkout.show');
+    Route::get('/checkout/order/{order}/success', [CheckoutController::class, 'success'])->name('checkout.success');
+    Route::post('/checkout/order/{order}/proof', [CheckoutController::class, 'uploadProof'])->name('checkout.upload-proof');
+
+    Route::get('/subscriptions/{subscription}/renew', [CheckoutController::class, 'renewForm'])->name('subscriptions.renew');
+    Route::post('/subscriptions/{subscription}/renew', [CheckoutController::class, 'renew'])->name('subscriptions.renew.submit');
+});
+
+Route::middleware('auth')->group(function () {
+    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+});
+
+require __DIR__.'/auth.php';
