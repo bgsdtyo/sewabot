@@ -8,6 +8,7 @@ use App\Models\OtpService;
 use App\Models\TelegramBot;
 use App\Models\WalletTransaction;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -127,8 +128,13 @@ class TelegramBotService
         $member = $otp->findOrRegisterMember($bot, $from);
         $fromId = (string) ($from['id'] ?? $chatId);
 
+        // Wizard admin (setelah klik tombol Cek / Add Deposit)
+        if ($bot->isTelegramAdmin($fromId) && $this->handleAdminPendingInput($bot, $chatId, $text, $fromId)) {
+            return;
+        }
+
         // —— Admin commands ——
-        if ($this->isAdminCommand($text) || $this->isButton($text, 'Rekap Hari Ini') || $this->isButton($text, 'Menu Admin')) {
+        if ($this->isAdminCommand($text) || $this->isButton($text, 'Rekap Hari Ini') || $this->isButton($text, 'Menu Admin') || $this->isButton($text, 'Cek User') || $this->isButton($text, 'Add Deposit')) {
             if (! $bot->isTelegramAdmin($fromId)) {
                 $this->sendMessage(
                     $bot,
@@ -251,10 +257,10 @@ class TelegramBotService
             return;
         }
 
-        if ($cmd === '/cek') {
+        if ($cmd === '/cek' || $this->isButton($text, 'Cek User')) {
             $targetId = $parts[1] ?? null;
-            if (! $targetId) {
-                $this->sendMessage($bot, $chatId, "Format: <code>/cek ID_TELEGRAM</code>\nContoh: <code>/cek 123456789</code>", $this->adminKeyboard());
+            if (! $targetId || $this->isButton($text, 'Cek User')) {
+                $this->startAdminCekPrompt($bot, $chatId);
 
                 return;
             }
@@ -263,16 +269,17 @@ class TelegramBotService
             return;
         }
 
-        if ($cmd === '/adddeposit') {
+        if ($cmd === '/adddeposit' || $this->isButton($text, 'Add Deposit')) {
+            if ($this->isButton($text, 'Add Deposit')) {
+                $this->startAdminDepositPrompt($bot, $chatId);
+
+                return;
+            }
+
             $targetId = $parts[1] ?? null;
             $amountRaw = $parts[2] ?? null;
             if (! $targetId || $amountRaw === null) {
-                $this->sendMessage(
-                    $bot,
-                    $chatId,
-                    "Format: <code>/adddeposit ID_TELEGRAM NOMINAL</code>\nContoh: <code>/adddeposit 123456789 50000</code>",
-                    $this->adminKeyboard()
-                );
+                $this->startAdminDepositPrompt($bot, $chatId);
 
                 return;
             }
@@ -291,6 +298,7 @@ class TelegramBotService
         return [
             'keyboard' => [
                 [['text' => '📊 Rekap Hari Ini'], ['text' => '🛠 Menu Admin']],
+                [['text' => '🔍 Cek User'], ['text' => '➕ Add Deposit']],
                 [['text' => '📱 Order OTP'], ['text' => '💰 Saldo']],
                 [['text' => '👤 Akun'], ['text' => '❓ Bantuan']],
             ],
@@ -299,19 +307,157 @@ class TelegramBotService
         ];
     }
 
+    protected function adminInlineMenu(): array
+    {
+        return [
+            'inline_keyboard' => [
+                [
+                    ['text' => '📊 Rekap Hari Ini', 'callback_data' => 'admin_rekap'],
+                ],
+                [
+                    ['text' => '🔍 Cek User', 'callback_data' => 'admin_cek'],
+                    ['text' => '➕ Add Deposit', 'callback_data' => 'admin_adddeposit'],
+                ],
+            ],
+        ];
+    }
+
+    protected function adminPendingKey(TelegramBot $bot, int|string $chatId): string
+    {
+        return 'tg_admin_pending:'.$bot->id.':'.$chatId;
+    }
+
+    protected function setAdminPending(TelegramBot $bot, int|string $chatId, array $state): void
+    {
+        Cache::put($this->adminPendingKey($bot, $chatId), $state, now()->addMinutes(15));
+    }
+
+    protected function clearAdminPending(TelegramBot $bot, int|string $chatId): void
+    {
+        Cache::forget($this->adminPendingKey($bot, $chatId));
+    }
+
+    protected function getAdminPending(TelegramBot $bot, int|string $chatId): ?array
+    {
+        $state = Cache::get($this->adminPendingKey($bot, $chatId));
+
+        return is_array($state) ? $state : null;
+    }
+
+    protected function startAdminCekPrompt(TelegramBot $bot, int|string $chatId): void
+    {
+        $this->setAdminPending($bot, $chatId, ['action' => 'cek']);
+        $this->sendMessage(
+            $bot,
+            $chatId,
+            "<b>Cek User</b>\n\nKirim <b>Telegram ID</b> member sekarang.\nContoh: <code>123456789</code>\n\nKetik /bataladmin untuk membatalkan.",
+            $this->adminKeyboard()
+        );
+    }
+
+    protected function startAdminDepositPrompt(TelegramBot $bot, int|string $chatId): void
+    {
+        $this->setAdminPending($bot, $chatId, ['action' => 'deposit_id']);
+        $this->sendMessage(
+            $bot,
+            $chatId,
+            "<b>Add Deposit</b>\n\nKirim <b>Telegram ID</b> member sekarang.\nContoh: <code>123456789</code>\n\nKetik /bataladmin untuk membatalkan.",
+            $this->adminKeyboard()
+        );
+    }
+
+    /**
+     * @return bool true jika input sudah ditangani wizard admin
+     */
+    protected function handleAdminPendingInput(TelegramBot $bot, int|string $chatId, string $text, string $fromId): bool
+    {
+        if (str_starts_with(strtolower($text), '/bataladmin')) {
+            if ($this->getAdminPending($bot, $chatId)) {
+                $this->clearAdminPending($bot, $chatId);
+                $this->sendMessage($bot, $chatId, 'Wizard admin dibatalkan.', $this->adminKeyboard());
+
+                return true;
+            }
+
+            return false;
+        }
+
+        $state = $this->getAdminPending($bot, $chatId);
+        if (! $state) {
+            return false;
+        }
+
+        // Jangan makan command admin lain
+        if ($this->isAdminCommand($text) || $this->isButton($text, 'Menu Admin') || $this->isButton($text, 'Rekap Hari Ini')) {
+            $this->clearAdminPending($bot, $chatId);
+
+            return false;
+        }
+
+        $action = $state['action'] ?? null;
+
+        if ($action === 'cek') {
+            $id = preg_replace('/\D+/', '', $text) ?: '';
+            if ($id === '') {
+                $this->sendMessage($bot, $chatId, 'ID tidak valid. Kirim angka Telegram ID, atau /bataladmin.', $this->adminKeyboard());
+
+                return true;
+            }
+            $this->clearAdminPending($bot, $chatId);
+            $this->sendAdminUserCheck($bot, $chatId, $id);
+
+            return true;
+        }
+
+        if ($action === 'deposit_id') {
+            $id = preg_replace('/\D+/', '', $text) ?: '';
+            if ($id === '') {
+                $this->sendMessage($bot, $chatId, 'ID tidak valid. Kirim angka Telegram ID, atau /bataladmin.', $this->adminKeyboard());
+
+                return true;
+            }
+            $this->setAdminPending($bot, $chatId, ['action' => 'deposit_amount', 'target_id' => $id]);
+            $this->sendMessage(
+                $bot,
+                $chatId,
+                "ID member: <code>{$id}</code>\n\nSekarang kirim <b>nominal</b> deposit.\nContoh: <code>50000</code>",
+                $this->adminKeyboard()
+            );
+
+            return true;
+        }
+
+        if ($action === 'deposit_amount') {
+            $amount = (int) preg_replace('/\D+/', '', $text);
+            $targetId = (string) ($state['target_id'] ?? '');
+            if ($amount < 100 || $targetId === '') {
+                $this->sendMessage($bot, $chatId, 'Nominal minimal Rp100. Kirim ulang nominal, atau /bataladmin.', $this->adminKeyboard());
+
+                return true;
+            }
+            $this->clearAdminPending($bot, $chatId);
+            $this->adminAddDeposit($bot, $chatId, $targetId, $amount, $fromId);
+
+            return true;
+        }
+
+        $this->clearAdminPending($bot, $chatId);
+
+        return false;
+    }
+
     protected function sendAdminMenu(TelegramBot $bot, int|string $chatId): void
     {
         $text = "<b>Panel Admin Bot</b>\n\n"
-            ."Perintah tersedia:\n"
-            ."• <code>/rekap</code> — rekap transaksi hari ini\n"
-            ."• <code>/cek ID</code> — cek data member\n"
-            ."• <code>/adddeposit ID NOMINAL</code> — tambah saldo member\n\n"
-            ."Contoh:\n"
+            ."Pilih tombol di bawah pesan ini:\n"
+            ."• Rekap Hari Ini\n"
+            ."• Cek User\n"
+            ."• Add Deposit\n\n"
+            ."Atau ketik manual:\n"
             ."<code>/cek 123456789</code>\n"
-            ."<code>/adddeposit 123456789 50000</code>\n\n"
-            .'Atau pakai tombol <b>Rekap Hari Ini</b> di bawah.';
+            .'<code>/adddeposit 123456789 50000</code>';
 
-        $this->sendMessage($bot, $chatId, $text, $this->adminKeyboard());
+        $this->sendMessage($bot, $chatId, $text, null, $this->adminInlineMenu());
     }
 
     protected function sendAdminDailyRecap(TelegramBot $bot, int|string $chatId): void
@@ -766,6 +912,7 @@ class TelegramBotService
         $data = (string) ($callback['data'] ?? '');
         $chatId = $callback['message']['chat']['id'] ?? null;
         $messageId = $callback['message']['message_id'] ?? null;
+        $fromId = (string) ($callback['from']['id'] ?? $chatId);
         $callbackId = $callback['id'] ?? null;
 
         if ($callbackId) {
@@ -783,11 +930,42 @@ class TelegramBotService
         }
 
         if ($data === 'deposit') {
-            // Hapus bubble "Informasi Saldo" sebelumnya, ganti dengan info deposit.
             if ($messageId) {
                 $this->deleteMessage($bot, $chatId, $messageId);
             }
             $this->sendDepositInfo($bot, $chatId);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'admin_')) {
+            if (! $bot->isTelegramAdmin($fromId)) {
+                $this->sendMessage($bot, $chatId, 'Akses admin ditolak.');
+
+                return;
+            }
+
+            if ($messageId) {
+                $this->deleteMessage($bot, $chatId, $messageId);
+            }
+
+            if ($data === 'admin_rekap') {
+                $this->sendAdminDailyRecap($bot, $chatId);
+
+                return;
+            }
+
+            if ($data === 'admin_cek') {
+                $this->startAdminCekPrompt($bot, $chatId);
+
+                return;
+            }
+
+            if ($data === 'admin_adddeposit') {
+                $this->startAdminDepositPrompt($bot, $chatId);
+
+                return;
+            }
         }
     }
 
