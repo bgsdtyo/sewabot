@@ -701,13 +701,30 @@ class TelegramBotService
 
     protected function sendDepositInfo(TelegramBot $bot, int|string $chatId): void
     {
-        $note = trim((string) ($bot->deposit_note ?? ''));
-        if ($note === '') {
-            $note = 'Deposit saldo saat ini dilakukan secara manual. Hubungi admin melalui tombol di bawah, lalu kirim bukti transfer.';
+        $bank = trim((string) ($bot->deposit_bank_name ?? ''));
+        $number = trim((string) ($bot->deposit_account_number ?? ''));
+        $name = trim((string) ($bot->deposit_account_name ?? ''));
+
+        $text = "<b>Deposit Saldo</b>\n\n"
+            ."Deposit dilakukan secara manual. Transfer sesuai data di bawah, lalu kirim bukti ke admin.\n\n";
+
+        if ($bank !== '' || $number !== '' || $name !== '') {
+            $text .= "<b>Tujuan transfer</b>\n";
+            if ($bank !== '') {
+                $text .= 'Bank / E-Wallet: <b>'.e($bank)."</b>\n";
+            }
+            if ($number !== '') {
+                $text .= 'No. Rekening / HP: <code>'.e($number)."</code>\n";
+            }
+            if ($name !== '') {
+                $text .= 'Atas nama: <b>'.e($name)."</b>\n";
+            }
+            $text .= "\n";
+        } else {
+            $text .= "<i>Data rekening belum diisi pemilik bot.</i>\n\n";
         }
 
-        $text = "<b>Deposit Saldo</b>\n\n".e($note)."\n\n"
-            .'Setelah transfer, kirim bukti ke admin agar saldo segera ditambahkan.';
+        $text .= 'Setelah transfer, hubungi admin lewat tombol di bawah dan kirim bukti pembayaran.';
 
         $row = [];
         if ($wa = $bot->depositWhatsappUrl()) {
@@ -718,7 +735,7 @@ class TelegramBotService
         }
 
         if ($row === []) {
-            $text .= "\n\n<i>Kontak admin belum dikonfigurasi. Minta pemilik bot mengisi WhatsApp/Telegram di Konfigurasi Bot.</i>";
+            $text .= "\n\n<i>Kontak admin belum dikonfigurasi di Konfigurasi Bot.</i>";
             $this->sendMessage($bot, $chatId, $text, $this->mainKeyboard());
 
             return;

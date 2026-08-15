@@ -65,9 +65,18 @@ class TelegramBotResource extends Resource
                         ->label('Telegram admin')
                         ->placeholder('@username atau https://t.me/username')
                         ->maxLength(100),
-                    Forms\Components\Textarea::make('deposit_note')
-                        ->label('Catatan deposit')
-                        ->rows(3)
+                    Forms\Components\TextInput::make('deposit_bank_name')
+                        ->label('Nama bank / e-wallet')
+                        ->placeholder('BCA / DANA / GoPay')
+                        ->maxLength(100),
+                    Forms\Components\TextInput::make('deposit_account_number')
+                        ->label('No. rekening / no. HP')
+                        ->placeholder('1234567890')
+                        ->maxLength(100),
+                    Forms\Components\TextInput::make('deposit_account_name')
+                        ->label('Atas nama')
+                        ->placeholder('Nama pemilik rekening')
+                        ->maxLength(100)
                         ->columnSpanFull(),
                     Forms\Components\TextInput::make('admin_telegram_ids')
                         ->label('Admin Telegram ID')

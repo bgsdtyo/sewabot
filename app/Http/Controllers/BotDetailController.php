@@ -34,6 +34,9 @@ class BotDetailController extends Controller
             'otp_markup_percent' => ['required', 'integer', 'min:0', 'max:1000000'],
             'deposit_whatsapp' => ['nullable', 'string', 'max:100'],
             'deposit_telegram' => ['nullable', 'string', 'max:100'],
+            'deposit_bank_name' => ['nullable', 'string', 'max:100'],
+            'deposit_account_number' => ['nullable', 'string', 'max:100'],
+            'deposit_account_name' => ['nullable', 'string', 'max:100'],
             'deposit_note' => ['nullable', 'string', 'max:1000'],
             'admin_telegram_ids' => ['nullable', 'string', 'max:500'],
         ]);
@@ -55,6 +58,9 @@ class BotDetailController extends Controller
             'otp_markup_percent' => (int) $data['otp_markup_percent'],
             'deposit_whatsapp' => filled($data['deposit_whatsapp'] ?? null) ? trim($data['deposit_whatsapp']) : null,
             'deposit_telegram' => filled($data['deposit_telegram'] ?? null) ? trim($data['deposit_telegram']) : null,
+            'deposit_bank_name' => filled($data['deposit_bank_name'] ?? null) ? trim($data['deposit_bank_name']) : null,
+            'deposit_account_number' => filled($data['deposit_account_number'] ?? null) ? trim($data['deposit_account_number']) : null,
+            'deposit_account_name' => filled($data['deposit_account_name'] ?? null) ? trim($data['deposit_account_name']) : null,
             'deposit_note' => filled($data['deposit_note'] ?? null) ? trim($data['deposit_note']) : null,
             'admin_telegram_ids' => $adminIds->isNotEmpty() ? $adminIds->implode(', ') : null,
         ];
