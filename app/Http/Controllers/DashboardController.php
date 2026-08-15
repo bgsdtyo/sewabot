@@ -49,12 +49,15 @@ class DashboardController extends Controller
         $otpOrders = null;
 
         if ($bot) {
-            $members = $bot->botMembers()->latest()->paginate(10, ['*'], 'members');
+            $members = $bot->botMembers()
+                ->latest('id')
+                ->paginate(5, ['*'], 'members_page');
+
             $otpOrders = OtpOrder::query()
                 ->where('telegram_bot_id', $bot->id)
                 ->with(['botMember', 'otpService'])
-                ->latest()
-                ->paginate(10, ['*'], 'otp');
+                ->latest('id')
+                ->paginate(5, ['*'], 'otp_page');
         }
 
         return view('dashboard.index', compact('user', 'subscription', 'notifications', 'bot', 'members', 'otpOrders'));

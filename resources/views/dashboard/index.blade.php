@@ -173,7 +173,7 @@
                                     <p class="font-semibold text-brand-900">{{ $order->otpService?->name ?? 'OTP' }}</p>
                                     <p class="mt-1 text-sm text-brand-500">
                                         {{ $order->botMember?->displayName() }}
-                                        · {{ $order->created_at->format('d M Y, H:i') }}
+                                        · {{ $order->created_at->timezone(config('app.timezone', 'Asia/Jakarta'))->format('d M Y, H:i') }}
                                     </p>
                                 </div>
                                 <p @class([
