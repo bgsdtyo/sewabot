@@ -104,4 +104,63 @@ class CronController extends Controller
             'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
         ]);
     }
+
+    /**
+     * Sync and update latest services stock in real-time.
+     */
+    public function syncStock(
+        Request $request,
+        \App\Services\OtpProviderClient $providerClient
+    ): JsonResponse {
+        $activeBot = TelegramBot::query()
+            ->where('status', 'active')
+            ->whereNotNull('otp_api_key')
+            ->first();
+
+        try {
+            $client = $activeBot ? $providerClient->forBot($activeBot) : $providerClient;
+            $items = $client->getServices(timeout: 10);
+            $synced = [];
+
+            foreach ($items as $item) {
+                $name = (string) ($item['name'] ?? '');
+                $providerPrice = (int) ($item['price'] ?? 0);
+                $stock = (int) ($item['stock'] ?? $item['count'] ?? $item['available'] ?? 0);
+
+                $svc = \App\Models\OtpService::updateOrCreate(
+                    ['provider_service_id' => (int) $item['id']],
+                    [
+                        'name' => $name,
+                        'slug' => \Illuminate\Support\Str::slug($name),
+                        'provider_price' => $providerPrice,
+                        'sell_price' => $providerPrice,
+                        'duration_seconds' => (int) ($item['duration_seconds'] ?? 1200),
+                        'stock' => $stock,
+                        'is_active' => true,
+                    ]
+                );
+
+                $synced[] = [
+                    'id' => $svc->id,
+                    'name' => $svc->name,
+                    'stock' => $stock,
+                    'provider_price' => $providerPrice,
+                ];
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Update stok layanan berhasil disinkronkan.',
+                'total_services' => count($synced),
+                'services' => $synced,
+                'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal sinkronisasi stok: '.$e->getMessage(),
+                'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
+            ], 500);
+        }
+    }
 }
