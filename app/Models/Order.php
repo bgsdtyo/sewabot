@@ -54,6 +54,15 @@ class Order extends Model
         return $this->belongsTo(TelegramBot::class);
     }
 
+    protected static function booted(): void
+    {
+        static::deleting(function (Order $order) {
+            if ($order->payment_proof && Storage::disk('public')->exists($order->payment_proof)) {
+                Storage::disk('public')->delete($order->payment_proof);
+            }
+        });
+    }
+
     public function formattedAmount(): string
     {
         return 'Rp'.number_format($this->amount, 0, ',', '.');

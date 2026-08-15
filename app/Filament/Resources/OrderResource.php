@@ -110,6 +110,22 @@ class OrderResource extends Resource
                     }),
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
+                Tables\Actions\DeleteAction::make()
+                    ->label('Hapus')
+                    ->requiresConfirmation()
+                    ->modalHeading('Hapus order?')
+                    ->modalDescription('Data invoice dan bukti transfer akan dihapus permanen.')
+                    ->successNotificationTitle('Order dihapus'),
+            ])
+            ->bulkActions([
+                Tables\Actions\BulkActionGroup::make([
+                    Tables\Actions\DeleteBulkAction::make()
+                        ->label('Hapus terpilih')
+                        ->requiresConfirmation()
+                        ->modalHeading('Hapus order terpilih?')
+                        ->modalDescription('Semua order yang dipilih akan dihapus permanen.')
+                        ->successNotificationTitle('Order terpilih dihapus'),
+                ]),
             ]);
     }
 
@@ -130,5 +146,15 @@ class OrderResource extends Resource
     public static function canCreate(): bool
     {
         return false;
+    }
+
+    public static function canDelete($record): bool
+    {
+        return true;
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        return true;
     }
 }

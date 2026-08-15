@@ -40,6 +40,12 @@ class ViewOrder extends ViewRecord
                     $this->refreshFormData(['status', 'admin_note']);
                 }),
             Actions\EditAction::make(),
+            Actions\DeleteAction::make()
+                ->label('Hapus')
+                ->requiresConfirmation()
+                ->modalHeading('Hapus order?')
+                ->modalDescription('Data invoice dan bukti transfer akan dihapus permanen.')
+                ->successNotificationTitle('Order dihapus'),
         ];
     }
 }

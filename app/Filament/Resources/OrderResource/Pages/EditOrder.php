@@ -12,6 +12,14 @@ class EditOrder extends EditRecord
 
     protected function getHeaderActions(): array
     {
-        return [Actions\ViewAction::make()];
+        return [
+            Actions\ViewAction::make(),
+            Actions\DeleteAction::make()
+                ->label('Hapus')
+                ->requiresConfirmation()
+                ->modalHeading('Hapus order?')
+                ->modalDescription('Data invoice dan bukti transfer akan dihapus permanen.')
+                ->successNotificationTitle('Order dihapus'),
+        ];
     }
 }
