@@ -155,31 +155,21 @@
                         <button type="button"
                                 @click="activeTab = 'members'"
                                 :class="activeTab === 'members' ? 'bg-brand-900 text-white shadow-sm' : 'text-brand-600 hover:text-brand-900 hover:bg-white/60'"
-                                class="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition active:scale-95">
-                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl px-5 py-2.5 text-xs font-bold transition active:scale-95">
+                            <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
                             </svg>
                             <span>Member & Saldo</span>
-                            @if ($members && $members->total() > 0)
-                                <span :class="activeTab === 'members' ? 'bg-brand-700 text-white' : 'bg-brand-200 text-brand-700'" class="rounded-full px-2 py-0.5 text-[10px] font-extrabold">
-                                    {{ $members->total() }}
-                                </span>
-                            @endif
                         </button>
 
                         <button type="button"
                                 @click="activeTab = 'otp'"
                                 :class="activeTab === 'otp' ? 'bg-brand-900 text-white shadow-sm' : 'text-brand-600 hover:text-brand-900 hover:bg-white/60'"
-                                class="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition active:scale-95">
-                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl px-5 py-2.5 text-xs font-bold transition active:scale-95">
+                            <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
                             </svg>
                             <span>Riwayat OTP</span>
-                            @if ($otpOrders && $otpOrders->total() > 0)
-                                <span :class="activeTab === 'otp' ? 'bg-brand-700 text-white' : 'bg-brand-200 text-brand-700'" class="rounded-full px-2 py-0.5 text-[10px] font-extrabold">
-                                    {{ $otpOrders->total() }}
-                                </span>
-                            @endif
                         </button>
                     </div>
                 </div>
