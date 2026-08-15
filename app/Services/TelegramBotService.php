@@ -551,22 +551,22 @@ class TelegramBotService
         $orders = OtpOrder::query()->where('bot_member_id', $target->id)->count();
         $ordersToday = OtpOrder::query()
             ->where('bot_member_id', $target->id)
-            ->whereDate('created_at', Carbon::today(config('app.timezone')))
+            ->whereDate('created_at', Carbon::today(config('app.timezone', 'Asia/Jakarta')))
             ->count();
-        $joined = $target->created_at?->timezone(config('app.timezone'))->translatedFormat('d M Y H:i') ?? '-';
+        $tz = config('app.timezone', 'Asia/Jakarta');
+        $joined = $target->created_at?->timezone($tz)->format('d-m-Y H:i') ?? '-';
         $username = $target->telegram_username ? '@'.ltrim($target->telegram_username, '@') : '-';
 
-        $text = "<b>Data Member</b>\n\n"
-            .'Nama: <b>'.e($target->telegram_name ?: '-')."</b>\n"
-            .'Username: <b>'.e($username)."</b>\n"
-            .'Telegram ID: <code>'.e((string) $target->telegram_chat_id)."</code>\n"
-            .'Status: <b>'.($target->is_active ? 'Aktif' : 'Nonaktif')."</b>\n"
-            .'Terdaftar: <b>'.e($joined)."</b>\n\n"
-            ."<b>Saldo</b>\n"
-            .'Total: <b>'.$target->formattedBalance()."</b>\n"
-            .'Tersedia: <b>'.$target->formattedAvailable()."</b>\n"
-            .'Ditahan: <b>Rp'.number_format($target->held_balance, 0, ',', '.')."</b>\n\n"
-            ."Order OTP: <b>{$orders}</b> (hari ini: <b>{$ordersToday}</b>)";
+        $text = "<b>Data Member</b> 👤\n\n"
+            ."❏ User: <b>".e($target->telegram_name ?: '-')."</b>\n"
+            ."├  Username: <b>".e($username)."</b>\n"
+            ."├  Telegram ID: <code>".e((string) $target->telegram_chat_id)."</code>\n"
+            ."├  Status: <b>".($target->is_active ? 'Aktif' : 'Nonaktif')."</b>\n"
+            ."├  Terdaftar: {$joined}\n"
+            ."├  Saldo Total: <b>".$target->formattedBalance()."</b>\n"
+            ."├  Saldo Tersedia: <b>".$target->formattedAvailable()."</b>\n"
+            ."├  Saldo Ditahan: <b>Rp".number_format($target->held_balance, 0, ',', '.')."</b>\n"
+            ."└  Order OTP: <b>{$orders}</b> (Hari ini: <b>{$ordersToday}</b>)";
 
         $this->sendMessage($bot, $chatId, $text, $this->adminKeyboard());
     }
@@ -665,32 +665,39 @@ class TelegramBotService
             ? '@'.ltrim($member->telegram_username, '@')
             : (($from['username'] ?? null) ? '@'.$from['username'] : '-');
         $telegramId = $member->telegram_chat_id ?: ($from['id'] ?? '-');
+        $tz = config('app.timezone', 'Asia/Jakarta');
         $joined = $member->created_at
-            ? $member->created_at->timezone(config('app.timezone'))->translatedFormat('d M Y, H:i')
+            ? $member->created_at->timezone($tz)->format('d-m-Y H:i')
             : '-';
         $status = $member->is_active ? 'Aktif' : 'Nonaktif';
+        $ordersCount = OtpOrder::query()->where('bot_member_id', $member->id)->count();
 
-        $text = "<b>Informasi Akun</b>\n\n"
-            .'Nama: <b>'.e($name)."</b>\n"
-            .'Username: <b>'.e($username)."</b>\n"
-            .'Telegram ID: <code>'.e((string) $telegramId)."</code>\n"
-            .'Status: <b>'.e($status)."</b>\n"
-            .'Terdaftar: <b>'.e($joined)."</b>\n\n"
-            ."<b>Saldo</b>\n"
-            .'Total: <b>'.$member->formattedBalance()."</b>\n"
-            .'Tersedia: <b>'.$member->formattedAvailable()."</b>\n"
-            .'Ditahan: <b>Rp'.number_format($member->held_balance, 0, ',', '.').'</b>';
+        $text = "<b>Informasi Akun</b> 👤\n\n"
+            ."❏ User: <b>".e($name)."</b>\n"
+            ."├  Username: <b>".e($username)."</b>\n"
+            ."├  Telegram ID: <code>".e((string) $telegramId)."</code>\n"
+            ."├  Status: <b>".e($status)."</b>\n"
+            ."├  Terdaftar: {$joined}\n"
+            ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
+            ."├  Saldo Ditahan: <b>Rp".number_format($member->held_balance, 0, ',', '.')."</b>\n"
+            ."└  Total Order: <b>{$ordersCount} Transaksi</b>";
 
         $this->sendMessage($bot, $chatId, $text, $this->mainKeyboard());
     }
 
     protected function sendBalance(TelegramBot $bot, $member, int|string $chatId): void
     {
-        $text = "<b>Informasi Saldo</b>\n\n"
-            .'Total: <b>'.$member->formattedBalance()."</b>\n"
-            .'Tersedia: <b>'.$member->formattedAvailable()."</b>\n"
-            .'Ditahan: <b>Rp'.number_format($member->held_balance, 0, ',', '.')."</b>\n\n"
-            .'Deposit saldo saat ini masih <b>manual</b>. Tekan tombol di bawah untuk hubungi admin.';
+        $member->refresh();
+        $name = $member->telegram_name ?: ($member->telegram_username ? '@'.ltrim($member->telegram_username, '@') : 'Member');
+        $telegramId = $member->telegram_chat_id;
+
+        $text = "<b>Informasi Saldo</b> 💳\n\n"
+            ."❏ User: <b>".e($name)."</b>\n"
+            ."├  Telegram ID: <code>".e((string) $telegramId)."</code>\n"
+            ."├  Saldo Total: <b>".$member->formattedBalance()."</b>\n"
+            ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
+            ."└  Saldo Ditahan: <b>Rp".number_format($member->held_balance, 0, ',', '.')."</b>\n\n"
+            ."<i>Deposit saldo saat ini diproses secara manual. Tekan tombol di bawah untuk deposit.</i>";
 
         $this->sendMessage($bot, $chatId, $text, null, [
             'inline_keyboard' => [
@@ -705,26 +712,22 @@ class TelegramBotService
         $number = trim((string) ($bot->deposit_account_number ?? ''));
         $name = trim((string) ($bot->deposit_account_name ?? ''));
 
-        $text = "<b>Deposit Saldo</b>\n\n"
-            ."Deposit dilakukan secara manual. Transfer sesuai data di bawah, lalu kirim bukti ke admin.\n\n";
-
         if ($bank !== '' || $number !== '' || $name !== '') {
-            $text .= "<b>Tujuan transfer</b>\n";
-            if ($bank !== '') {
-                $text .= 'Bank / E-Wallet: <b>'.e($bank)."</b>\n";
-            }
-            if ($number !== '') {
-                $text .= 'No. Rekening / HP: <code>'.e($number)."</code>\n";
-            }
-            if ($name !== '') {
-                $text .= 'Atas nama: <b>'.e($name)."</b>\n";
-            }
-            $text .= "\n";
-        } else {
-            $text .= "<i>Data rekening belum diisi pemilik bot.</i>\n\n";
-        }
+            $bankStr = $bank !== '' ? e($bank) : '-';
+            $numStr = $number !== '' ? '<code>'.e($number).'</code>' : '-';
+            $nameStr = $name !== '' ? e($name) : '-';
 
-        $text .= 'Setelah transfer, hubungi admin lewat tombol di bawah dan kirim bukti pembayaran.';
+            $text = "<b>Deposit Saldo</b> 📥\n\n"
+                ."❏ Metode: Transfer Manual\n"
+                ."├  Bank / E-Wallet: <b>{$bankStr}</b>\n"
+                ."├  No. Rekening / HP: {$numStr}\n"
+                ."├  Atas Nama: <b>{$nameStr}</b>\n"
+                ."└  Konfirmasi: Hubungi Admin\n\n"
+                ."<i>Setelah transfer, kirim bukti pembayaran ke kontak admin melalui tombol di bawah.</i>";
+        } else {
+            $text = "<b>Deposit Saldo</b> 📥\n\n"
+                ."<i>Data rekening belum diisi pemilik bot. Hubungi admin untuk informasi deposit.</i>";
+        }
 
         $row = [];
         if ($wa = $bot->depositWhatsappUrl()) {
