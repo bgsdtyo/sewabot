@@ -32,20 +32,23 @@
         @endif
 
         <section class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <div class="rounded-2xl border border-brand-200 bg-white px-4 py-5">
+            <div class="flex flex-col rounded-2xl border border-brand-200 bg-white px-4 py-5">
                 <p class="text-xs text-brand-500">API Key</p>
                 <p class="mt-2 text-base font-extrabold {{ filled($telegramBot->otp_api_key) ? 'text-emerald-700' : 'text-amber-700' }}">
                     {{ filled($telegramBot->otp_api_key) ? 'Siap' : 'Kosong' }}
                 </p>
+                <p class="mt-1 text-xs text-brand-500">
+                    {{ filled($telegramBot->otp_api_key) ? 'Provider connected' : 'Belum diisi' }}
+                </p>
             </div>
-            <div class="rounded-2xl border border-brand-200 bg-white px-4 py-5">
+            <div class="flex flex-col rounded-2xl border border-brand-200 bg-white px-4 py-5">
                 <p class="text-xs text-brand-500">Harga KOPKEN</p>
                 <p class="mt-2 text-base font-extrabold text-brand-900">
                     {{ $kopken ? $telegramBot->formattedSellPriceFor($kopken->provider_price) : '-' }}
                 </p>
                 <p class="mt-1 text-xs text-brand-500">Markup {{ $telegramBot->markupLabel() }}</p>
             </div>
-            <div class="rounded-2xl border border-brand-200 bg-white px-4 py-5">
+            <div class="flex flex-col rounded-2xl border border-brand-200 bg-white px-4 py-5">
                 <div class="flex items-start justify-between gap-2">
                     <p class="text-xs text-brand-500">Saldo Pusat API</p>
                     <form method="POST" action="{{ route('bots.provider-balance', $telegramBot) }}">
@@ -70,7 +73,7 @@
                     <p class="mt-1 text-xs text-brand-500">Belum dicek</p>
                 @endif
             </div>
-            <div class="rounded-2xl border border-brand-200 bg-white px-4 py-5">
+            <div class="flex flex-col rounded-2xl border border-brand-200 bg-white px-4 py-5">
                 <p class="text-xs text-brand-500">Admin Bot</p>
                 <p class="mt-2 text-base font-extrabold {{ count($telegramBot->adminTelegramIdList()) ? 'text-emerald-700' : 'text-amber-700' }}">
                     {{ count($telegramBot->adminTelegramIdList()) ?: 0 }} ID
