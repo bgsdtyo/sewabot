@@ -39,11 +39,21 @@ class EditTelegramBot extends EditRecord
     protected function afterSave(): void
     {
         $this->record->syncWebhookUrl();
-        $this->syncOwnerSubscription($this->record);
+        $this->syncOwnerSubscription($this->record->fresh());
 
         if ($this->record->status === 'active' && filled($this->record->token)) {
             app(TelegramBotService::class)->setWebhook($this->record->fresh());
         }
+    }
+
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        // $hidden di model membuat token/api key tidak ikut ke form → terlihat kosong.
+        $this->record->makeVisible(['token', 'otp_api_key']);
+        $data['token'] = $this->record->token;
+        $data['otp_api_key'] = $this->record->otp_api_key;
+
+        return $data;
     }
 
     /**

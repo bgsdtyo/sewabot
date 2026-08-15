@@ -33,13 +33,19 @@ class TelegramBotResource extends Resource
             Forms\Components\TextInput::make('username')
                 ->prefix('@')
                 ->helperText('Isi setelah bot di-build. Username baru muncul di dashboard user.'),
-            Forms\Components\TextInput::make('token')->password()->revealable()
-                ->helperText('Token dari BotFather setelah bot dibuat.'),
+            Forms\Components\TextInput::make('token')
+                ->password()
+                ->revealable()
+                ->helperText('Token dari BotFather. Kosongkan saat simpan jika tidak ingin mengubah token yang sudah tersimpan.')
+                ->dehydrated(fn (?string $state): bool => filled($state))
+                ->dehydrateStateUsing(fn (?string $state): ?string => filled($state) ? trim($state) : null),
             Forms\Components\TextInput::make('otp_api_key')
                 ->label('OTP Provider API Key')
                 ->password()
                 ->revealable()
-                ->helperText('Per bot. Bisa juga diisi owner di halaman Kelola Bot.'),
+                ->helperText('Per bot. Kosongkan saat simpan jika tidak ingin mengubah key yang sudah ada.')
+                ->dehydrated(fn (?string $state): bool => filled($state))
+                ->dehydrateStateUsing(fn (?string $state): ?string => filled($state) ? trim($state) : null),
             Forms\Components\Select::make('otp_markup_type')
                 ->label('Tipe Markup')
                 ->options([
