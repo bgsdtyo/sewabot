@@ -958,13 +958,16 @@ class TelegramBotService
             'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n\n".
             'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>';
 
-        $keyboard = [
+        $isStillActive = ($order->provider_expire_at === null || $order->provider_expire_at->isFuture())
+            && $order->created_at->isAfter(now()->subMinutes(25));
+
+        $keyboard = $isStillActive ? [
             'inline_keyboard' => [
                 [
-                    ['text' => '🔄 Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
+                    ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
                 ],
             ],
-        ];
+        ] : null;
 
         $messageId = $this->orderMessageId($order);
 
@@ -975,7 +978,7 @@ class TelegramBotService
                 $messageId,
                 $text,
                 $keyboard,
-                true
+                false
             );
 
             if ($edited) {
@@ -1269,7 +1272,7 @@ class TelegramBotService
                 inlineKeyboard: [
                     'inline_keyboard' => [
                         [
-                            ['text' => '🔄 Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
+                            ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
                         ],
                     ],
                 ]
