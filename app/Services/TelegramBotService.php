@@ -913,12 +913,12 @@ class TelegramBotService
         $text = "<b>Konfirmasi Order OTP</b> 📲\n\n"
             ."❏ Layanan: <b>".e($service->name)."</b>\n"
             ."├  Harga: <b>{$formattedPrice}</b> (Hold)\n"
-            ."├  Stok Provider: <b>{$stockFormatted}</b>\n"
+            ."├  Stok Nomor: <b>{$stockFormatted}</b>\n"
             ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
             ."└  Status: <b>{$statusStr}</b>\n\n";
 
         if ($stock <= 0) {
-            $text .= "⚠️ <i>Stok nomor saat ini sedang kosong di provider pusat. Jika tetap di-order dan stok belum terisi, saldo tidak akan berkurang.</i>";
+            $text .= "⚠️ <i>Stok nomor saat ini sedang kosong / habis. Jika tetap di-order dan nomor belum tersedia, saldo tidak akan berkurang.</i>";
         } else {
             $text .= "<i>Jika dilanjutkan, sistem akan memesan nomor dan menahan saldo. Saldo baru dipotong saat OTP masuk.</i>";
         }

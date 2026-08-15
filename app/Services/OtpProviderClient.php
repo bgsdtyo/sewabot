@@ -176,7 +176,7 @@ class OtpProviderClient
             $message = $fallback.' (HTTP '.$response->status().')';
         }
 
-        // Friendly Indonesian translations for provider errors
+        // Friendly Indonesian translations for user
         if (
             stripos($message, 'out of stock') !== false ||
             stripos($message, 'no stock') !== false ||
@@ -186,9 +186,9 @@ class OtpProviderClient
             stripos($message, 'empty') !== false ||
             stripos($message, 'stok') !== false
         ) {
-            $message = 'Stok nomor untuk layanan ini sedang habis di provider pusat. Silakan coba beberapa saat lagi.';
+            $message = 'Stok nomor untuk layanan ini saat ini sedang habis. Silakan coba beberapa saat lagi.';
         } elseif (stripos($message, 'balance') !== false || stripos($message, 'saldo') !== false) {
-            $message = 'Saldo API provider pusat bot tidak mencukupi untuk memesan nomor. Silakan hubungi admin bot.';
+            $message = 'Layanan ini sedang dalam proses restock/pemeliharaan. Silakan coba beberapa saat lagi atau hubungi admin.';
         }
 
         Log::warning('OTP provider error', [
