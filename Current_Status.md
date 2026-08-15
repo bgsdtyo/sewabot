@@ -1,6 +1,7 @@
 # Current Status — SewaBot MVP
 
 ## Updated
+2026-08-15 — Fix 403 checkout pembayaran (cast user_id + auth compare)
 2026-08-15 — Admin `/admin/orders`: hapus order (single + bulk)
 2026-08-15 — Auto-watch OTP tiap 2s setelah order (tanpa klik Cek OTP / tanpa andalkan cron)
 2026-08-15 — OTP masuk otomatis edit bubble (tanpa klik Cek OTP); poll 30s; cache message_id

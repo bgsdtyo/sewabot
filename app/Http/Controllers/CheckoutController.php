@@ -164,7 +164,7 @@ class CheckoutController extends Controller
 
     public function renewForm(Subscription $subscription): View|RedirectResponse
     {
-        abort_unless($subscription->user_id === auth()->id(), 403);
+        abort_unless((int) $subscription->user_id === (int) auth()->id() || auth()->user()?->is_admin, 403);
 
         $subscription->load('product');
         $product = $subscription->product;
@@ -183,7 +183,7 @@ class CheckoutController extends Controller
 
     public function renew(Request $request, Subscription $subscription): RedirectResponse
     {
-        abort_unless($subscription->user_id === auth()->id(), 403);
+        abort_unless((int) $subscription->user_id === (int) auth()->id() || auth()->user()?->is_admin, 403);
 
         $data = $request->validate([
             'periods' => ['required', 'integer', 'min:1', 'max:4'],
@@ -202,6 +202,16 @@ class CheckoutController extends Controller
 
     protected function authorizeOrder(Order $order): void
     {
-        abort_unless($order->user_id === auth()->id(), 403);
+        $user = auth()->user();
+
+        abort_unless(
+            $user
+            && (
+                (int) $order->user_id === (int) $user->id
+                || (bool) $user->is_admin
+            ),
+            403,
+            'Anda tidak memiliki akses ke invoice ini.'
+        );
     }
 }

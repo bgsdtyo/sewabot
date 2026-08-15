@@ -145,6 +145,9 @@ class BotDetailController extends Controller
 
     protected function authorizeOwner(TelegramBot $bot): void
     {
-        abort_unless($bot->user_id === auth()->id() || auth()->user()->is_admin, 403);
+        abort_unless(
+            (int) $bot->user_id === (int) auth()->id() || auth()->user()?->is_admin,
+            403
+        );
     }
 }

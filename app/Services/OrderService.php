@@ -26,12 +26,12 @@ class OrderService
         $pending = $user->orders()
             ->where('type', 'new_subscription')
             ->whereIn('status', ['pending'])
-            ->exists();
+            ->latest()
+            ->first();
 
         if ($pending) {
-            throw ValidationException::withMessages([
-                'order' => 'Anda masih memiliki pembayaran yang menunggu konfirmasi.',
-            ]);
+            // Lanjutkan invoice pending yang sama, jangan buat order baru.
+            return $pending;
         }
 
         if ($user->activeSubscription()) {
@@ -80,7 +80,7 @@ class OrderService
 
     public function createRenewalOrder(User $user, Subscription $subscription, int $periods = 1): Order
     {
-        if ($subscription->user_id !== $user->id) {
+        if ((int) $subscription->user_id !== (int) $user->id) {
             abort(403);
         }
 

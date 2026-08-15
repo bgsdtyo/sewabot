@@ -19,7 +19,7 @@ Route::get('/internal/otp-watch/{order}', OtpWatchController::class)
     ->middleware('signed')
     ->name('otp.watch');
 
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
     Route::get('/payments', PaymentHistoryController::class)->name('payments.index');
 

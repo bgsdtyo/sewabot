@@ -27,6 +27,10 @@ class Order extends Model
     protected function casts(): array
     {
         return [
+            'user_id' => 'integer',
+            'product_id' => 'integer',
+            'subscription_id' => 'integer',
+            'telegram_bot_id' => 'integer',
             'amount' => 'integer',
             'duration_days' => 'integer',
             'periods' => 'integer',
