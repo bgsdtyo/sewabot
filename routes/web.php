@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\BotDetailController;
 use App\Http\Controllers\CheckoutController;
+use App\Http\Controllers\CronController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LandingController;
 use App\Http\Controllers\OtpWatchController;
@@ -11,6 +12,9 @@ use App\Http\Controllers\TelegramWebhookController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', LandingController::class)->name('landing');
+
+Route::get('/cron/check-subscriptions', [CronController::class, 'checkSubscriptions'])->name('cron.check-subscriptions');
+Route::get('/cron/check-expired', [CronController::class, 'checkSubscriptions'])->name('cron.check-expired');
 
 Route::post('/telegram/webhook/{telegramBot}', TelegramWebhookController::class)
     ->name('telegram.webhook');

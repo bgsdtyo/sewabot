@@ -33,7 +33,7 @@ class TelegramBotService
 
     public function deactivate(TelegramBot $bot): TelegramBot
     {
-        $bot->update(['status' => 'inactive']);
+        $bot->update(['status' => 'suspended']);
 
         if ($bot->token) {
             $this->deleteWebhook($bot);
@@ -47,7 +47,15 @@ class TelegramBotService
         $subscription->update(['status' => 'expired']);
 
         if ($subscription->telegramBot) {
-            $this->deactivate($subscription->telegramBot);
+            $hasOtherActive = $subscription->telegramBot->subscriptions()
+                ->where('id', '!=', $subscription->id)
+                ->where('status', 'active')
+                ->where('expires_at', '>', now())
+                ->exists();
+
+            if (! $hasOtherActive) {
+                $this->deactivate($subscription->telegramBot);
+            }
         }
     }
 
@@ -103,12 +111,36 @@ class TelegramBotService
 
     public function handleUpdate(TelegramBot $bot, array $update): void
     {
-        if ($bot->status !== 'active' || ! $bot->token) {
+        if (! $bot->token) {
             return;
         }
 
         $message = $update['message'] ?? $update['callback_query']['message'] ?? null;
         $callback = $update['callback_query'] ?? null;
+        $chatId = $message['chat']['id'] ?? $callback['message']['chat']['id'] ?? null;
+
+        // If bot is suspended or inactive, inform the user and block operations
+        if ($bot->status !== 'active') {
+            if ($callback && isset($callback['id'])) {
+                try {
+                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                        'callback_query_id' => $callback['id'],
+                        'text' => '⚠️ Layanan bot sedang dinonaktifkan (Masa sewa berakhir).',
+                        'show_alert' => true,
+                    ]);
+                } catch (\Throwable $e) {
+                    // ignore
+                }
+            } elseif ($chatId) {
+                $this->sendMessage(
+                    $bot,
+                    $chatId,
+                    "⚠️ <b>Layanan Bot Dinonaktifkan</b>\n\nMasa aktif sewa bot ini telah berakhir atau sedang ditangguhkan (SUSPENDED).\n\nSilakan lakukan perpanjangan subscription di website untuk mengaktifkan kembali bot ini."
+                );
+            }
+
+            return;
+        }
 
         if ($callback) {
             $this->handleCallback($bot, $callback);

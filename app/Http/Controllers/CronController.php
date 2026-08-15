@@ -1,20 +1,21 @@
 <?php
 
-namespace App\Console\Commands;
+namespace App\Http\Controllers;
 
 use App\Models\Subscription;
+use App\Models\TelegramBot;
 use App\Services\TelegramBotService;
-use Illuminate\Console\Command;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
-class ExpireSubscriptionsCommand extends Command
+class CronController extends Controller
 {
-    protected $signature = 'subscriptions:expire';
-
-    protected $description = 'Expire due subscriptions and deactivate telegram bots';
-
-    public function handle(TelegramBotService $telegramBotService): int
+    /**
+     * Check expired subscriptions and suspend associated telegram bots.
+     */
+    public function checkSubscriptions(Request $request, TelegramBotService $telegramBotService): JsonResponse
     {
-        $due = Subscription::query()
+        $expiredSubscriptions = Subscription::query()
             ->where('status', 'active')
             ->where('expires_at', '<=', now())
             ->with('telegramBot')
@@ -23,11 +24,12 @@ class ExpireSubscriptionsCommand extends Command
         $expiredSubCount = 0;
         $suspendedBotCount = 0;
 
-        foreach ($due as $subscription) {
+        foreach ($expiredSubscriptions as $subscription) {
             $subscription->update(['status' => 'expired']);
             $expiredSubCount++;
 
             if ($subscription->telegramBot) {
+                // Check if this bot has any other active, valid subscription
                 $hasOtherActive = $subscription->telegramBot->subscriptions()
                     ->where('id', '!=', $subscription->id)
                     ->where('status', 'active')
@@ -39,12 +41,10 @@ class ExpireSubscriptionsCommand extends Command
                     $suspendedBotCount++;
                 }
             }
-
-            $this->info("Expired subscription #{$subscription->id}");
         }
 
-        // Also suspend active bots without any active subscriptions
-        $botsWithoutActiveSub = \App\Models\TelegramBot::query()
+        // Also ensure any bot currently marked 'active' without ANY active subscription is suspended
+        $botsWithoutActiveSub = TelegramBot::query()
             ->where('status', 'active')
             ->whereDoesntHave('subscriptions', function ($q) {
                 $q->where('status', 'active')
@@ -55,11 +55,14 @@ class ExpireSubscriptionsCommand extends Command
         foreach ($botsWithoutActiveSub as $bot) {
             $telegramBotService->deactivate($bot);
             $suspendedBotCount++;
-            $this->info("Suspended bot #{$bot->id} ({$bot->name})");
         }
 
-        $this->info("Done. Expired subscriptions: {$expiredSubCount}, Suspended bots: {$suspendedBotCount}");
-
-        return self::SUCCESS;
+        return response()->json([
+            'success' => true,
+            'message' => 'Pengecekan masa aktif subscription berhasil dijalankan.',
+            'expired_subscriptions' => $expiredSubCount,
+            'suspended_bots' => $suspendedBotCount,
+            'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
+        ]);
     }
 }

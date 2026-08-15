@@ -166,19 +166,29 @@ class CheckoutController extends Controller
     {
         abort_unless((int) $subscription->user_id === (int) auth()->id() || auth()->user()?->is_admin, 403);
 
-        $subscription->load('product');
+        $subscription->load(['product', 'telegramBot']);
         $product = $subscription->product;
 
-        $periodOptions = collect(range(1, 4))->map(function (int $periods) use ($product) {
+        $tz = config('app.timezone', 'Asia/Jakarta');
+        $baseDate = ($subscription->status === 'active' && $subscription->expires_at && $subscription->expires_at->isFuture())
+            ? $subscription->expires_at->timezone($tz)
+            : now($tz);
+
+        $periodOptions = collect(range(1, 4))->map(function (int $periods) use ($product, $baseDate) {
+            $days = $product->daysForPeriods($periods);
+            $newExpireDate = $baseDate->copy()->addDays($days);
+
             return [
                 'periods' => $periods,
-                'days' => $product->daysForPeriods($periods),
+                'days' => $days,
                 'amount' => $product->priceForPeriods($periods, true),
-                'label' => $product->daysForPeriods($periods).' Hari',
+                'label' => $days.' Hari',
+                'new_expire_date' => $newExpireDate->translatedFormat('d F Y'),
+                'new_expire_short' => $newExpireDate->format('d/m/Y'),
             ];
         });
 
-        return view('checkout.renew', compact('subscription', 'periodOptions'));
+        return view('checkout.renew', compact('subscription', 'periodOptions', 'baseDate'));
     }
 
     public function renew(Request $request, Subscription $subscription): RedirectResponse
