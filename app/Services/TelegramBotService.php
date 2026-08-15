@@ -810,30 +810,7 @@ class TelegramBotService
 
         $cards = [];
         foreach ($orders as $order) {
-            $id = $order->provider_order_id ? substr((string) $order->provider_order_id, 0, 8) : (string) $order->id;
-            $when = $order->created_at?->timezone(config('app.timezone', 'Asia/Jakarta'))->format('d-m-Y H:i') ?? '-';
-            $svc = e($order->otpService?->name ?? 'OTP');
-            $phone = $this->formatPhoneNumber($order->phone_number);
-            $phoneStr = $phone !== '' ? '<code>'.e($phone).'</code>' : '-';
-            $otp = filled($order->otp_code) ? '<code>'.e((string) $order->otp_code).'</code>' : '-';
-            $price = 'Rp '.number_format($order->sell_price, 0, ',', '.');
-            $status = match (strtolower((string) $order->status)) {
-                'completed' => 'Berhasil',
-                'pending' => 'Pending',
-                'cancelled', 'canceled' => 'Dibatalkan',
-                'expired' => 'Kedaluwarsa',
-                default => ucfirst((string) $order->status),
-            };
-
-            $card = "❏ ID: <code>{$id}</code>\n"
-                ."├  Tanggal: {$when}\n"
-                ."├  Service: {$svc}\n"
-                ."├  Nomor: {$phoneStr}\n"
-                ."├  OTP: {$otp}\n"
-                ."├  Harga: {$price}\n"
-                ."└  Status: {$status}";
-
-            $cards[] = $card;
+            $cards[] = $this->formatOrderCard($order);
         }
 
         $text = "<b>Riwayat Transaksi</b> 💰\n\n".implode("\n\n", $cards);
@@ -868,14 +845,16 @@ class TelegramBotService
             ->first();
 
         if ($pending) {
+            $text = $this->formatOrderCard(
+                $pending,
+                title: 'Masih Ada Order Aktif ⚠️',
+                footer: 'Selesaikan / batalkan order ini dulu sebelum membuat order baru.'
+            );
+
             $this->sendMessage(
                 $bot,
                 $chatId,
-                "<b>Masih ada order aktif</b>\n\n".
-                'Nomor: <code>'.e($this->formatPhoneNumber($pending->phone_number))."</code>\n".
-                'Hold: <b>Rp'.number_format($pending->sell_price, 0, ',', '.')."</b>\n".
-                "Status: <b>PENDING</b>\n\n".
-                'Selesaikan / batalkan order ini dulu sebelum order baru.',
+                $text,
                 null,
                 $this->orderActionKeyboard($pending)
             );
@@ -956,13 +935,57 @@ class TelegramBotService
         }
     }
 
+    public function formatOrderCard(
+        OtpOrder $order,
+        ?string $title = null,
+        ?string $footer = null,
+        ?string $statusOverride = null
+    ): string {
+        $id = $order->provider_order_id ? substr((string) $order->provider_order_id, 0, 8) : (string) $order->id;
+        $tz = config('app.timezone', 'Asia/Jakarta');
+        $when = $order->created_at?->timezone($tz)->format('d-m-Y H:i') ?? '-';
+        $svc = e($order->otpService?->name ?? 'Kopken');
+        $phone = $this->formatPhoneNumber($order->phone_number);
+        $phoneStr = $phone !== '' ? '<code>'.e($phone).'</code>' : '-';
+        $otp = filled($order->otp_code) ? '<code>'.e((string) $order->otp_code).'</code>' : '-';
+        $price = 'Rp '.number_format($order->sell_price, 0, ',', '.');
+
+        $status = $statusOverride ?? match (strtolower((string) $order->status)) {
+            'completed' => 'Berhasil',
+            'pending' => 'Pending',
+            'cancelled', 'canceled' => 'Dibatalkan',
+            'expired' => 'Kedaluwarsa',
+            default => ucfirst((string) $order->status),
+        };
+
+        $lines = [];
+        if ($title) {
+            $lines[] = "<b>{$title}</b>\n";
+        }
+
+        $lines[] = "❏ ID: <code>{$id}</code>\n"
+            ."├  Tanggal: {$when}\n"
+            ."├  Service: {$svc}\n"
+            ."├  Nomor: {$phoneStr}\n"
+            ."├  OTP: {$otp}\n"
+            ."├  Harga: {$price}\n"
+            ."└  Status: {$status}";
+
+        if ($footer) {
+            $lines[] = "\n\n{$footer}";
+        }
+
+        return implode('', $lines);
+    }
+
     protected function sendOrderCreatedMessage(TelegramBot $bot, int|string $chatId, OtpOrder $order, ?int $editMessageId = null): void
     {
-        $text = "<b>Order KOPKEN berhasil dibuat</b>\n\n".
-            'Nomor: <code>'.e($this->formatPhoneNumber($order->phone_number))."</code>\n".
-            'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
-            "Status: <b>PENDING</b>\n\n".
-            'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.';
+        $service = e($order->otpService?->name ?? 'Kopken');
+        $text = $this->formatOrderCard(
+            $order,
+            title: "Order {$service} Berhasil Dibuat 📲",
+            footer: 'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.'
+        );
 
         $messageId = $this->replyOrSend(
             $bot,
@@ -977,13 +1000,13 @@ class TelegramBotService
 
     public function notifyOrderCompleted(TelegramBot $bot, $member, OtpOrder $order): void
     {
-        $service = e($order->otpService?->name ?? 'OTP');
-        $text = "<b>Order {$service} — OTP MASUK</b>\n\n".
-            'Nomor: <code>'.e($this->formatPhoneNumber($order->phone_number))."</code>\n".
-            'OTP: <code>'.e((string) $order->otp_code)."</code>\n".
-            "Status: <b>SELESAI</b>\n".
-            'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n\n".
-            'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>';
+        $service = e($order->otpService?->name ?? 'Kopken');
+        $text = $this->formatOrderCard(
+            $order,
+            title: "Order {$service} — OTP MASUK 🎉",
+            footer: 'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>',
+            statusOverride: 'Berhasil'
+        );
 
         $isStillActive = ($order->provider_expire_at === null || $order->provider_expire_at->isFuture())
             && $order->created_at->isAfter(now()->subMinutes(25));
@@ -1111,13 +1134,20 @@ class TelegramBotService
 
         try {
             app(OtpOrderService::class)->cancelOrder($order);
+
+            $service = e($order->otpService?->name ?? 'Kopken');
+            $text = $this->formatOrderCard(
+                $order,
+                title: "Order {$service} — Dibatalkan ❌",
+                footer: "Hold saldo sudah dikembalikan.\nSaldo tersedia: <b>".$member->fresh()->formattedAvailable().'</b>',
+                statusOverride: 'Dibatalkan'
+            );
+
             $this->replyOrSend(
                 $bot,
                 $chatId,
                 $editMessageId ?? $this->orderMessageId($order),
-                "<b>Pesanan dibatalkan</b>\n\n".
-                "Hold saldo sudah dikembalikan.\n".
-                'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>',
+                $text,
                 removeInlineKeyboard: true
             );
         } catch (\Throwable $e) {
@@ -1171,12 +1201,12 @@ class TelegramBotService
             $order = app(OtpOrderService::class)->changeNumber($order);
             app(OtpOrderWatcher::class)->start($order);
 
-            $service = e($order->otpService?->name ?? 'OTP');
-            $text = "<b>Order {$service} — Nomor Diganti</b>\n\n".
-                'Nomor: <code>'.e($this->formatPhoneNumber($order->phone_number))."</code>\n".
-                'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
-                "Status: <b>PENDING</b>\n\n".
-                'Nomor baru aktif. OTP masuk otomatis — bubble ini akan diupdate.';
+            $service = e($order->otpService?->name ?? 'Kopken');
+            $text = $this->formatOrderCard(
+                $order,
+                title: "Order {$service} — Nomor Diganti 🔀",
+                footer: 'Nomor baru aktif. OTP masuk otomatis — bubble ini akan diupdate.'
+            );
 
             $newId = $this->replyOrSend(
                 $bot,
@@ -1240,11 +1270,13 @@ class TelegramBotService
             // Start watcher to poll for the new OTP
             app(OtpOrderWatcher::class)->start($order);
 
-            $service = e($order->otpService?->name ?? 'OTP');
-            $text = "<b>Order {$service} — Ulang OTP</b>\n\n".
-                'Nomor: <code>'.e($this->formatPhoneNumber($order->phone_number))."</code>\n".
-                "Status: <b>MENUNGGU OTP BARU</b>\n\n".
-                'Permintaan ulang OTP dikirim (gratis). Menunggu OTP masuk otomatis…';
+            $service = e($order->otpService?->name ?? 'Kopken');
+            $text = $this->formatOrderCard(
+                $order,
+                title: "Order {$service} — Ulang OTP 🔄",
+                footer: 'Permintaan ulang OTP dikirim (gratis). Menunggu OTP masuk otomatis…',
+                statusOverride: 'Menunggu OTP Baru'
+            );
 
             $newId = $this->replyOrSend(
                 $bot,
@@ -1254,8 +1286,8 @@ class TelegramBotService
                 inlineKeyboard: [
                     'inline_keyboard' => [
                         [
-                            ['text' => '🔄 Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
-                            ['text' => '🔎 Cek OTP', 'callback_data' => 'otp_status:'.$order->id],
+                            ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
+                            ['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)],
                         ],
                     ],
                 ]
@@ -1304,15 +1336,15 @@ class TelegramBotService
         $messageId = $editMessageId ?? $this->orderMessageId($order);
         $order = app(OtpOrderService::class)->refreshOrder($order);
 
-        $service = e($order->otpService?->name ?? 'OTP');
+        $service = e($order->otpService?->name ?? 'Kopken');
 
         if ($order->status === 'completed' && filled($order->otp_code)) {
-            $text = "<b>Order {$service} — OTP MASUK</b>\n\n".
-                'Nomor: <code>'.e($this->formatPhoneNumber($order->phone_number))."</code>\n".
-                'OTP: <code>'.e((string) $order->otp_code)."</code>\n".
-                "Status: <b>SELESAI</b>\n".
-                'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n\n".
-                'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>';
+            $text = $this->formatOrderCard(
+                $order,
+                title: "Order {$service} — OTP MASUK 🎉",
+                footer: 'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>',
+                statusOverride: 'Berhasil'
+            );
 
             $isStillActive = ($order->provider_expire_at === null || $order->provider_expire_at->isFuture())
                 && $order->created_at->isAfter(now()->subMinutes(25));
@@ -1342,12 +1374,11 @@ class TelegramBotService
             return;
         }
 
-        $text = "<b>Order {$service}</b>\n\n".
-            'Nomor: <code>'.e($this->formatPhoneNumber($order->phone_number))."</code>\n".
-            'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
-            'Status: <b>'.e(strtoupper($order->status))."</b>\n".
-            'OTP: '.(filled($order->otp_code) ? '<code>'.e((string) $order->otp_code).'</code>' : '<b>belum masuk</b>')."\n\n".
-            'OTP akan masuk otomatis ke bubble ini.';
+        $text = $this->formatOrderCard(
+            $order,
+            title: "Order {$service} 📲",
+            footer: 'OTP akan masuk otomatis ke bubble ini.'
+        );
 
         $newId = $this->replyOrSend(
             $bot,
