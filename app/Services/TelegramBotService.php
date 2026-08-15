@@ -9,7 +9,6 @@ use App\Models\TelegramBot;
 use App\Models\WalletTransaction;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -1091,7 +1090,7 @@ class TelegramBotService
             return;
         }
 
-        $messageId = $editMessageId ?? ($order->telegram_message_id ? (int) $order->telegram_message_id : null);
+        $messageId = $editMessageId ?? $this->orderMessageId($order);
 
         try {
             $order = app(OtpOrderService::class)->changeNumber($order);
@@ -1099,7 +1098,7 @@ class TelegramBotService
                 'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
                 'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
                 "Status: <b>PENDING</b>\n\n".
-                'Saldo ditahan hingga OTP masuk. Gunakan tombol di bawah untuk mengelola order.';
+                'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.';
 
             $newId = $this->replyOrSend(
                 $bot,
