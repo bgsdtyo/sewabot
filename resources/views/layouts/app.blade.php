@@ -2,7 +2,7 @@
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', config('app.name', 'SewaBot'))</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
@@ -10,7 +10,7 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="font-sans antialiased bg-brand-50 text-brand-900">
-    <div class="min-h-screen">
+    <div class="min-h-screen @auth pb-24 md:pb-0 @endauth">
         @include('layouts.navigation')
 
         @isset($header)
@@ -32,5 +32,7 @@
             {{ $slot }}
         </main>
     </div>
+
+    @include('layouts.bottom-nav')
 </body>
 </html>
