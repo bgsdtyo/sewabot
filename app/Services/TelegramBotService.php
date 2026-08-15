@@ -803,20 +803,42 @@ class TelegramBotService
             ->get();
 
         if ($orders->isEmpty()) {
-            $this->sendMessage($bot, $chatId, "<b>Riwayat OTP</b>\n\nBelum ada transaksi.", $this->mainKeyboard());
+            $this->sendMessage($bot, $chatId, "<b>Riwayat Transaksi</b> 💰\n\nBelum ada riwayat transaksi.", $this->mainKeyboard());
 
             return;
         }
 
-        $lines = ["<b>Riwayat OTP</b> (5 terakhir)\n"];
+        $cards = [];
         foreach ($orders as $order) {
-            $when = $order->created_at?->timezone(config('app.timezone'))->format('d/m H:i') ?? '-';
+            $id = $order->provider_order_id ? substr((string) $order->provider_order_id, 0, 8) : (string) $order->id;
+            $when = $order->created_at?->timezone(config('app.timezone', 'Asia/Jakarta'))->format('d-m-Y H:i') ?? '-';
             $svc = e($order->otpService?->name ?? 'OTP');
-            $status = strtoupper($order->status);
-            $lines[] = "• {$when} · {$svc} · {$status}";
+            $phone = $this->formatPhoneNumber($order->phone_number);
+            $phoneStr = $phone !== '' ? '<code>'.e($phone).'</code>' : '-';
+            $otp = filled($order->otp_code) ? '<code>'.e((string) $order->otp_code).'</code>' : '-';
+            $price = 'Rp '.number_format($order->sell_price, 0, ',', '.');
+            $status = match (strtolower((string) $order->status)) {
+                'completed' => 'Berhasil',
+                'pending' => 'Pending',
+                'cancelled', 'canceled' => 'Dibatalkan',
+                'expired' => 'Kedaluwarsa',
+                default => ucfirst((string) $order->status),
+            };
+
+            $card = "❏ ID: <code>{$id}</code>\n"
+                ."├  Tanggal: {$when}\n"
+                ."├  Service: {$svc}\n"
+                ."├  Nomor: {$phoneStr}\n"
+                ."├  OTP: {$otp}\n"
+                ."├  Harga: {$price}\n"
+                ."└  Status: {$status}";
+
+            $cards[] = $card;
         }
 
-        $this->sendMessage($bot, $chatId, implode("\n", $lines), $this->mainKeyboard());
+        $text = "<b>Riwayat Transaksi</b> 💰\n\n".implode("\n\n", $cards);
+
+        $this->sendMessage($bot, $chatId, $text, $this->mainKeyboard());
     }
 
     protected function startKopken(TelegramBot $bot, $member, $chatId): void
