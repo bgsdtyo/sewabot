@@ -1385,6 +1385,62 @@ class TelegramBotService
         $this->sendMessage($bot, $member->telegram_chat_id, $text, null, $keyboard);
     }
 
+    public function notifyOrderCancelled(
+        TelegramBot $bot,
+        $member,
+        OtpOrder $order,
+        string $reasonType = 'cancelled',
+        ?string $customReason = null
+    ): void {
+        $phone = $this->formatPhoneNumber($order->phone_number);
+        $phoneStr = $phone !== '' ? '<code>'.e($phone).'</code>' : '';
+        $service = e($order->otpService?->name ?? 'Kopken');
+
+        if ($reasonType === 'banned' || stripos((string) $customReason, 'banned') !== false || stripos((string) $customReason, 'terblokir') !== false) {
+            $targetPhone = $phoneStr !== '' ? " {$phoneStr}" : '';
+            $text = "❌ <b>Pesanan Dibatalkan</b>\n\n"
+                ."Nomor WhatsApp{$targetPhone} terblokir/banned oleh WhatsApp, jadi tidak diberikan kepada Anda.\n"
+                ."Saldo yang tertahan telah dikembalikan.";
+        } elseif ($reasonType === 'expired') {
+            $text = "⏳ <b>Pesanan Kedaluwarsa</b>\n\n"
+                ."Waktu pemesanan OTP untuk layanan <b>{$service}</b> telah habis.\n"
+                ."Saldo yang tertahan telah dikembalikan.";
+        } else {
+            $text = "❌ <b>Pesanan Dibatalkan</b>\n\n"
+                ."Pesanan nomor <b>{$service}</b> telah dibatalkan.\n"
+                ."Saldo yang tertahan telah dikembalikan.";
+        }
+
+        $buttons = [
+            [
+                ['text' => '📱 Pesan nomor baru', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)],
+            ],
+        ];
+
+        $keyboard = [
+            'inline_keyboard' => $buttons,
+        ];
+
+        $messageId = $this->orderMessageId($order);
+
+        if ($messageId) {
+            $edited = $this->editMessage(
+                $bot,
+                $member->telegram_chat_id,
+                $messageId,
+                $text,
+                $keyboard,
+                false
+            );
+
+            if ($edited) {
+                return;
+            }
+        }
+
+        $this->sendMessage($bot, $member->telegram_chat_id, $text, null, $keyboard);
+    }
+
     protected function rememberOrderMessage(OtpOrder $order, ?int $messageId): void
     {
         if (! $messageId) {

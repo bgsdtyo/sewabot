@@ -181,6 +181,12 @@ class OtpProviderClient
 
         // Friendly Indonesian translations for user
         if (
+            stripos($message, 'banned') !== false ||
+            stripos($message, 'terblokir') !== false ||
+            stripos($message, 'blocked') !== false
+        ) {
+            $message = 'Nomor WhatsApp terblokir/banned oleh WhatsApp, jadi tidak diberikan kepada Anda. Saldo yang tertahan telah dikembalikan.';
+        } elseif (
             stripos($message, 'out of stock') !== false ||
             stripos($message, 'no stock') !== false ||
             stripos($message, 'stock empty') !== false ||

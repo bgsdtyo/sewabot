@@ -276,8 +276,18 @@ class OtpOrderService
             }
         }
 
-        if (in_array($status, ['cancelled', 'canceled', 'expired'], true) && $order->status === 'pending') {
-            return $this->refundLocal($order->fresh(), $status === 'expired' ? 'expired' : 'cancelled');
+        $cancelReason = $data['cancel_reason'] ?? $data['reason'] ?? $data['message'] ?? null;
+        $isCancelledOrBanned = in_array($status, ['cancelled', 'canceled', 'expired', 'banned', 'blocked', 'rejected', 'refunded', 'failed'], true)
+            || stripos((string) $cancelReason, 'banned') !== false
+            || stripos((string) $cancelReason, 'terblokir') !== false
+            || stripos((string) $cancelReason, 'blocked') !== false;
+
+        if ($isCancelledOrBanned && $order->status === 'pending') {
+            $reasonType = (stripos((string) $cancelReason, 'banned') !== false || stripos((string) $cancelReason, 'terblokir') !== false || in_array($status, ['banned', 'blocked'], true))
+                ? 'banned'
+                : ($status === 'expired' ? 'expired' : 'cancelled');
+
+            return $this->refundLocal($order->fresh(), $reasonType, $cancelReason);
         }
 
         return $order->fresh();
@@ -345,7 +355,7 @@ class OtpOrderService
         return $this->refundLocal($order, 'cancelled');
     }
 
-    protected function refundLocal(OtpOrder $order, string $status): OtpOrder
+    protected function refundLocal(OtpOrder $order, string $status, ?string $reason = null): OtpOrder
     {
         $refunded = DB::transaction(function () use ($order, $status) {
             $order = OtpOrder::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
@@ -368,11 +378,14 @@ class OtpOrderService
             return $order->fresh(['otpService', 'botMember', 'telegramBot']);
         });
 
-        if ($refunded->isPartOfBatch()) {
-            $bot = $refunded->telegramBot;
-            $member = $refunded->botMember;
-            if ($bot && $member) {
+        $bot = $refunded->telegramBot;
+        $member = $refunded->botMember;
+
+        if ($bot && $member) {
+            if ($refunded->isPartOfBatch()) {
                 $this->telegram->notifyBatchOrderUpdated($bot, $member, $refunded->getBatchOrders());
+            } else {
+                $this->telegram->notifyOrderCancelled($bot, $member, $refunded, $status, $reason);
             }
         }
 
