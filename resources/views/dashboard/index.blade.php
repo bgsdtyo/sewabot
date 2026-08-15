@@ -1,11 +1,5 @@
 <x-app-layout>
     <div class="mx-auto max-w-3xl space-y-12 px-4 py-10 sm:px-6 lg:px-8">
-        @if (session('success'))
-            <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                {{ session('success') }}
-            </div>
-        @endif
-
         @if ($notifications->isNotEmpty())
             <div class="space-y-2">
                 @foreach ($notifications as $notification)

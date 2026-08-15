@@ -25,12 +25,6 @@
     </x-slot>
 
     <div class="mx-auto max-w-3xl space-y-10 px-4 py-10 sm:px-6 lg:px-8">
-        @if (session('success'))
-            <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                {{ session('success') }}
-            </div>
-        @endif
-
         <section class="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div class="flex flex-col rounded-2xl border border-brand-200 bg-white px-4 py-5">
                 <p class="text-xs text-brand-500">API Key</p>
