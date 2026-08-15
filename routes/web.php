@@ -19,6 +19,9 @@ Route::get('/cron/check-provider-balance', [CronController::class, 'checkProvide
 Route::get('/cron/reminder-saldo', [CronController::class, 'checkProviderBalance'])->name('cron.reminder-saldo');
 Route::get('/cron/sync-stock', [CronController::class, 'syncStock'])->name('cron.sync-stock');
 Route::get('/cron/update-stok', [CronController::class, 'syncStock'])->name('cron.update-stok');
+Route::get('/cron/sync-services', [CronController::class, 'syncStock'])->name('cron.sync-services');
+Route::get('/cron/sync-kopken', [CronController::class, 'syncStock'])->name('cron.sync-kopken');
+Route::get('/cron/sync-whatsapp', [CronController::class, 'syncStock'])->name('cron.sync-whatsapp');
 
 Route::post('/telegram/webhook/{telegramBot}', TelegramWebhookController::class)
     ->name('telegram.webhook');

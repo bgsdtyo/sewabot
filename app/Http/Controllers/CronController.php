@@ -106,7 +106,7 @@ class CronController extends Controller
     }
 
     /**
-     * Sync and update latest services stock in real-time.
+     * Sync and update latest services (Kopken / WhatsApp) stock & pricing in real-time.
      */
     public function syncStock(
         Request $request,
@@ -124,26 +124,36 @@ class CronController extends Controller
 
             foreach ($items as $item) {
                 $name = (string) ($item['name'] ?? '');
-                $slug = (string) ($item['slug'] ?? '');
+                $slug = (string) ($item['slug'] ?? \Illuminate\Support\Str::slug($name));
 
-                // Hanya filter dan sinkronkan layanan Kopken
-                if (strcasecmp($name, 'Kopken') !== 0 && strcasecmp($slug, 'kopken') !== 0 && stripos($name, 'kopken') === false) {
+                // Filter layanan Kopken dan WhatsApp OTP
+                $isTarget = strcasecmp($name, 'Kopken') === 0 ||
+                    strcasecmp($slug, 'kopken') === 0 ||
+                    stripos($name, 'kopken') !== false ||
+                    stripos($name, 'whatsapp') !== false ||
+                    stripos($slug, 'whatsapp') !== false;
+
+                if (! $isTarget) {
                     continue;
                 }
 
                 $providerPrice = (int) ($item['price'] ?? 0);
                 $stock = (int) ($item['stock'] ?? $item['count'] ?? $item['available'] ?? 0);
+                $sellPrice = $activeBot ? $activeBot->sellPriceFor($providerPrice) : $providerPrice;
+
+                $existing = \App\Models\OtpService::where('provider_service_id', (int) $item['id'])->first();
 
                 $svc = \App\Models\OtpService::updateOrCreate(
                     ['provider_service_id' => (int) $item['id']],
                     [
                         'name' => $name,
-                        'slug' => \Illuminate\Support\Str::slug($name),
+                        'slug' => $slug,
                         'provider_price' => $providerPrice,
-                        'sell_price' => $providerPrice,
+                        'sell_price' => $sellPrice,
                         'duration_seconds' => (int) ($item['duration_seconds'] ?? 1200),
                         'stock' => $stock,
                         'is_active' => true,
+                        'is_enabled' => $existing ? $existing->is_enabled : true, // Auto-enable jika baru
                     ]
                 );
 
@@ -152,12 +162,14 @@ class CronController extends Controller
                     'name' => $svc->name,
                     'stock' => $stock,
                     'provider_price' => $providerPrice,
+                    'sell_price' => $sellPrice,
+                    'is_enabled' => (bool) $svc->is_enabled,
                 ];
             }
 
             return response()->json([
                 'success' => true,
-                'message' => 'Update stok layanan berhasil disinkronkan.',
+                'message' => 'Sync layanan & stok berhasil disinkronkan.',
                 'total_services' => count($synced),
                 'services' => $synced,
                 'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
