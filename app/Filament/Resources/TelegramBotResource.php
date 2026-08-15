@@ -54,6 +54,24 @@ class TelegramBotResource extends Resource
                 ->default(50)
                 ->minValue(0)
                 ->helperText('Persen: modal + % · Flat: modal + Rp (contoh 1000).'),
+            Forms\Components\Section::make('Kontak Deposit')
+                ->description('Deposit saldo member masih manual. Tombol WA & Telegram muncul di bot.')
+                ->schema([
+                    Forms\Components\TextInput::make('deposit_whatsapp')
+                        ->label('WhatsApp admin')
+                        ->placeholder('62812xxxx atau https://wa.me/62812xxxx')
+                        ->maxLength(100),
+                    Forms\Components\TextInput::make('deposit_telegram')
+                        ->label('Telegram admin')
+                        ->placeholder('@username atau https://t.me/username')
+                        ->maxLength(100),
+                    Forms\Components\Textarea::make('deposit_note')
+                        ->label('Catatan deposit')
+                        ->rows(3)
+                        ->columnSpanFull(),
+                ])
+                ->columns(2)
+                ->collapsed(),
             Forms\Components\TextInput::make('webhook_url')
                 ->label('Webhook URL')
                 ->disabled()

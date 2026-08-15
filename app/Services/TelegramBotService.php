@@ -136,13 +136,13 @@ class TelegramBotService
         }
 
         if (str_starts_with($text, '/saldo') || str_starts_with($text, '/balance') || $this->isButton($text, 'Saldo')) {
-            $this->sendMessage($bot, $chatId,
-                "<b>Informasi Saldo</b>\n\n".
-                'Total: <b>'.$member->formattedBalance()."</b>\n".
-                'Tersedia: <b>'.$member->formattedAvailable()."</b>\n".
-                'Ditahan: <b>Rp'.number_format($member->held_balance, 0, ',', '.').'</b>',
-                $this->mainKeyboard()
-            );
+            $this->sendBalance($bot, $member, $chatId);
+
+            return;
+        }
+
+        if (str_starts_with($text, '/deposit') || $this->isButton($text, 'Deposit')) {
+            $this->sendDepositInfo($bot, $chatId);
 
             return;
         }
@@ -206,13 +206,59 @@ class TelegramBotService
         return [
             'keyboard' => [
                 [['text' => '📱 Order OTP'], ['text' => '💰 Saldo']],
-                [['text' => '📦 Status'], ['text' => '📋 Riwayat']],
-                [['text' => '🔄 Ulang OTP'], ['text' => '🔀 Ganti Nomor']],
-                [['text' => '❌ Batalkan'], ['text' => '❓ Bantuan']],
+                [['text' => '➕ Deposit'], ['text' => '📦 Status']],
+                [['text' => '📋 Riwayat'], ['text' => '🔄 Ulang OTP']],
+                [['text' => '🔀 Ganti Nomor'], ['text' => '❌ Batalkan']],
+                [['text' => '❓ Bantuan']],
             ],
             'resize_keyboard' => true,
             'is_persistent' => true,
         ];
+    }
+
+    protected function sendBalance(TelegramBot $bot, $member, int|string $chatId): void
+    {
+        $text = "<b>Informasi Saldo</b>\n\n"
+            .'Total: <b>'.$member->formattedBalance()."</b>\n"
+            .'Tersedia: <b>'.$member->formattedAvailable()."</b>\n"
+            .'Ditahan: <b>Rp'.number_format($member->held_balance, 0, ',', '.')."</b>\n\n"
+            .'Deposit saldo saat ini masih <b>manual</b>. Tekan tombol di bawah untuk hubungi admin.';
+
+        $this->sendMessage($bot, $chatId, $text, null, [
+            'inline_keyboard' => [
+                [['text' => '➕ Deposit Saldo', 'callback_data' => 'deposit']],
+            ],
+        ]);
+    }
+
+    protected function sendDepositInfo(TelegramBot $bot, int|string $chatId): void
+    {
+        $note = trim((string) ($bot->deposit_note ?? ''));
+        if ($note === '') {
+            $note = 'Deposit saldo saat ini dilakukan secara manual. Hubungi admin melalui tombol di bawah, lalu kirim bukti transfer.';
+        }
+
+        $text = "<b>Deposit Saldo</b>\n\n".e($note)."\n\n"
+            .'Setelah transfer, kirim bukti ke admin agar saldo segera ditambahkan.';
+
+        $row = [];
+        if ($wa = $bot->depositWhatsappUrl()) {
+            $row[] = ['text' => '💬 WhatsApp', 'url' => $wa];
+        }
+        if ($tg = $bot->depositTelegramUrl()) {
+            $row[] = ['text' => '✈️ Telegram', 'url' => $tg];
+        }
+
+        if ($row === []) {
+            $text .= "\n\n<i>Kontak admin belum dikonfigurasi. Minta pemilik bot mengisi WhatsApp/Telegram di Konfigurasi Bot.</i>";
+            $this->sendMessage($bot, $chatId, $text, $this->mainKeyboard());
+
+            return;
+        }
+
+        $this->sendMessage($bot, $chatId, $text, $this->mainKeyboard(), [
+            'inline_keyboard' => [$row],
+        ]);
     }
 
     protected function welcomeText(TelegramBot $bot, $member): string
@@ -239,6 +285,7 @@ class TelegramBotService
             ."<b>Menu</b>\n"
             ."• Order OTP — minta nomor KOPKEN\n"
             ."• Saldo — cek saldo & hold\n"
+            ."• Deposit — hubungi admin (manual)\n"
             ."• Status — pantau order berjalan\n"
             ."• Riwayat — 5 transaksi terakhir\n"
             ."• Ulang OTP — minta ulang kode (gratis)\n"
@@ -246,7 +293,7 @@ class TelegramBotService
             ."• Batalkan — batalkan & refund hold\n"
             ."• Bantuan — panduan ini\n\n"
             ."<b>Perintah teks</b>\n"
-            ."/otp · /saldo · /status · /ulang · /ganti · /batal\n\n"
+            ."/otp · /saldo · /deposit · /status · /ulang · /ganti · /batal\n\n"
             .'Saldo ditahan saat order, dipotong saat OTP masuk, dan di-refund jika dibatalkan.';
     }
 
@@ -427,11 +474,36 @@ class TelegramBotService
 
     protected function handleCallback(TelegramBot $bot, array $callback): void
     {
-        // reserved for inline buttons later
+        $data = (string) ($callback['data'] ?? '');
+        $chatId = $callback['message']['chat']['id'] ?? null;
+        $callbackId = $callback['id'] ?? null;
+
+        if ($callbackId) {
+            try {
+                Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                    'callback_query_id' => $callbackId,
+                ]);
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
+
+        if (! $chatId) {
+            return;
+        }
+
+        if ($data === 'deposit') {
+            $this->sendDepositInfo($bot, $chatId);
+        }
     }
 
-    public function sendMessage(TelegramBot $bot, int|string $chatId, string $text, ?array $replyMarkup = null): void
-    {
+    public function sendMessage(
+        TelegramBot $bot,
+        int|string $chatId,
+        string $text,
+        ?array $replyMarkup = null,
+        ?array $inlineKeyboard = null
+    ): void {
         try {
             $payload = [
                 'chat_id' => $chatId,
@@ -440,7 +512,9 @@ class TelegramBotService
                 'disable_web_page_preview' => true,
             ];
 
-            if ($replyMarkup) {
+            if ($inlineKeyboard) {
+                $payload['reply_markup'] = $inlineKeyboard;
+            } elseif ($replyMarkup) {
                 $payload['reply_markup'] = $replyMarkup;
             }
 

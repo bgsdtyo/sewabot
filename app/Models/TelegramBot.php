@@ -17,6 +17,9 @@ class TelegramBot extends Model
         'otp_api_key',
         'otp_markup_type',
         'otp_markup_percent',
+        'deposit_whatsapp',
+        'deposit_telegram',
+        'deposit_note',
         'webhook_url',
         'status',
         'notes',
@@ -131,5 +134,60 @@ class TelegramBot extends Model
         }
 
         return $this->otpMarkupValue().'%';
+    }
+
+    /**
+     * Normalize WhatsApp contact to https://wa.me/...
+     */
+    public function depositWhatsappUrl(): ?string
+    {
+        $raw = trim((string) $this->deposit_whatsapp);
+        if ($raw === '') {
+            return null;
+        }
+
+        if (preg_match('#^https?://#i', $raw)) {
+            return $raw;
+        }
+
+        $digits = preg_replace('/\D+/', '', $raw) ?: '';
+        if ($digits === '') {
+            return null;
+        }
+
+        if (str_starts_with($digits, '0')) {
+            $digits = '62'.substr($digits, 1);
+        }
+
+        return 'https://wa.me/'.$digits;
+    }
+
+    /**
+     * Normalize Telegram contact to https://t.me/...
+     */
+    public function depositTelegramUrl(): ?string
+    {
+        $raw = trim((string) $this->deposit_telegram);
+        if ($raw === '') {
+            return null;
+        }
+
+        if (preg_match('#^https?://#i', $raw)) {
+            return $raw;
+        }
+
+        $username = ltrim($raw, '@');
+        $username = preg_replace('#^(?:t\.me/|telegram\.me/)#i', '', $username) ?: '';
+
+        if ($username === '') {
+            return null;
+        }
+
+        return 'https://t.me/'.$username;
+    }
+
+    public function hasDepositContacts(): bool
+    {
+        return $this->depositWhatsappUrl() || $this->depositTelegramUrl();
     }
 }

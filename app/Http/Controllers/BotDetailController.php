@@ -31,11 +31,17 @@ class BotDetailController extends Controller
             'otp_api_key' => ['nullable', 'string', 'max:500'],
             'otp_markup_type' => ['required', 'in:percent,flat'],
             'otp_markup_percent' => ['required', 'integer', 'min:0', 'max:1000000'],
+            'deposit_whatsapp' => ['nullable', 'string', 'max:100'],
+            'deposit_telegram' => ['nullable', 'string', 'max:100'],
+            'deposit_note' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $updates = [
             'otp_markup_type' => $data['otp_markup_type'],
             'otp_markup_percent' => (int) $data['otp_markup_percent'],
+            'deposit_whatsapp' => filled($data['deposit_whatsapp'] ?? null) ? trim($data['deposit_whatsapp']) : null,
+            'deposit_telegram' => filled($data['deposit_telegram'] ?? null) ? trim($data['deposit_telegram']) : null,
+            'deposit_note' => filled($data['deposit_note'] ?? null) ? trim($data['deposit_note']) : null,
         ];
 
         if ($request->boolean('clear_api_key')) {
