@@ -881,14 +881,24 @@ class TelegramBotService
         $available = $member->availableBalance();
 
         if ($available < $price) {
+            $formattedPrice = 'Rp '.number_format($price, 0, ',', '.');
+            $text = "<b>Saldo Tidak Cukup</b> ⚠️\n\n"
+                ."❏ Layanan: <b>".e($service->name)."</b>\n"
+                ."├  Harga: <b>{$formattedPrice}</b>\n"
+                ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
+                ."└  Status: <b>Perlu Deposit</b>\n\n"
+                ."<i>Silakan deposit saldo terlebih dahulu melalui menu Deposit.</i>";
+
             $this->sendMessage(
                 $bot,
                 $chatId,
-                "<b>Saldo tidak cukup</b>\n\n".
-                'Dibutuhkan: <b>Rp'.number_format($price, 0, ',', '.')."</b>\n".
-                'Tersedia: <b>'.$member->formattedAvailable()."</b>\n\n".
-                'Silakan deposit dulu lewat menu Deposit.',
-                $this->mainKeyboard()
+                $text,
+                $this->mainKeyboard(),
+                [
+                    'inline_keyboard' => [
+                        [['text' => '➕ Deposit Saldo', 'callback_data' => 'deposit']],
+                    ],
+                ]
             );
 
             return;
@@ -896,20 +906,22 @@ class TelegramBotService
 
         $otpOrderService = app(OtpOrderService::class);
         $stock = $otpOrderService->getServiceStock($service, $bot);
-        $stockFormatted = $stock > 0 ? number_format($stock, 0, ',', '.').' nomor' : '⚠️ Habis (0)';
+        $stockFormatted = $stock > 0 ? number_format($stock, 0, ',', '.').' nomor' : '0 (Habis)';
+        $statusStr = $stock > 0 ? 'Siap Dipesan' : 'Stok Kosong';
+        $formattedPrice = 'Rp '.number_format($price, 0, ',', '.');
 
-        $text = "<b>Konfirmasi Order OTP</b>\n\n"
-            .'Layanan: <b>'.e($service->name)."</b>\n"
-            ."Stok Provider: <b>{$stockFormatted}</b>\n"
-            .'Harga (hold): <b>Rp'.number_format($price, 0, ',', '.')."</b>\n"
-            .'Saldo tersedia: <b>'.$member->formattedAvailable()."</b>\n\n";
+        $text = "<b>Konfirmasi Order OTP</b> 📲\n\n"
+            ."❏ Layanan: <b>".e($service->name)."</b>\n"
+            ."├  Harga: <b>{$formattedPrice}</b> (Hold)\n"
+            ."├  Stok Provider: <b>{$stockFormatted}</b>\n"
+            ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
+            ."└  Status: <b>{$statusStr}</b>\n\n";
 
         if ($stock <= 0) {
-            $text .= "⚠️ <i>Stok nomor saat ini sedang kosong di provider pusat. Jika tetap di-order dan stok belum terisi, saldo tidak akan berkurang.</i>\n\n";
+            $text .= "⚠️ <i>Stok nomor saat ini sedang kosong di provider pusat. Jika tetap di-order dan stok belum terisi, saldo tidak akan berkurang.</i>";
         } else {
-            $text .= "Jika dilanjutkan, sistem akan memesan nomor dan menahan saldo.\n";
+            $text .= "<i>Jika dilanjutkan, sistem akan memesan nomor dan menahan saldo. Saldo baru dipotong saat OTP masuk.</i>";
         }
-        $text .= 'Saldo baru dipotong saat OTP masuk.';
 
         $this->sendMessage($bot, $chatId, $text, null, [
             'inline_keyboard' => [
