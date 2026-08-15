@@ -30,6 +30,14 @@ class PaymentSettings extends Page implements HasForms
 
     public ?array $data = [];
 
+    public int|string|null $testAmount = 150000;
+
+    public ?string $testQrDataUri = null;
+
+    public ?string $testDynamicPayload = null;
+
+    public ?string $testMerchant = null;
+
     public function mount(): void
     {
         $this->form->fill([
@@ -88,7 +96,6 @@ class PaymentSettings extends Page implements HasForms
             ]);
         }
 
-        // Smoke-test convert with dummy amount
         try {
             $qris->convert($payload, 1000);
         } catch (\Throwable $e) {
@@ -99,7 +106,6 @@ class PaymentSettings extends Page implements HasForms
 
         $merchant = $state['merchant_name'];
         if ($auto = $qris->merchantNameFromPayload($payload)) {
-            // keep admin override; only fill if empty-ish
             if (blank($merchant) || $merchant === 'NAMA BISNIS') {
                 $merchant = $auto;
             }
@@ -115,5 +121,62 @@ class PaymentSettings extends Page implements HasForms
             ->body('Checkout akan generate QR dengan nominal invoice otomatis.')
             ->success()
             ->send();
+    }
+
+    public function generateTestQris(): void
+    {
+        $this->validate([
+            'testAmount' => ['required', 'integer', 'min:100'],
+        ], [], [
+            'testAmount' => 'nominal test',
+        ]);
+
+        $payload = trim((string) ($this->data['qris_static_payload'] ?? Setting::get('qris_static_payload', '')));
+        $qris = app(QrisDinamisService::class);
+
+        if ($payload === '') {
+            Notification::make()
+                ->title('QRIS static masih kosong')
+                ->body('Paste QRIS Static String dulu, lalu generate test.')
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        if (! $qris->isValid($payload)) {
+            Notification::make()
+                ->title('QRIS static tidak valid')
+                ->body('CRC / format salah. Cek string yang di-paste.')
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        try {
+            $amount = (int) $this->testAmount;
+            $dynamic = $qris->convert($payload, $amount);
+            $this->testDynamicPayload = $dynamic;
+            $this->testQrDataUri = $qris->dataUri($payload, $amount, 360);
+            $this->testMerchant = $qris->merchantNameFromPayload($dynamic)
+                ?: (string) ($this->data['merchant_name'] ?? Setting::get('merchant_name', '-'));
+
+            Notification::make()
+                ->title('QRIS test siap')
+                ->body('Nominal Rp'.number_format($amount, 0, ',', '.').' — scan dengan e-wallet untuk cek.')
+                ->success()
+                ->send();
+        } catch (\Throwable $e) {
+            $this->testQrDataUri = null;
+            $this->testDynamicPayload = null;
+            $this->testMerchant = null;
+
+            Notification::make()
+                ->title('Gagal generate')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
     }
 }
