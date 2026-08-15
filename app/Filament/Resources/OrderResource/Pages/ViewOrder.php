@@ -20,10 +20,23 @@ class ViewOrder extends ViewRecord
             Actions\Action::make('approve')
                 ->label('Approve')
                 ->color('success')
-                ->visible(fn (Order $record) => in_array($record->status, ['pending', 'rejected'], true) && $record->payment_proof)
+                ->visible(fn (Order $record) => in_array($record->status, ['pending', 'rejected'], true))
                 ->requiresConfirmation()
-                ->action(function (Order $record) {
-                    app(OrderService::class)->approve($record);
+                ->modalHeading('Approve order?')
+                ->modalDescription(fn (Order $record) => $record->payment_proof
+                    ? 'Order akan ditandai lunas dan subscription/bot diaktifkan.'
+                    : 'Belum ada bukti upload di sistem. Lanjutkan jika bukti sudah diterima via WA/manual.')
+                ->form([
+                    Forms\Components\Textarea::make('admin_note')
+                        ->label('Catatan (opsional)')
+                        ->placeholder('Contoh: Bukti transfer diterima via WhatsApp')
+                        ->rows(2),
+                ])
+                ->action(function (Order $record, array $data) {
+                    $note = filled($data['admin_note'] ?? null)
+                        ? $data['admin_note']
+                        : ($record->payment_proof ? $record->admin_note : 'Disetujui manual (bukti via WA/luar sistem)');
+                    app(OrderService::class)->approve($record, $note);
                     Notification::make()->title('Order disetujui')->success()->send();
                     $this->refreshFormData(['status', 'paid_at', 'admin_note']);
                 }),
