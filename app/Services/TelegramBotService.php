@@ -901,14 +901,12 @@ class TelegramBotService
         $unitPrice = $bot->sellPriceFor($service->provider_price);
         $totalPrice = $unitPrice * $quantity;
         $available = $member->availableBalance();
-        $afterHold = max(0, $available - $totalPrice);
 
-        if ($available < $totalPrice) {
-            $formattedTotal = 'Rp '.number_format($totalPrice, 0, ',', '.');
+        if ($available < $unitPrice) {
+            $formattedPrice = 'Rp '.number_format($unitPrice, 0, ',', '.');
             $text = "<b>Saldo Tidak Cukup</b> ⚠️\n\n"
                 ."❏ Layanan: <b>".e($service->name)."</b>\n"
-                ."├  Jumlah: <b>{$quantity}x nomor</b>\n"
-                ."├  Total Biaya: <b>{$formattedTotal}</b>\n"
+                ."├  Harga: <b>{$formattedPrice}</b>\n"
                 ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
                 ."└  Status: <b>Perlu Deposit</b>\n\n"
                 ."<i>Silakan deposit saldo terlebih dahulu melalui menu Deposit.</i>";
@@ -934,15 +932,27 @@ class TelegramBotService
         $stockFormatted = $stock > 0 ? number_format($stock, 0, ',', '.').' nomor' : '0 (Habis)';
         $formattedUnitPrice = 'Rp '.number_format($unitPrice, 0, ',', '.');
         $formattedTotalHold = 'Rp '.number_format($totalPrice, 0, ',', '.');
-        $formattedAfterHold = 'Rp '.number_format($afterHold, 0, ',', '.');
+        
+        if ($available >= $totalPrice) {
+            $formattedAfterHold = 'Rp '.number_format($available - $totalPrice, 0, ',', '.');
+        } else {
+            $shortage = $totalPrice - $available;
+            $formattedAfterHold = '⚠️ Kurang Rp '.number_format($shortage, 0, ',', '.');
+        }
+
         $tz = config('app.timezone', 'Asia/Jakarta');
         $checkTime = now()->timezone($tz)->format('H:i:s');
 
         if ($callbackId) {
             try {
-                $toastText = $stock > 0
-                    ? "✅ Stok tersedia: {$stockFormatted}!"
-                    : "⚠️ Stok masih kosong (0 nomor) pada {$checkTime} WIB";
+                if ($available < $totalPrice) {
+                    $shortage = $totalPrice - $available;
+                    $toastText = "⚠️ Saldo kurang Rp ".number_format($shortage, 0, ',', '.')." untuk {$quantity}x nomor";
+                } elseif ($stock > 0) {
+                    $toastText = "Pilihan {$quantity}x nomor dipilih (Total: {$formattedTotalHold})";
+                } else {
+                    $toastText = "⚠️ Stok masih kosong (0 nomor) pada {$checkTime} WIB";
+                }
 
                 Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
                     'callback_query_id' => $callbackId,
@@ -1023,6 +1033,36 @@ class TelegramBotService
                 $previewMessageId,
                 'Layanan tidak tersedia.',
                 removeInlineKeyboard: true
+            );
+
+            return;
+        }
+
+        $unitPrice = $bot->sellPriceFor($service->provider_price);
+        $totalPrice = $unitPrice * $quantity;
+        $available = $member->availableBalance();
+
+        if ($available < $totalPrice) {
+            $formattedTotal = 'Rp '.number_format($totalPrice, 0, ',', '.');
+            $shortage = $totalPrice - $available;
+            $formattedShortage = 'Rp '.number_format($shortage, 0, ',', '.');
+
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $previewMessageId,
+                "<b>Saldo Tidak Cukup</b> ⚠️\n\n"
+                ."Total hold untuk <b>{$quantity}x nomor</b> adalah <b>{$formattedTotal}</b>.\n"
+                ."Saldo tersedia: <b>".$member->formattedAvailable()."</b> (Kurang {$formattedShortage}).\n\n"
+                ."Silakan pilih jumlah lebih sedikit atau lakukan deposit.",
+                inlineKeyboard: [
+                    'inline_keyboard' => [
+                        [
+                            ['text' => '➕ Deposit Saldo', 'callback_data' => 'deposit'],
+                            ['text' => '📱 Pilih 1x Nomor', 'callback_data' => "otp_qty:{$service->id}:1"],
+                        ],
+                    ],
+                ]
             );
 
             return;
