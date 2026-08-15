@@ -844,7 +844,8 @@ class TelegramBotService
         int|string $chatId,
         ?int $serviceId = null,
         ?int $editMessageId = null,
-        bool $forceFreshStock = false
+        bool $forceFreshStock = false,
+        ?string $callbackId = null
     ): void {
         $service = ($serviceId ? OtpService::sellable()->whereKey($serviceId)->first() : null) ?? $this->kopkenService();
 
@@ -916,12 +917,31 @@ class TelegramBotService
         $stock = $otpOrderService->getServiceStock($service, $bot, $forceFreshStock);
         $stockFormatted = $stock > 0 ? number_format($stock, 0, ',', '.').' nomor' : '0 (Habis)';
         $formattedPrice = 'Rp '.number_format($price, 0, ',', '.');
+        $tz = config('app.timezone', 'Asia/Jakarta');
+        $checkTime = now()->timezone($tz)->format('H:i:s');
+
+        if ($callbackId) {
+            try {
+                $toastText = $stock > 0
+                    ? "✅ Stok tersedia: {$stockFormatted}!"
+                    : "⚠️ Stok masih kosong (0 nomor) pada {$checkTime} WIB";
+
+                Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                    'callback_query_id' => $callbackId,
+                    'text' => $toastText,
+                    'show_alert' => false,
+                ]);
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
 
         if ($stock <= 0) {
             $text = "<b>Stok Nomor Habis</b> ⚠️\n\n"
                 ."❏ Layanan: <b>".e($service->name)."</b>\n"
                 ."├  Harga: <b>{$formattedPrice}</b>\n"
                 ."├  Stok Nomor: <b>0 (Habis)</b>\n"
+                ."├  Cek Terakhir: <b>{$checkTime} WIB</b>\n"
                 ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
                 ."└  Status: <b>Stok Kosong</b>\n\n"
                 ."<i>Stok nomor untuk layanan ini saat ini sedang habis. Silakan klik Cek Stok Lagi untuk cek ulang atau coba lagi nanti.</i>";
@@ -937,6 +957,7 @@ class TelegramBotService
                 ."❏ Layanan: <b>".e($service->name)."</b>\n"
                 ."├  Harga: <b>{$formattedPrice}</b> (Hold)\n"
                 ."├  Stok Nomor: <b>{$stockFormatted}</b>\n"
+                ."├  Cek Terakhir: <b>{$checkTime} WIB</b>\n"
                 ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
                 ."└  Status: <b>Siap Dipesan</b>\n\n"
                 ."<i>Jika dilanjutkan, sistem akan memesan nomor dan menahan saldo. Saldo baru dipotong saat OTP masuk.</i>";
@@ -1474,7 +1495,7 @@ class TelegramBotService
         $fromId = (string) ($from['id'] ?? $chatId);
         $callbackId = $callback['id'] ?? null;
 
-        if ($callbackId) {
+        if ($callbackId && ! str_starts_with($data, 'otp_check_stock:')) {
             try {
                 Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
                     'callback_query_id' => $callbackId,
@@ -1515,7 +1536,15 @@ class TelegramBotService
 
         if (str_starts_with($data, 'otp_check_stock:')) {
             $serviceId = (int) substr($data, strlen('otp_check_stock:'));
-            $this->startOrderForService($bot, $member, $chatId, $serviceId, $messageId ? (int) $messageId : null, forceFreshStock: true);
+            $this->startOrderForService(
+                $bot,
+                $member,
+                $chatId,
+                $serviceId,
+                $messageId ? (int) $messageId : null,
+                forceFreshStock: true,
+                callbackId: $callbackId
+            );
 
             return;
         }
