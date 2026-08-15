@@ -63,19 +63,35 @@ class OtpOrderService
             throw new RuntimeException('Chat ID tidak valid.');
         }
 
-        return BotMember::firstOrCreate(
+        $username = $from['username'] ?? null;
+        $name = trim(($from['first_name'] ?? '').' '.($from['last_name'] ?? '')) ?: null;
+
+        $member = BotMember::firstOrCreate(
             [
                 'telegram_bot_id' => $bot->id,
                 'telegram_chat_id' => $chatId,
             ],
             [
-                'telegram_username' => $from['username'] ?? null,
-                'telegram_name' => trim(($from['first_name'] ?? '').' '.($from['last_name'] ?? '')) ?: null,
+                'telegram_username' => $username,
+                'telegram_name' => $name,
                 'balance' => 0,
                 'held_balance' => 0,
                 'is_active' => true,
             ]
         );
+
+        $updates = [];
+        if ($username && $username !== $member->telegram_username) {
+            $updates['telegram_username'] = $username;
+        }
+        if ($name && $name !== $member->telegram_name) {
+            $updates['telegram_name'] = $name;
+        }
+        if ($updates !== []) {
+            $member->update($updates);
+        }
+
+        return $member;
     }
 
     public function requestOtp(TelegramBot $bot, BotMember $member, OtpService $service): OtpOrder

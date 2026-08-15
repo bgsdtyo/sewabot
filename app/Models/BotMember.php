@@ -59,10 +59,14 @@ class BotMember extends Model
 
     public function displayName(): string
     {
-        if ($this->telegram_username) {
-            return '@'.ltrim($this->telegram_username, '@');
+        if (filled($this->telegram_username)) {
+            return '@'.ltrim((string) $this->telegram_username, '@');
         }
 
-        return $this->telegram_name ?: 'Chat '.$this->telegram_chat_id;
+        if (filled($this->telegram_name)) {
+            return (string) $this->telegram_name;
+        }
+
+        return $this->telegram_chat_id ? 'ID: '.$this->telegram_chat_id : 'Member';
     }
 }

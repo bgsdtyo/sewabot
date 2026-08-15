@@ -31,9 +31,18 @@ class RecentOtpOrdersTable extends BaseWidget
                 Tables\Columns\TextColumn::make('telegramBot.name')
                     ->label('Bot')
                     ->searchable(),
-                Tables\Columns\TextColumn::make('botMember.telegram_username')
+                Tables\Columns\TextColumn::make('botMember')
                     ->label('Member')
-                    ->formatStateUsing(fn ($state, OtpOrder $record) => $record->botMember?->displayName() ?? '-')
+                    ->state(fn (OtpOrder $record): string => $record->botMember?->displayName() ?? '-')
+                    ->searchable(query: function ($query, string $search) {
+                        $clean = ltrim($search, '@');
+                        $query->whereHas('botMember', function ($q) use ($search, $clean) {
+                            $q->where('telegram_username', 'like', "%{$clean}%")
+                                ->orWhere('telegram_name', 'like', "%{$search}%")
+                                ->orWhere('telegram_chat_id', 'like', "%{$search}%");
+                        });
+                    })
+                    ->placeholder('-')
                     ->toggleable(),
                 Tables\Columns\TextColumn::make('otpService.name')
                     ->label('Layanan'),
