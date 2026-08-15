@@ -953,7 +953,7 @@ class TelegramBotService
         $service = e($order->otpService?->name ?? 'OTP');
         $text = "<b>Order {$service} — OTP MASUK</b>\n\n".
             'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
-            'OTP: <b>'.e((string) $order->otp_code)."</b>\n".
+            'OTP: <code>'.e((string) $order->otp_code)."</code>\n".
             "Status: <b>SELESAI</b>\n".
             'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n\n".
             'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>';
@@ -1241,7 +1241,7 @@ class TelegramBotService
         if ($order->status === 'completed' && filled($order->otp_code)) {
             $text = "<b>Order {$service} — OTP MASUK</b>\n\n".
                 'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
-                'OTP: <b>'.e((string) $order->otp_code)."</b>\n".
+                'OTP: <code>'.e((string) $order->otp_code)."</code>\n".
                 "Status: <b>SELESAI</b>\n".
                 'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n\n".
                 'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>';
@@ -1271,7 +1271,7 @@ class TelegramBotService
             'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
             'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
             'Status: <b>'.e(strtoupper($order->status))."</b>\n".
-            'OTP: <b>'.e($order->otp_code ?: 'belum masuk')."</b>\n\n".
+            'OTP: '.(filled($order->otp_code) ? '<code>'.e((string) $order->otp_code).'</code>' : '<b>belum masuk</b>')."\n\n".
             'OTP akan masuk otomatis ke bubble ini.';
 
         $newId = $this->replyOrSend(
