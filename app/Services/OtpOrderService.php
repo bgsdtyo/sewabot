@@ -202,11 +202,11 @@ class OtpOrderService
                     $providerOrderId = $data['id'] ?? null;
                     $phone = $data['phone_number'] ?? null;
 
-                    // Verification check loop (gives provider up to ~3.6s to complete its automated WhatsApp health check)
+                    // Verification check loop (gives provider up to ~5.5s to complete its automated WhatsApp health check)
                     if ($providerOrderId) {
-                        for ($attempt = 1; $attempt <= 3; $attempt++) {
+                        for ($attempt = 1; $attempt <= 5; $attempt++) {
                             try {
-                                usleep(1200000); // 1.2s per tick
+                                usleep(1000000); // 1.0s per tick
                                 $check = $this->provider->forBot($bot)->getOrder($providerOrderId);
                                 if (! empty($check)) {
                                     $data = array_merge($data, $check);
@@ -479,9 +479,9 @@ class OtpOrderService
         $phone = $data['phone_number'] ?? null;
 
         if ($newOrderId) {
-            for ($attempt = 1; $attempt <= 3; $attempt++) {
+            for ($attempt = 1; $attempt <= 5; $attempt++) {
                 try {
-                    usleep(1200000); // 1.2s per tick
+                    usleep(1000000); // 1.0s per tick
                     $check = $this->provider->forBot($bot)->getOrder($newOrderId);
                     if (! empty($check)) {
                         $data = array_merge($data, $check);
