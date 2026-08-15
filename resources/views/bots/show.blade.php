@@ -148,86 +148,74 @@
                 {{-- Reminder Saldo Pusat --}}
                 <div class="border-t border-brand-100 pt-6"
                      x-data="{
-                         alertThreshold: {{ (int) old('min_provider_balance_alert', $telegramBot->min_provider_balance_alert ?? 10000) }},
-                         setThreshold(val) {
-                             this.alertThreshold = val;
+                         enabled: {{ ($telegramBot->min_provider_balance_alert && $telegramBot->min_provider_balance_alert > 0) ? 'true' : 'false' }},
+                         rawAmount: {{ (int) old('min_provider_balance_alert', $telegramBot->min_provider_balance_alert ?? 10000) }},
+                         formattedInput: '',
+                         init() {
+                             this.updateDisplay(this.rawAmount || 10000);
+                         },
+                         onInput(e) {
+                             let digits = e.target.value.replace(/\D/g, '');
+                             this.rawAmount = digits ? parseInt(digits, 10) : 0;
+                             this.updateDisplay(this.rawAmount);
+                         },
+                         updateDisplay(val) {
+                             this.formattedInput = val > 0 ? new Intl.NumberFormat('id-ID').format(val) : '';
                          },
                          formatRp(n) {
                              return 'Rp' + new Intl.NumberFormat('id-ID').format(n || 0);
                          }
                      }">
-                    <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div class="flex items-center justify-between">
                         <div>
                             <h3 class="text-sm font-extrabold text-brand-900">Reminder Saldo Pusat (Notifikasi Admin)</h3>
-                            <p class="mt-1 text-sm text-brand-500">
-                                Kirim pesan peringatan otomatis ke Admin Telegram jika saldo provider/pusat berada di bawah batas ambang ini.
+                            <p class="mt-0.5 text-xs text-brand-500">
+                                Kirim pesan otomatis ke Admin Telegram jika saldo provider API berada di bawah batas minimal.
                             </p>
                         </div>
-                        <span class="inline-flex self-start rounded-xl border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-bold text-brand-900">
-                            Status: <span class="ml-1" x-text="alertThreshold > 0 ? formatRp(alertThreshold) : 'Nonaktif'"></span>
-                        </span>
+
+                        {{-- Toggle Switch --}}
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs font-bold" :class="enabled ? 'text-brand-900' : 'text-slate-400'" x-text="enabled ? 'AKTIF' : 'NONAKTIF'"></span>
+                            <button type="button"
+                                    @click="enabled = !enabled; if(enabled && rawAmount <= 0) { rawAmount = 10000; updateDisplay(10000); }"
+                                    :class="enabled ? 'bg-brand-900' : 'bg-slate-300'"
+                                    class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+                                    role="switch" :aria-checked="enabled">
+                                <span :class="enabled ? 'translate-x-5' : 'translate-x-0'"
+                                      class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out"></span>
+                            </button>
+                        </div>
                     </div>
 
-                    <div class="mt-4 space-y-3">
-                        <label class="block text-xs font-bold uppercase tracking-wider text-brand-500">Batas Minimal Saldo (Rp)</label>
+                    {{-- Hidden field to submit to backend --}}
+                    <input type="hidden" name="min_provider_balance_alert" :value="enabled ? rawAmount : 0">
 
-                        <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-                            <div class="flex w-full overflow-hidden rounded-xl border border-brand-200 sm:w-64">
-                                <span class="inline-flex min-w-[3.25rem] items-center justify-center bg-brand-900 px-3.5 text-sm font-bold text-white">
-                                    Rp
-                                </span>
-                                <input type="number" name="min_provider_balance_alert" min="0" step="500"
-                                       x-model.number="alertThreshold"
-                                       placeholder="Contoh: 10000"
-                                       class="w-full border-0 bg-white px-3.5 py-2.5 text-brand-900 font-semibold focus:border-transparent focus:outline-none focus:ring-0">
-                            </div>
+                    {{-- Amount input container --}}
+                    <div x-show="enabled" x-transition class="mt-4 space-y-2">
+                        <label class="block text-xs font-bold uppercase tracking-wider text-brand-500">Batas Minimal Saldo</label>
 
-                            {{-- Preset Chips --}}
-                            <div class="flex flex-wrap items-center gap-1.5">
-                                <button type="button" @click="setThreshold(5000)"
-                                        class="rounded-lg border border-brand-200 bg-white px-2.5 py-1.5 text-xs font-bold text-brand-700 hover:border-brand-900 hover:bg-brand-50 transition">
-                                    5.000
-                                </button>
-                                <button type="button" @click="setThreshold(10000)"
-                                        class="rounded-lg border border-brand-200 bg-white px-2.5 py-1.5 text-xs font-bold text-brand-700 hover:border-brand-900 hover:bg-brand-50 transition">
-                                    10.000
-                                </button>
-                                <button type="button" @click="setThreshold(25000)"
-                                        class="rounded-lg border border-brand-200 bg-white px-2.5 py-1.5 text-xs font-bold text-brand-700 hover:border-brand-900 hover:bg-brand-50 transition">
-                                    25.000
-                                </button>
-                                <button type="button" @click="setThreshold(50000)"
-                                        class="rounded-lg border border-brand-200 bg-white px-2.5 py-1.5 text-xs font-bold text-brand-700 hover:border-brand-900 hover:bg-brand-50 transition">
-                                    50.000
-                                </button>
-                                <button type="button" @click="setThreshold(0)"
-                                        class="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 transition">
-                                    Nonaktifkan
-                                </button>
-                            </div>
+                        <div class="flex w-full max-w-xs overflow-hidden rounded-2xl border border-brand-200 shadow-xs focus-within:border-brand-900 focus-within:ring-1 focus-within:ring-brand-900">
+                            <span class="inline-flex min-w-[3.25rem] items-center justify-center bg-brand-900 px-3.5 text-sm font-bold text-white">
+                                Rp
+                            </span>
+                            <input type="text"
+                                   inputmode="numeric"
+                                   x-model="formattedInput"
+                                   @input="onInput"
+                                   placeholder="50.000"
+                                   class="w-full border-0 bg-white px-3.5 py-2.5 text-base font-bold text-brand-900 focus:border-transparent focus:outline-none focus:ring-0">
                         </div>
 
                         <p class="text-xs text-brand-500">
-                            Isi <code>0</code> atau kosongkan jika tidak ingin mengaktifkan notifikasi peringatan.
+                            Peringatan akan dikirim jika saldo provider tersisa <span class="font-bold text-brand-900">≤ <span x-text="formatRp(rawAmount)"></span></span>.
                         </p>
                     </div>
 
-                    {{-- Cron link info box --}}
-                    <div class="mt-4 rounded-xl border border-sky-100 bg-sky-50/70 p-3.5 text-xs text-sky-900">
-                        <div class="flex items-start gap-2.5">
-                            <svg class="h-4 w-4 shrink-0 text-sky-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <div>
-                                <span class="font-bold">Link Web Cron Otomatis:</span>
-                                <p class="mt-0.5 text-sky-800">
-                                    Pasang URL ini di cron job server / cPanel / cron-job.org untuk auto-check saldo & notifikasi reminder:
-                                </p>
-                                <code class="mt-1.5 block select-all rounded-lg bg-white px-2.5 py-1.5 font-mono text-[11px] font-bold text-brand-900 border border-sky-200 shadow-xs">
-                                    {{ url('/cron/check-provider-balance') }}
-                                </code>
-                            </div>
-                        </div>
+                    <div x-show="!enabled" x-transition class="mt-2">
+                        <p class="text-xs text-slate-400">
+                            Peringatan saldo pusat dinonaktifkan.
+                        </p>
                     </div>
                 </div>
 
