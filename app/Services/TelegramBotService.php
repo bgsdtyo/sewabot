@@ -1096,12 +1096,21 @@ class TelegramBotService
         try {
             if ($quantity > 1) {
                 $orders = $otpOrderService->requestBulkOtp($bot, $member, $service, $quantity);
-                $this->sendBatchOrderCreatedMessage($bot, $chatId, $orders, $workingMessageId ?? $previewMessageId);
-                app(OtpOrderWatcher::class)->startBatch($orders);
+                $hasActive = collect($orders)->contains(fn ($o) => $o->status === 'pending');
+                if ($hasActive) {
+                    $this->sendBatchOrderCreatedMessage($bot, $chatId, $orders, $workingMessageId ?? $previewMessageId);
+                    app(OtpOrderWatcher::class)->startBatch($orders);
+                } else {
+                    $this->notifyBatchOrderUpdated($bot, $member, $orders);
+                }
             } else {
                 $order = $otpOrderService->requestOtp($bot, $member, $service);
-                $this->sendOrderCreatedMessage($bot, $chatId, $order, $workingMessageId ?? $previewMessageId);
-                app(OtpOrderWatcher::class)->start($order);
+                if (in_array(strtolower((string) $order->status), ['cancelled', 'canceled', 'expired', 'banned'], true)) {
+                    $this->notifyOrderCancelled($bot, $member, $order, $order->status);
+                } else {
+                    $this->sendOrderCreatedMessage($bot, $chatId, $order, $workingMessageId ?? $previewMessageId);
+                    app(OtpOrderWatcher::class)->start($order);
+                }
             }
         } catch (ValidationException $e) {
             $this->replyOrSend(
@@ -1117,7 +1126,13 @@ class TelegramBotService
                 $errMessage = 'Server pemesanan nomor sedang sibuk (koneksi timeout). Silakan coba pesan kembali.';
             }
 
-            if (stripos($errMessage, 'terblokir') !== false || stripos($errMessage, 'banned') !== false) {
+            $isCancelledOrBanned = stripos($errMessage, 'terblokir') !== false
+                || stripos($errMessage, 'banned') !== false
+                || stripos($errMessage, 'dibatalkan') !== false
+                || stripos($errMessage, 'cancelled') !== false
+                || stripos($errMessage, 'canceled') !== false;
+
+            if ($isCancelledOrBanned) {
                 $text = "❌ <b>Pesanan Dibatalkan</b>\n\n"
                     ."{$errMessage}";
 
@@ -1351,6 +1366,12 @@ class TelegramBotService
 
     protected function sendOrderCreatedMessage(TelegramBot $bot, int|string $chatId, OtpOrder $order, ?int $editMessageId = null): void
     {
+        if (in_array(strtolower((string) $order->status), ['cancelled', 'canceled', 'expired', 'banned'], true)) {
+            $this->notifyOrderCancelled($bot, $order->botMember, $order, $order->status);
+
+            return;
+        }
+
         $service = e($order->otpService?->name ?? 'Kopken');
         $text = $this->formatOrderCard(
             $order,
