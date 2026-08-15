@@ -124,6 +124,13 @@ class CronController extends Controller
 
             foreach ($items as $item) {
                 $name = (string) ($item['name'] ?? '');
+                $slug = (string) ($item['slug'] ?? '');
+
+                // Hanya filter dan sinkronkan layanan Kopken
+                if (strcasecmp($name, 'Kopken') !== 0 && strcasecmp($slug, 'kopken') !== 0 && stripos($name, 'kopken') === false) {
+                    continue;
+                }
+
                 $providerPrice = (int) ($item['price'] ?? 0);
                 $stock = (int) ($item['stock'] ?? $item['count'] ?? $item['available'] ?? 0);
 
