@@ -10,7 +10,7 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="font-sans antialiased bg-brand-50 text-brand-900">
-    <div class="min-h-screen @auth pb-24 md:pb-0 @endauth">
+    <div class="min-h-screen @auth pb-28 md:pb-32 @endauth">
         @include('layouts.navigation')
 
         @isset($header)
