@@ -638,9 +638,7 @@ class TelegramBotService
         $rows = [
             [['text' => '📱 Order OTP'], ['text' => '💰 Saldo']],
             [['text' => '➕ Deposit'], ['text' => '👤 Akun']],
-            [['text' => '🔄 Ulang OTP'], ['text' => '🔀 Ganti Nomor']],
-            [['text' => '❌ Batalkan'], ['text' => '📋 Riwayat']],
-            [['text' => '❓ Bantuan']],
+            [['text' => '📋 Riwayat'], ['text' => '❓ Bantuan']],
         ];
 
         if ($this->currentBot && $this->currentFromId && $this->currentBot->isTelegramAdmin($this->currentFromId)) {
@@ -770,19 +768,14 @@ class TelegramBotService
         return "<b>Panduan Penggunaan</b>\n\n"
             ."Saldo tersedia: <b>{$member->formattedAvailable()}</b>\n"
             ."Tarif KOPKEN: <b>{$price}</b>\n\n"
-            ."<b>Menu</b>\n"
-            ."• Order OTP — preview konfirmasi lalu pesan nomor\n"
-            ."• Saldo — cek saldo & hold\n"
-            ."• Deposit — hubungi admin (manual)\n"
-            ."• Akun — nama, ID Telegram, status\n"
-            ."• Riwayat — 5 transaksi terakhir\n"
-            ."• Ulang OTP — minta ulang kode (gratis)\n"
-            ."• Ganti Nomor — ganti nomor pending\n"
-            ."• Batalkan — batalkan & kembalikan hold\n"
-            ."• Bantuan — panduan ini\n\n"
-            ."<b>Perintah teks</b>\n"
-            ."/otp · /saldo · /deposit · /akun · /ulang · /ganti · /batal\n\n"
-            .'Saldo ditahan saat order. OTP masuk otomatis ke bubble order (status jadi SELESAI).';
+            ."<b>Menu Utama</b>\n"
+            ."• 📱 Order OTP — Pesan nomor baru\n"
+            ."• 💰 Saldo — Cek saldo & hold\n"
+            ."• ➕ Deposit — Informasi rekening & deposit\n"
+            ."• 👤 Akun — Data profil & total order\n"
+            ."• 📋 Riwayat — 5 transaksi terakhir\n"
+            ."• ❓ Bantuan — Panduan penggunaan ini\n\n"
+            ."<i>Aksi pesanan (Ganti Nomor, Ulang OTP, Batalkan) dapat langsung dilakukan melalui tombol pada bubble transaksi masing-masing.</i>";
     }
 
     protected function kopkenService(): ?OtpService
