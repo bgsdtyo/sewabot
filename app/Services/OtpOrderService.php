@@ -191,8 +191,12 @@ class OtpOrderService
             return $order;
         }
 
-        return DB::transaction(function () use ($order) {
+        $completed = DB::transaction(function () use ($order) {
             $order = OtpOrder::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+
+            if ($order->status === 'completed') {
+                return $order->fresh(['otpService', 'botMember', 'telegramBot']);
+            }
 
             if ($order->wallet_status === 'held') {
                 $this->wallet->chargeHeld(
@@ -209,15 +213,17 @@ class OtpOrderService
             $order->completed_at = now();
             $order->save();
 
-            $member = $order->botMember;
-            $bot = $order->telegramBot;
-
-            if ($bot && $member) {
-                $this->telegram->notifyOrderCompleted($bot, $member, $order->fresh(['otpService']));
-            }
-
-            return $order->fresh();
+            return $order->fresh(['otpService', 'botMember', 'telegramBot']);
         });
+
+        $member = $completed->botMember;
+        $bot = $completed->telegramBot;
+
+        if ($bot && $member) {
+            $this->telegram->notifyOrderCompleted($bot, $member, $completed);
+        }
+
+        return $completed;
     }
 
     public function cancelOrder(OtpOrder $order): OtpOrder

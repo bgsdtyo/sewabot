@@ -9,6 +9,7 @@ use App\Models\TelegramBot;
 use App\Models\WalletTransaction;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -774,13 +775,14 @@ class TelegramBotService
             ."• Akun — nama, ID Telegram, status\n"
             ."• Status — pantau order berjalan\n"
             ."• Riwayat — 5 transaksi terakhir\n"
+            ."• Cek OTP — refresh manual (opsional)\n"
             ."• Ulang OTP — minta ulang kode (gratis)\n"
             ."• Ganti Nomor — ganti nomor pending\n"
             ."• Batalkan — batalkan & kembalikan hold\n"
             ."• Bantuan — panduan ini\n\n"
             ."<b>Perintah teks</b>\n"
             ."/otp · /saldo · /deposit · /akun · /status · /ulang · /ganti · /batal\n\n"
-            .'Saldo ditahan saat order, dipotong saat OTP masuk, dan dikembalikan jika dibatalkan.';
+            .'Saldo ditahan saat order. OTP masuk otomatis ke bubble order (status jadi SELESAI).';
     }
 
     protected function kopkenService(): ?OtpService
@@ -933,7 +935,7 @@ class TelegramBotService
             'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
             'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
             "Status: <b>PENDING</b>\n\n".
-            'Saldo ditahan hingga OTP masuk. Gunakan tombol di bawah untuk mengelola order.';
+            'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.';
 
         $messageId = $this->replyOrSend(
             $bot,
@@ -943,9 +945,7 @@ class TelegramBotService
             inlineKeyboard: $this->orderActionKeyboard($order)
         );
 
-        if ($messageId) {
-            $order->update(['telegram_message_id' => $messageId]);
-        }
+        $this->rememberOrderMessage($order, $messageId);
     }
 
     public function notifyOrderCompleted(TelegramBot $bot, $member, OtpOrder $order): void
@@ -958,13 +958,57 @@ class TelegramBotService
             'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n\n".
             'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>';
 
-        $this->replyOrSend(
-            $bot,
-            $member->telegram_chat_id,
-            $order->telegram_message_id ? (int) $order->telegram_message_id : null,
-            $text,
-            removeInlineKeyboard: true
-        );
+        $messageId = $this->orderMessageId($order);
+
+        if ($messageId) {
+            $edited = $this->editMessage(
+                $bot,
+                $member->telegram_chat_id,
+                $messageId,
+                $text,
+                null,
+                true
+            );
+
+            if ($edited) {
+                return;
+            }
+        }
+
+        // Fallback only if bubble hilang / belum tersimpan — tetap kirim OTP ke user.
+        $this->sendMessage($bot, $member->telegram_chat_id, $text);
+    }
+
+    protected function rememberOrderMessage(OtpOrder $order, ?int $messageId): void
+    {
+        if (! $messageId) {
+            return;
+        }
+
+        try {
+            OtpOrder::query()->whereKey($order->id)->update(['telegram_message_id' => $messageId]);
+            $order->telegram_message_id = $messageId;
+        } catch (\Throwable $e) {
+            Log::warning('Gagal simpan telegram_message_id: '.$e->getMessage());
+        }
+
+        Cache::put($this->orderMessageCacheKey($order->id), $messageId, now()->addHours(6));
+    }
+
+    protected function orderMessageId(OtpOrder $order): ?int
+    {
+        if ($order->telegram_message_id) {
+            return (int) $order->telegram_message_id;
+        }
+
+        $cached = Cache::get($this->orderMessageCacheKey($order->id));
+
+        return $cached ? (int) $cached : null;
+    }
+
+    protected function orderMessageCacheKey(int $orderId): string
+    {
+        return 'otp_order_tg_msg:'.$orderId;
     }
 
     protected function orderActionKeyboard(OtpOrder $order): array
@@ -1009,7 +1053,7 @@ class TelegramBotService
             $this->replyOrSend(
                 $bot,
                 $chatId,
-                $editMessageId ?? ($order->telegram_message_id ? (int) $order->telegram_message_id : null),
+                $editMessageId ?? $this->orderMessageId($order),
                 "<b>Pesanan dibatalkan</b>\n\n".
                 "Hold saldo sudah dikembalikan.\n".
                 'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>',
@@ -1066,7 +1110,7 @@ class TelegramBotService
             );
 
             if ($newId) {
-                $order->update(['telegram_message_id' => $newId]);
+                $this->rememberOrderMessage($order, $newId);
             }
         } catch (\Throwable $e) {
             $this->replyOrSend(
@@ -1100,7 +1144,7 @@ class TelegramBotService
             return;
         }
 
-        $messageId = $editMessageId ?? ($order->telegram_message_id ? (int) $order->telegram_message_id : null);
+        $messageId = $editMessageId ?? $this->orderMessageId($order);
 
         try {
             app(OtpOrderService::class)->resend($order);
@@ -1108,7 +1152,7 @@ class TelegramBotService
                 'Nomor: <code>'.e((string) $order->phone_number)."</code>\n".
                 'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
                 "Status: <b>PENDING</b>\n\n".
-                'Permintaan ulang OTP dikirim (gratis). Menunggu OTP masuk…';
+                'Permintaan ulang OTP dikirim (gratis). Menunggu OTP masuk otomatis…';
 
             $newId = $this->replyOrSend(
                 $bot,
@@ -1119,7 +1163,7 @@ class TelegramBotService
             );
 
             if ($newId) {
-                $order->update(['telegram_message_id' => $newId]);
+                $this->rememberOrderMessage($order, $newId);
             }
         } catch (\Throwable $e) {
             $this->replyOrSend(
@@ -1153,7 +1197,7 @@ class TelegramBotService
             return;
         }
 
-        $messageId = $editMessageId ?? ($order->telegram_message_id ? (int) $order->telegram_message_id : null);
+        $messageId = $editMessageId ?? $this->orderMessageId($order);
         $order = app(OtpOrderService::class)->refreshOrder($order);
 
         if ($order->status === 'completed') {
@@ -1165,7 +1209,7 @@ class TelegramBotService
             'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n".
             'Status: <b>'.e(strtoupper($order->status))."</b>\n".
             'OTP: <b>'.e($order->otp_code ?: 'belum masuk')."</b>\n\n".
-            'Saldo ditahan hingga OTP masuk.';
+            'OTP akan masuk otomatis ke bubble ini.';
 
         $newId = $this->replyOrSend(
             $bot,
@@ -1176,7 +1220,7 @@ class TelegramBotService
         );
 
         if ($newId) {
-            $order->update(['telegram_message_id' => $newId]);
+            $this->rememberOrderMessage($order, $newId);
         }
     }
 
@@ -1408,8 +1452,17 @@ class TelegramBotService
             }
 
             $response = Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/sendMessage", $payload);
+            $data = $response->json();
 
-            return $response->json('result.message_id');
+            if (! ($data['ok'] ?? false)) {
+                Log::error('Telegram sendMessage rejected: '.($data['description'] ?? $response->body()));
+
+                return null;
+            }
+
+            $messageId = $data['result']['message_id'] ?? null;
+
+            return $messageId !== null ? (int) $messageId : null;
         } catch (\Throwable $e) {
             Log::error('Telegram sendMessage error: '.$e->getMessage());
 

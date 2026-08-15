@@ -3,4 +3,4 @@
 use Illuminate\Support\Facades\Schedule;
 
 Schedule::command('subscriptions:expire')->hourly();
-Schedule::command('otp:poll')->everyMinute();
+Schedule::command('otp:poll')->everyThirtySeconds()->withoutOverlapping();
