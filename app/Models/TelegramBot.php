@@ -15,6 +15,9 @@ class TelegramBot extends Model
         'username',
         'token',
         'otp_api_key',
+        'provider_balance',
+        'provider_balance_currency',
+        'provider_balance_checked_at',
         'otp_markup_type',
         'otp_markup_percent',
         'deposit_whatsapp',
@@ -25,6 +28,14 @@ class TelegramBot extends Model
         'status',
         'notes',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'provider_balance' => 'integer',
+            'provider_balance_checked_at' => 'datetime',
+        ];
+    }
 
     protected $hidden = [
         'token',
@@ -215,5 +226,14 @@ class TelegramBot extends Model
         $id = preg_replace('/\D+/', '', (string) $telegramId) ?: '';
 
         return $id !== '' && in_array($id, $this->adminTelegramIdList(), true);
+    }
+
+    public function formattedProviderBalance(): string
+    {
+        if ($this->provider_balance === null) {
+            return '—';
+        }
+
+        return 'Rp'.number_format((int) $this->provider_balance, 0, ',', '.');
     }
 }

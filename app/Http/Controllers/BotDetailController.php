@@ -104,15 +104,15 @@ class BotDetailController extends Controller
             $balance = (int) ($data['balance'] ?? 0);
             $currency = (string) ($data['currency'] ?? 'IDR');
 
+            $telegramBot->update([
+                'provider_balance' => $balance,
+                'provider_balance_currency' => $currency,
+                'provider_balance_checked_at' => now(),
+            ]);
+
             return redirect()
                 ->route('bots.show', $telegramBot)
-                ->with('provider_balance', [
-                    'balance' => $balance,
-                    'currency' => $currency,
-                    'formatted' => 'Rp'.number_format($balance, 0, ',', '.'),
-                    'checked_at' => now()->timezone(config('app.timezone'))->format('d M Y H:i'),
-                ])
-                ->with('success', 'Saldo pusat: Rp'.number_format($balance, 0, ',', '.').' '.$currency);
+                ->with('success', 'Saldo pusat diperbarui: Rp'.number_format($balance, 0, ',', '.'));
         } catch (\Throwable $e) {
             return redirect()
                 ->route('bots.show', $telegramBot)
