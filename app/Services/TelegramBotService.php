@@ -115,6 +115,7 @@ class TelegramBotService
         $chatId = $message['chat']['id'] ?? null;
         $from = $message['from'] ?? [];
         $text = trim((string) ($message['text'] ?? ''));
+        $userMessageId = $message['message_id'] ?? null;
 
         if (! $chatId) {
             return;
@@ -123,77 +124,47 @@ class TelegramBotService
         $otp = app(OtpOrderService::class);
         $member = $otp->findOrRegisterMember($bot, $from);
 
+        $handled = true;
+
         if (str_starts_with($text, '/start')) {
             $this->sendMessage($bot, $chatId, $this->welcomeText($bot, $member), $this->mainKeyboard());
-
-            return;
-        }
-
-        if (str_starts_with($text, '/help') || $this->isButton($text, 'Bantuan')) {
+        } elseif (str_starts_with($text, '/help') || $this->isButton($text, 'Bantuan')) {
             $this->sendMessage($bot, $chatId, $this->helpText($bot, $member), $this->mainKeyboard());
-
-            return;
-        }
-
-        if (str_starts_with($text, '/saldo') || str_starts_with($text, '/balance') || $this->isButton($text, 'Saldo')) {
+        } elseif (str_starts_with($text, '/saldo') || str_starts_with($text, '/balance') || $this->isButton($text, 'Saldo')) {
             $this->sendBalance($bot, $member, $chatId);
-
-            return;
-        }
-
-        if (str_starts_with($text, '/deposit') || $this->isButton($text, 'Deposit')) {
+        } elseif (str_starts_with($text, '/deposit') || $this->isButton($text, 'Deposit')) {
             $this->sendDepositInfo($bot, $chatId);
-
-            return;
-        }
-
-        if (
+        } elseif (
             str_starts_with($text, '/otp')
             || str_starts_with($text, '/kopken')
             || strcasecmp($text, 'KOPKEN') === 0
             || $this->isButton($text, 'Order OTP')
         ) {
             $this->startKopken($bot, $member, $chatId);
-
-            return;
-        }
-
-        if (str_starts_with($text, '/batal') || str_starts_with($text, '/cancel') || $this->isButton($text, 'Batalkan')) {
+        } elseif (str_starts_with($text, '/batal') || str_starts_with($text, '/cancel') || $this->isButton($text, 'Batalkan')) {
             $this->cancelPending($bot, $member, $chatId);
-
-            return;
-        }
-
-        if (str_starts_with($text, '/ganti') || $this->isButton($text, 'Ganti Nomor')) {
+        } elseif (str_starts_with($text, '/ganti') || $this->isButton($text, 'Ganti Nomor')) {
             $this->changePending($bot, $member, $chatId);
-
-            return;
-        }
-
-        if (str_starts_with($text, '/ulang') || str_starts_with($text, '/resend') || $this->isButton($text, 'Ulang OTP')) {
+        } elseif (str_starts_with($text, '/ulang') || str_starts_with($text, '/resend') || $this->isButton($text, 'Ulang OTP')) {
             $this->resendPending($bot, $member, $chatId);
-
-            return;
-        }
-
-        if (str_starts_with($text, '/status') || $this->isButton($text, 'Status')) {
+        } elseif (str_starts_with($text, '/status') || $this->isButton($text, 'Status')) {
             $this->statusPending($bot, $member, $chatId);
-
-            return;
-        }
-
-        if ($this->isButton($text, 'Riwayat')) {
+        } elseif ($this->isButton($text, 'Riwayat')) {
             $this->showHistory($bot, $member, $chatId);
-
-            return;
+        } else {
+            $handled = false;
+            $this->sendMessage(
+                $bot,
+                $chatId,
+                "Perintah tidak dikenali.\n\n".$this->helpText($bot, $member),
+                $this->mainKeyboard()
+            );
         }
 
-        $this->sendMessage(
-            $bot,
-            $chatId,
-            "Perintah tidak dikenali.\n\n".$this->helpText($bot, $member),
-            $this->mainKeyboard()
-        );
+        // Unsend bubble tombol user (menu reply keyboard) biar chat rapi.
+        if ($handled && $userMessageId && ! str_starts_with($text, '/')) {
+            $this->deleteMessage($bot, $chatId, (int) $userMessageId);
+        }
     }
 
     protected function isButton(string $text, string $label): bool
@@ -476,6 +447,7 @@ class TelegramBotService
     {
         $data = (string) ($callback['data'] ?? '');
         $chatId = $callback['message']['chat']['id'] ?? null;
+        $messageId = $callback['message']['message_id'] ?? null;
         $callbackId = $callback['id'] ?? null;
 
         if ($callbackId) {
@@ -493,7 +465,23 @@ class TelegramBotService
         }
 
         if ($data === 'deposit') {
+            // Hapus bubble "Informasi Saldo" sebelumnya, ganti dengan info deposit.
+            if ($messageId) {
+                $this->deleteMessage($bot, $chatId, $messageId);
+            }
             $this->sendDepositInfo($bot, $chatId);
+        }
+    }
+
+    public function deleteMessage(TelegramBot $bot, int|string $chatId, int $messageId): void
+    {
+        try {
+            Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/deleteMessage", [
+                'chat_id' => $chatId,
+                'message_id' => $messageId,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Telegram deleteMessage failed: '.$e->getMessage());
         }
     }
 
@@ -503,7 +491,7 @@ class TelegramBotService
         string $text,
         ?array $replyMarkup = null,
         ?array $inlineKeyboard = null
-    ): void {
+    ): ?int {
         try {
             $payload = [
                 'chat_id' => $chatId,
@@ -518,9 +506,13 @@ class TelegramBotService
                 $payload['reply_markup'] = $replyMarkup;
             }
 
-            Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/sendMessage", $payload);
+            $response = Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/sendMessage", $payload);
+
+            return $response->json('result.message_id');
         } catch (\Throwable $e) {
             Log::error('Telegram sendMessage error: '.$e->getMessage());
+
+            return null;
         }
     }
 }
