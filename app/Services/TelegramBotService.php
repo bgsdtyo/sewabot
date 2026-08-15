@@ -838,14 +838,21 @@ class TelegramBotService
         $this->startOrderForService($bot, $member, $chatId);
     }
 
-    protected function startOrderForService(TelegramBot $bot, $member, int|string $chatId, ?int $serviceId = null): void
-    {
+    protected function startOrderForService(
+        TelegramBot $bot,
+        $member,
+        int|string $chatId,
+        ?int $serviceId = null,
+        ?int $editMessageId = null,
+        bool $forceFreshStock = false
+    ): void {
         $service = ($serviceId ? OtpService::sellable()->whereKey($serviceId)->first() : null) ?? $this->kopkenService();
 
         if (! $service) {
-            $this->sendMessage(
+            $this->replyOrSend(
                 $bot,
                 $chatId,
+                $editMessageId,
                 'Layanan OTP belum tersedia. Pastikan API Key bot sudah dikonfigurasi oleh pemilik bot.',
                 $this->mainKeyboard()
             );
@@ -866,12 +873,12 @@ class TelegramBotService
                 footer: 'Selesaikan / batalkan order ini dulu sebelum membuat order baru.'
             );
 
-            $this->sendMessage(
+            $this->replyOrSend(
                 $bot,
                 $chatId,
+                $editMessageId,
                 $text,
-                null,
-                $this->orderActionKeyboard($pending)
+                inlineKeyboard: $this->orderActionKeyboard($pending)
             );
 
             return;
@@ -889,12 +896,13 @@ class TelegramBotService
                 ."└  Status: <b>Perlu Deposit</b>\n\n"
                 ."<i>Silakan deposit saldo terlebih dahulu melalui menu Deposit.</i>";
 
-            $this->sendMessage(
+            $this->replyOrSend(
                 $bot,
                 $chatId,
+                $editMessageId,
                 $text,
                 $this->mainKeyboard(),
-                [
+                inlineKeyboard: [
                     'inline_keyboard' => [
                         [['text' => '➕ Deposit Saldo', 'callback_data' => 'deposit']],
                     ],
@@ -905,31 +913,44 @@ class TelegramBotService
         }
 
         $otpOrderService = app(OtpOrderService::class);
-        $stock = $otpOrderService->getServiceStock($service, $bot);
+        $stock = $otpOrderService->getServiceStock($service, $bot, $forceFreshStock);
         $stockFormatted = $stock > 0 ? number_format($stock, 0, ',', '.').' nomor' : '0 (Habis)';
-        $statusStr = $stock > 0 ? 'Siap Dipesan' : 'Stok Kosong';
         $formattedPrice = 'Rp '.number_format($price, 0, ',', '.');
 
-        $text = "<b>Konfirmasi Order OTP</b> 📲\n\n"
-            ."❏ Layanan: <b>".e($service->name)."</b>\n"
-            ."├  Harga: <b>{$formattedPrice}</b> (Hold)\n"
-            ."├  Stok Nomor: <b>{$stockFormatted}</b>\n"
-            ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
-            ."└  Status: <b>{$statusStr}</b>\n\n";
-
         if ($stock <= 0) {
-            $text .= "⚠️ <i>Stok nomor saat ini sedang kosong / habis. Jika tetap di-order dan nomor belum tersedia, saldo tidak akan berkurang.</i>";
-        } else {
-            $text .= "<i>Jika dilanjutkan, sistem akan memesan nomor dan menahan saldo. Saldo baru dipotong saat OTP masuk.</i>";
-        }
+            $text = "<b>Stok Nomor Habis</b> ⚠️\n\n"
+                ."❏ Layanan: <b>".e($service->name)."</b>\n"
+                ."├  Harga: <b>{$formattedPrice}</b>\n"
+                ."├  Stok Nomor: <b>0 (Habis)</b>\n"
+                ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
+                ."└  Status: <b>Stok Kosong</b>\n\n"
+                ."<i>Stok nomor untuk layanan ini saat ini sedang habis. Silakan klik Cek Stok Lagi untuk cek ulang atau coba lagi nanti.</i>";
 
-        $this->sendMessage($bot, $chatId, $text, null, [
-            'inline_keyboard' => [
+            $buttons = [
+                [
+                    ['text' => '🔄 Cek Stok Lagi', 'callback_data' => 'otp_check_stock:'.$service->id],
+                    ['text' => '❌ Tutup', 'callback_data' => 'otp_preview_cancel'],
+                ],
+            ];
+        } else {
+            $text = "<b>Konfirmasi Order OTP</b> 📲\n\n"
+                ."❏ Layanan: <b>".e($service->name)."</b>\n"
+                ."├  Harga: <b>{$formattedPrice}</b> (Hold)\n"
+                ."├  Stok Nomor: <b>{$stockFormatted}</b>\n"
+                ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
+                ."└  Status: <b>Siap Dipesan</b>\n\n"
+                ."<i>Jika dilanjutkan, sistem akan memesan nomor dan menahan saldo. Saldo baru dipotong saat OTP masuk.</i>";
+
+            $buttons = [
                 [
                     ['text' => '✅ Ya, Order', 'callback_data' => 'otp_confirm:'.$service->id],
                     ['text' => '❌ Batal', 'callback_data' => 'otp_preview_cancel'],
                 ],
-            ],
+            ];
+        }
+
+        $this->replyOrSend($bot, $chatId, $editMessageId, $text, inlineKeyboard: [
+            'inline_keyboard' => $buttons,
         ]);
     }
 
@@ -943,6 +964,20 @@ class TelegramBotService
                 $chatId,
                 $previewMessageId,
                 'Layanan tidak tersedia.',
+                removeInlineKeyboard: true
+            );
+
+            return;
+        }
+
+        $otpOrderService = app(OtpOrderService::class);
+        $stock = $otpOrderService->getServiceStock($service, $bot);
+        if ($stock <= 0) {
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $previewMessageId,
+                "⚠️ <b>Stok Nomor Habis</b>\n\nStok nomor untuk layanan ini saat ini sedang habis. Silakan coba beberapa saat lagi.",
                 removeInlineKeyboard: true
             );
 
@@ -1474,6 +1509,13 @@ class TelegramBotService
                 "<b>Pesanan dibatalkan</b>\n\nTidak ada saldo yang ditahan.",
                 removeInlineKeyboard: true
             );
+
+            return;
+        }
+
+        if (str_starts_with($data, 'otp_check_stock:')) {
+            $serviceId = (int) substr($data, strlen('otp_check_stock:'));
+            $this->startOrderForService($bot, $member, $chatId, $serviceId, $messageId ? (int) $messageId : null, forceFreshStock: true);
 
             return;
         }

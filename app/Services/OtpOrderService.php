@@ -56,7 +56,7 @@ class OtpOrderService
         return $count;
     }
 
-    public function getServiceStock(OtpService $service, ?TelegramBot $bot = null): int
+    public function getServiceStock(OtpService $service, ?TelegramBot $bot = null, bool $forceFresh = false): int
     {
         if (! $bot || ! filled($bot->otp_api_key)) {
             return (int) $service->stock;
@@ -65,7 +65,7 @@ class OtpOrderService
         $cacheKey = "bot_{$bot->id}_svc_{$service->provider_service_id}_stock";
 
         // Check fast memory/file cache first so user gets instant response (sub-50ms)
-        if (cache()->has($cacheKey)) {
+        if (! $forceFresh && cache()->has($cacheKey)) {
             return (int) cache()->get($cacheKey);
         }
 
