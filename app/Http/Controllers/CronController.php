@@ -65,4 +65,43 @@ class CronController extends Controller
             'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
         ]);
     }
+
+    /**
+     * Check provider balance for active bots and send low-balance alert to Telegram admins.
+     */
+    public function checkProviderBalance(
+        Request $request,
+        TelegramBotService $telegramBotService,
+        \App\Services\OtpProviderClient $client
+    ): JsonResponse {
+        $bots = TelegramBot::query()
+            ->where('status', 'active')
+            ->whereNotNull('otp_api_key')
+            ->whereNotNull('token')
+            ->whereNotNull('min_provider_balance_alert')
+            ->where('min_provider_balance_alert', '>', 0)
+            ->get();
+
+        $checked = 0;
+        $alertsSent = 0;
+        $results = [];
+
+        foreach ($bots as $bot) {
+            $res = $telegramBotService->checkAndAlertProviderBalance($bot, $client);
+            $checked++;
+            if (! empty($res['alert_sent'])) {
+                $alertsSent++;
+            }
+            $results[] = $res;
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Pengecekan saldo pusat & reminder admin selesai dijalankan.',
+            'bots_checked' => $checked,
+            'alerts_sent' => $alertsSent,
+            'results' => $results,
+            'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
+        ]);
+    }
 }

@@ -32,6 +32,7 @@ class BotDetailController extends Controller
             'otp_api_key' => ['nullable', 'string', 'max:500'],
             'otp_markup_type' => ['required', 'in:percent,flat'],
             'otp_markup_percent' => ['required', 'integer', 'min:0', 'max:1000000'],
+            'min_provider_balance_alert' => ['nullable', 'integer', 'min:0', 'max:100000000'],
             'deposit_whatsapp' => ['nullable', 'string', 'max:100'],
             'deposit_telegram' => ['nullable', 'string', 'max:100'],
             'deposit_bank_name' => ['nullable', 'string', 'max:100'],
@@ -53,9 +54,14 @@ class BotDetailController extends Controller
                 ->withErrors(['admin_telegram_ids' => 'Setiap Admin Telegram ID minimal 5 digit angka.']);
         }
 
+        $minAlert = isset($data['min_provider_balance_alert']) && $data['min_provider_balance_alert'] !== null && $data['min_provider_balance_alert'] !== ''
+            ? (int) $data['min_provider_balance_alert']
+            : null;
+
         $updates = [
             'otp_markup_type' => $data['otp_markup_type'],
             'otp_markup_percent' => (int) $data['otp_markup_percent'],
+            'min_provider_balance_alert' => $minAlert && $minAlert > 0 ? $minAlert : null,
             'deposit_whatsapp' => filled($data['deposit_whatsapp'] ?? null) ? trim($data['deposit_whatsapp']) : null,
             'deposit_telegram' => filled($data['deposit_telegram'] ?? null) ? trim($data['deposit_telegram']) : null,
             'deposit_bank_name' => filled($data['deposit_bank_name'] ?? null) ? trim($data['deposit_bank_name']) : null,

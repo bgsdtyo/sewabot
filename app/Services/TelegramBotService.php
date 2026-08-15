@@ -1670,4 +1670,88 @@ class TelegramBotService
             return null;
         }
     }
+
+    public function checkAndAlertProviderBalance(TelegramBot $bot, ?OtpProviderClient $client = null): array
+    {
+        if (! $bot->token || ! filled($bot->otp_api_key)) {
+            return [
+                'bot_id' => $bot->id,
+                'name' => $bot->name,
+                'status' => 'skipped',
+                'reason' => 'Token atau OTP API Key belum diisi',
+            ];
+        }
+
+        $client = $client ?: app(OtpProviderClient::class);
+
+        try {
+            $data = $client->forBot($bot)->getBalance();
+            $balance = (int) ($data['balance'] ?? 0);
+            $currency = (string) ($data['currency'] ?? 'IDR');
+
+            $bot->update([
+                'provider_balance' => $balance,
+                'provider_balance_currency' => $currency,
+                'provider_balance_checked_at' => now(),
+            ]);
+
+            $threshold = (int) ($bot->min_provider_balance_alert ?? 0);
+            $alertSent = false;
+            $adminsNotified = [];
+
+            if ($threshold > 0 && $balance <= $threshold) {
+                // Throttling: send at most once every 60 minutes per bot
+                $lastAlert = $bot->provider_balance_last_alerted_at;
+                $canAlert = ! $lastAlert || $lastAlert->diffInMinutes(now()) >= 60;
+
+                if ($canAlert) {
+                    $adminIds = $bot->adminTelegramIdList();
+                    $formattedBalance = number_format($balance, 0, ',', '.');
+                    $formattedThreshold = number_format($threshold, 0, ',', '.');
+
+                    $alertText = "⚠️ <b>PERINGATAN: SALDO PUSAT DIBAWAH AMBANG!</b>\n\n"
+                        ."Saldo API provider bot <b>{$bot->name}</b> tersisa:\n"
+                        ."💰 <b>Rp{$formattedBalance}</b>\n\n"
+                        ."Batas Ambang Minimal: <b>Rp{$formattedThreshold}</b>\n\n"
+                        ."🔔 <i>Segera isi/topup saldo pusat provider Anda agar layanan bot dan transaksi OTP member tetap lancar!</i>";
+
+                    foreach ($adminIds as $adminId) {
+                        try {
+                            $res = $this->sendMessage($bot, $adminId, $alertText);
+                            if ($res !== null) {
+                                $adminsNotified[] = $adminId;
+                                $alertSent = true;
+                            }
+                        } catch (\Throwable $e) {
+                            Log::warning("Failed to send balance alert to admin {$adminId}: ".$e->getMessage());
+                        }
+                    }
+
+                    if ($alertSent) {
+                        $bot->update(['provider_balance_last_alerted_at' => now()]);
+                    }
+                }
+            }
+
+            return [
+                'bot_id' => $bot->id,
+                'name' => $bot->name,
+                'balance' => $balance,
+                'threshold' => $threshold,
+                'is_low' => $threshold > 0 && $balance <= $threshold,
+                'alert_sent' => $alertSent,
+                'admins_notified' => $adminsNotified,
+                'status' => 'success',
+            ];
+        } catch (\Throwable $e) {
+            Log::error("Failed checking provider balance for bot {$bot->id}: ".$e->getMessage());
+
+            return [
+                'bot_id' => $bot->id,
+                'name' => $bot->name,
+                'status' => 'error',
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
 }

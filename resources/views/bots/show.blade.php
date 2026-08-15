@@ -64,7 +64,14 @@
                     </form>
                 </div>
                 @if ($telegramBot->provider_balance !== null)
-                    <p class="mt-2 text-base font-extrabold text-emerald-700">{{ $telegramBot->formattedProviderBalance() }}</p>
+                    <div class="mt-2 flex items-baseline gap-2">
+                        <p class="text-base font-extrabold {{ $telegramBot->isProviderBalanceLow() ? 'text-rose-600' : 'text-emerald-700' }}">
+                            {{ $telegramBot->formattedProviderBalance() }}
+                        </p>
+                        @if ($telegramBot->isProviderBalanceLow())
+                            <span class="rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">Rendah</span>
+                        @endif
+                    </div>
                     <p class="mt-1 text-xs text-brand-500">
                         {{ $telegramBot->provider_balance_checked_at?->timezone(config('app.timezone'))->format('d M Y H:i') ?? '-' }}
                     </p>
@@ -136,6 +143,92 @@
                     @error('otp_api_key')
                         <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
                     @enderror
+                </div>
+
+                {{-- Reminder Saldo Pusat --}}
+                <div class="border-t border-brand-100 pt-6"
+                     x-data="{
+                         alertThreshold: {{ (int) old('min_provider_balance_alert', $telegramBot->min_provider_balance_alert ?? 10000) }},
+                         setThreshold(val) {
+                             this.alertThreshold = val;
+                         },
+                         formatRp(n) {
+                             return 'Rp' + new Intl.NumberFormat('id-ID').format(n || 0);
+                         }
+                     }">
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <h3 class="text-sm font-extrabold text-brand-900">Reminder Saldo Pusat (Notifikasi Admin)</h3>
+                            <p class="mt-1 text-sm text-brand-500">
+                                Kirim pesan peringatan otomatis ke Admin Telegram jika saldo provider/pusat berada di bawah batas ambang ini.
+                            </p>
+                        </div>
+                        <span class="inline-flex self-start rounded-xl border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-bold text-brand-900">
+                            Status: <span class="ml-1" x-text="alertThreshold > 0 ? formatRp(alertThreshold) : 'Nonaktif'"></span>
+                        </span>
+                    </div>
+
+                    <div class="mt-4 space-y-3">
+                        <label class="block text-xs font-bold uppercase tracking-wider text-brand-500">Batas Minimal Saldo (Rp)</label>
+
+                        <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                            <div class="flex w-full overflow-hidden rounded-xl border border-brand-200 sm:w-64">
+                                <span class="inline-flex min-w-[3.25rem] items-center justify-center bg-brand-900 px-3.5 text-sm font-bold text-white">
+                                    Rp
+                                </span>
+                                <input type="number" name="min_provider_balance_alert" min="0" step="500"
+                                       x-model.number="alertThreshold"
+                                       placeholder="Contoh: 10000"
+                                       class="w-full border-0 bg-white px-3.5 py-2.5 text-brand-900 font-semibold focus:border-transparent focus:outline-none focus:ring-0">
+                            </div>
+
+                            {{-- Preset Chips --}}
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <button type="button" @click="setThreshold(5000)"
+                                        class="rounded-lg border border-brand-200 bg-white px-2.5 py-1.5 text-xs font-bold text-brand-700 hover:border-brand-900 hover:bg-brand-50 transition">
+                                    5.000
+                                </button>
+                                <button type="button" @click="setThreshold(10000)"
+                                        class="rounded-lg border border-brand-200 bg-white px-2.5 py-1.5 text-xs font-bold text-brand-700 hover:border-brand-900 hover:bg-brand-50 transition">
+                                    10.000
+                                </button>
+                                <button type="button" @click="setThreshold(25000)"
+                                        class="rounded-lg border border-brand-200 bg-white px-2.5 py-1.5 text-xs font-bold text-brand-700 hover:border-brand-900 hover:bg-brand-50 transition">
+                                    25.000
+                                </button>
+                                <button type="button" @click="setThreshold(50000)"
+                                        class="rounded-lg border border-brand-200 bg-white px-2.5 py-1.5 text-xs font-bold text-brand-700 hover:border-brand-900 hover:bg-brand-50 transition">
+                                    50.000
+                                </button>
+                                <button type="button" @click="setThreshold(0)"
+                                        class="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 transition">
+                                    Nonaktifkan
+                                </button>
+                            </div>
+                        </div>
+
+                        <p class="text-xs text-brand-500">
+                            Isi <code>0</code> atau kosongkan jika tidak ingin mengaktifkan notifikasi peringatan.
+                        </p>
+                    </div>
+
+                    {{-- Cron link info box --}}
+                    <div class="mt-4 rounded-xl border border-sky-100 bg-sky-50/70 p-3.5 text-xs text-sky-900">
+                        <div class="flex items-start gap-2.5">
+                            <svg class="h-4 w-4 shrink-0 text-sky-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <div>
+                                <span class="font-bold">Link Web Cron Otomatis:</span>
+                                <p class="mt-0.5 text-sky-800">
+                                    Pasang URL ini di cron job server / cPanel / cron-job.org untuk auto-check saldo & notifikasi reminder:
+                                </p>
+                                <code class="mt-1.5 block select-all rounded-lg bg-white px-2.5 py-1.5 font-mono text-[11px] font-bold text-brand-900 border border-sky-200 shadow-xs">
+                                    {{ url('/cron/check-provider-balance') }}
+                                </code>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div x-data="{

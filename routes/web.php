@@ -15,6 +15,8 @@ Route::get('/', LandingController::class)->name('landing');
 
 Route::get('/cron/check-subscriptions', [CronController::class, 'checkSubscriptions'])->name('cron.check-subscriptions');
 Route::get('/cron/check-expired', [CronController::class, 'checkSubscriptions'])->name('cron.check-expired');
+Route::get('/cron/check-provider-balance', [CronController::class, 'checkProviderBalance'])->name('cron.check-provider-balance');
+Route::get('/cron/reminder-saldo', [CronController::class, 'checkProviderBalance'])->name('cron.reminder-saldo');
 
 Route::post('/telegram/webhook/{telegramBot}', TelegramWebhookController::class)
     ->name('telegram.webhook');

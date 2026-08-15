@@ -18,6 +18,8 @@ class TelegramBot extends Model
         'provider_balance',
         'provider_balance_currency',
         'provider_balance_checked_at',
+        'min_provider_balance_alert',
+        'provider_balance_last_alerted_at',
         'otp_markup_type',
         'otp_markup_percent',
         'deposit_whatsapp',
@@ -37,6 +39,8 @@ class TelegramBot extends Model
         return [
             'provider_balance' => 'integer',
             'provider_balance_checked_at' => 'datetime',
+            'min_provider_balance_alert' => 'integer',
+            'provider_balance_last_alerted_at' => 'datetime',
         ];
     }
 
@@ -238,5 +242,27 @@ class TelegramBot extends Model
         }
 
         return 'Rp'.number_format((int) $this->provider_balance, 0, ',', '.');
+    }
+
+    public function formattedMinProviderBalanceAlert(): string
+    {
+        if (! $this->min_provider_balance_alert) {
+            return 'Nonaktif';
+        }
+
+        return 'Rp'.number_format((int) $this->min_provider_balance_alert, 0, ',', '.');
+    }
+
+    public function isProviderBalanceLow(): bool
+    {
+        if (! $this->min_provider_balance_alert || $this->min_provider_balance_alert <= 0) {
+            return false;
+        }
+
+        if ($this->provider_balance === null) {
+            return false;
+        }
+
+        return (int) $this->provider_balance <= (int) $this->min_provider_balance_alert;
     }
 }
