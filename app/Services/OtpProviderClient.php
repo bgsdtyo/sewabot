@@ -45,7 +45,7 @@ class OtpProviderClient
         throw new RuntimeException('API Key provider belum dikonfigurasi.');
     }
 
-    protected function client(): PendingRequest
+    protected function client(int $timeout = 10): PendingRequest
     {
         $base = rtrim((string) (Setting::otpProvider()['api_base_url'] ?? ''), '/');
 
@@ -56,12 +56,13 @@ class OtpProviderClient
         return Http::baseUrl($base)
             ->withToken($this->resolveApiKey())
             ->acceptJson()
-            ->timeout(30);
+            ->timeout($timeout)
+            ->connectTimeout(min(3, $timeout));
     }
 
-    public function getServices(): array
+    public function getServices(int $timeout = 3): array
     {
-        $response = $this->client()->get('/services');
+        $response = $this->client($timeout)->get('/services');
 
         if (! $response->successful()) {
             $this->throwFromResponse($response, 'Gagal ambil daftar layanan');

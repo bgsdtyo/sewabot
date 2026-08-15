@@ -58,29 +58,37 @@ class OtpOrderService
 
     public function getServiceStock(OtpService $service, ?TelegramBot $bot = null): int
     {
-        if ($bot && filled($bot->otp_api_key)) {
-            try {
-                $cacheKey = "bot_{$bot->id}_svc_{$service->provider_service_id}_stock";
-
-                return (int) cache()->remember($cacheKey, 15, function () use ($bot, $service) {
-                    $services = $this->provider->forBot($bot)->getServices();
-                    foreach ($services as $item) {
-                        if ((int) ($item['id'] ?? 0) === (int) $service->provider_service_id) {
-                            $stock = (int) ($item['stock'] ?? $item['count'] ?? $item['available'] ?? 0);
-                            $service->update(['stock' => $stock]);
-
-                            return $stock;
-                        }
-                    }
-
-                    return (int) $service->stock;
-                });
-            } catch (\Throwable $e) {
-                Log::warning('Failed fetching live stock from provider: '.$e->getMessage());
-            }
+        if (! $bot || ! filled($bot->otp_api_key)) {
+            return (int) $service->stock;
         }
 
-        return (int) $service->stock;
+        $cacheKey = "bot_{$bot->id}_svc_{$service->provider_service_id}_stock";
+
+        // Check fast memory/file cache first so user gets instant response (sub-50ms)
+        if (cache()->has($cacheKey)) {
+            return (int) cache()->get($cacheKey);
+        }
+
+        try {
+            // Quick 2-second timeout so user never waits if provider network is busy
+            $services = $this->provider->forBot($bot)->getServices(timeout: 2);
+            foreach ($services as $item) {
+                if ((int) ($item['id'] ?? 0) === (int) $service->provider_service_id) {
+                    $stock = (int) ($item['stock'] ?? $item['count'] ?? $item['available'] ?? 0);
+                    $service->update(['stock' => $stock]);
+                    cache()->put($cacheKey, $stock, now()->addSeconds(60));
+
+                    return $stock;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::debug('Quick stock fetch timeout/error: '.$e->getMessage());
+        }
+
+        $fallbackStock = (int) $service->stock;
+        cache()->put($cacheKey, $fallbackStock, now()->addSeconds(30));
+
+        return $fallbackStock;
     }
 
     public function findOrRegisterMember(TelegramBot $bot, array $from): BotMember
