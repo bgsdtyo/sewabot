@@ -1,33 +1,25 @@
 # Current Status — SewaBot MVP
 
 ## Updated
-2026-08-15 — Member & OTP history moved to Dashboard
+2026-08-15 — QRIS dinamis (verssache/qris-dinamis port)
+
+## Payment QRIS
+- Admin `/admin/payment-settings`: paste **QRIS Static String**
+- Checkout generate **QRIS dinamis** per nominal invoice (`/checkout/order/{id}/qris.png`)
+- Logic port dari https://github.com/verssache/qris-dinamis (TLV + CRC16)
+- Package QR image: `endroid/qr-code`
 
 ## Layout
-- **Dashboard** (`/`): bot status, subscription, **Member & Saldo** (topup), **Riwayat OTP**
-- **Konfigurasi Bot** (`/bots/{id}`): API key, markup, sync KOPKEN only
-
-## OTP Saldo Flow
-1. Hold saldo saat order nomor
-2. OTP masuk → charge (potong)
-3. Batal/expired → refund hold
-Tidak pakai QRIS untuk OTP.
+- **Dashboard**: bot, subscription, Member & Saldo, Riwayat OTP
+- **Konfigurasi Bot**: API key, markup, sync KOPKEN
 
 ## OTP
-- Base URL: admin global
-- **API Key + Markup: per bot** di Konfigurasi Bot
-- Markup: persen (%) atau flat (Rp)
-- Harga jual = modal + markup
-
-## Telegram commands
-`/saldo` `/otp` `/status` `/ulang` `/ganti` `/batal`
-
-## Env
-```
-OTP_API_BASE_URL=https://YOUR-API/v1
-OTP_API_KEY=xxxxx
-TELEGRAM_WEBHOOK_BASE_URL=https://bgsdtyo.net
-```
+Hold → charge saat OTP → refund cancel/expire. Commands: `/saldo` `/otp` `/status` `/ulang` `/ganti` `/batal`
 
 ## Poll
-`php artisan otp:poll` (schedule every minute)
+`php artisan otp:poll` via `schedule:run` tiap menit
+
+## Hosting
+Repo: https://github.com/bgsdtyo/sewabot  
+Path: `/home/bgsdtyon/domains/bgsdtyo.net/sewabot`  
+`public_html` → `sewabot/public`

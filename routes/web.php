@@ -27,6 +27,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/checkout/{product}/duration', [CheckoutController::class, 'saveDuration'])->name('checkout.duration');
     Route::post('/checkout/{product}/start', [CheckoutController::class, 'start'])->name('checkout.start');
     Route::get('/checkout/order/{order}', [CheckoutController::class, 'show'])->name('checkout.show');
+    Route::get('/checkout/order/{order}/qris.png', [CheckoutController::class, 'qrisImage'])->name('checkout.qris');
     Route::get('/checkout/order/{order}/success', [CheckoutController::class, 'success'])->name('checkout.success');
     Route::post('/checkout/order/{order}/proof', [CheckoutController::class, 'uploadProof'])->name('checkout.upload-proof');
 

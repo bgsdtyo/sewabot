@@ -30,9 +30,13 @@ class Setting extends Model
     public static function payment(): array
     {
         return [
+            'qris_static_payload' => static::get('qris_static_payload'),
             'qris_image' => static::get('qris_image'),
             'merchant_name' => static::get('merchant_name', 'NAMA BISNIS'),
-            'payment_instruction' => static::get('payment_instruction', 'Scan QRIS, transfer sesuai nominal, lalu upload bukti pembayaran.'),
+            'payment_instruction' => static::get(
+                'payment_instruction',
+                "1. Scan QRIS di atas (nominal sudah terisi otomatis)\n2. Bayar sesuai nominal invoice\n3. Upload bukti pembayaran\n4. Tunggu konfirmasi admin"
+            ),
         ];
     }
 

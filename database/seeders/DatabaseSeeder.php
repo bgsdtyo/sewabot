@@ -66,8 +66,9 @@ class DatabaseSeeder extends Seeder
         }
 
         Setting::set('merchant_name', 'SewaBot Indonesia');
-        Setting::set('payment_instruction', "1. Scan QRIS di atas\n2. Transfer sesuai nominal invoice\n3. Upload bukti pembayaran\n4. Tunggu konfirmasi admin");
+        Setting::set('payment_instruction', "1. Scan QRIS di atas (nominal sudah terisi otomatis)\n2. Bayar sesuai nominal invoice\n3. Upload bukti pembayaran\n4. Tunggu konfirmasi admin");
         Setting::set('qris_image', null);
+        Setting::set('qris_static_payload', null);
 
         $this->command?->info('Seeded admin: '.$admin->email.' / password');
     }

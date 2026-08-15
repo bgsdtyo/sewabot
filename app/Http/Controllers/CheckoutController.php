@@ -7,8 +7,10 @@ use App\Models\Product;
 use App\Models\Setting;
 use App\Models\Subscription;
 use App\Services\OrderService;
+use App\Services\QrisDinamisService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\View\View;
 
 class CheckoutController extends Controller
@@ -113,8 +115,28 @@ class CheckoutController extends Controller
 
         $order->load(['product', 'telegramBot']);
         $payment = Setting::payment();
+        $qrisDynamicReady = filled($payment['qris_static_payload'] ?? null);
 
-        return view('checkout.show', compact('order', 'payment'));
+        return view('checkout.show', compact('order', 'payment', 'qrisDynamicReady'));
+    }
+
+    public function qrisImage(Order $order, QrisDinamisService $qris): Response
+    {
+        $this->authorizeOrder($order);
+
+        $static = (string) Setting::get('qris_static_payload', '');
+        abort_unless($static !== '', 404);
+
+        try {
+            $png = $qris->png($static, (int) $order->amount, 480);
+        } catch (\Throwable $e) {
+            abort(422, 'Gagal generate QRIS dinamis.');
+        }
+
+        return response($png, 200, [
+            'Content-Type' => 'image/png',
+            'Cache-Control' => 'private, max-age=300',
+        ]);
     }
 
     public function success(Order $order): View

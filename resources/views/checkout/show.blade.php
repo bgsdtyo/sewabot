@@ -29,13 +29,19 @@
 
             <div class="mt-8">
                 <p class="font-semibold text-brand-900">Scan QRIS untuk pembayaran</p>
+                <p class="mt-1 text-sm text-brand-500">Nominal sudah terisi otomatis: <span class="font-semibold text-brand-900">{{ $order->formattedAmount() }}</span></p>
                 <div class="mt-5 flex justify-center rounded-2xl border border-dashed border-brand-200 bg-brand-50 p-6">
-                    @if (!empty($payment['qris_image']))
+                    @if ($qrisDynamicReady)
+                        <img src="{{ route('checkout.qris', $order) }}?v={{ $order->id }}-{{ (int) $order->amount }}"
+                             alt="QRIS Dinamis"
+                             class="max-h-72 w-auto rounded-lg bg-white p-2 shadow-sm"
+                             width="288" height="288">
+                    @elseif (!empty($payment['qris_image']))
                         <img src="{{ asset('storage/'.$payment['qris_image']) }}" alt="QRIS" class="max-h-64 w-auto rounded-lg">
                     @else
                         <div class="text-center text-sm text-brand-500">
-                            <p class="font-medium text-brand-700">QRIS belum diupload admin</p>
-                            <p class="mt-1">Admin: Settings → Payment → upload QRIS Image</p>
+                            <p class="font-medium text-brand-700">QRIS dinamis belum dikonfigurasi</p>
+                            <p class="mt-1">Admin: Settings → Payment → paste QRIS Static String</p>
                         </div>
                     @endif
                 </div>
