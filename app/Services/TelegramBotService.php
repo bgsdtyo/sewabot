@@ -1086,9 +1086,7 @@ class TelegramBotService
             if ($quantity > 1) {
                 $orders = $otpOrderService->requestBulkOtp($bot, $member, $service, $quantity);
                 $this->sendBatchOrderCreatedMessage($bot, $chatId, $orders, $previewMessageId);
-                foreach ($orders as $order) {
-                    app(OtpOrderWatcher::class)->start($order);
-                }
+                app(OtpOrderWatcher::class)->startBatch($orders);
             } else {
                 $order = $otpOrderService->requestOtp($bot, $member, $service);
                 $this->sendOrderCreatedMessage($bot, $chatId, $order, $previewMessageId);
@@ -1216,6 +1214,25 @@ class TelegramBotService
         $buttons = [];
 
         if ($pendingOrders->isNotEmpty() && $batchId) {
+            // Row 1: Individual change number buttons per sequence (e.g. [ 🔀 Ganti #1 ] [ 🔀 Ganti #2 ])
+            $changeButtons = [];
+            foreach ($orders as $index => $order) {
+                if ($order->status === 'pending') {
+                    $slotNum = $index + 1;
+                    $changeButtons[] = [
+                        'text' => "🔀 Ganti #{$slotNum}",
+                        'callback_data' => 'otp_change:'.$order->id,
+                    ];
+                }
+            }
+
+            if (! empty($changeButtons)) {
+                foreach (array_chunk($changeButtons, 3) as $chunk) {
+                    $buttons[] = $chunk;
+                }
+            }
+
+            // Row 2: Batch action buttons
             $buttons[] = [
                 ['text' => '🔄 Cek Status Semua', 'callback_data' => 'otp_batch_status:'.$batchId],
                 ['text' => '❌ Batalkan Semua', 'callback_data' => 'otp_batch_cancel:'.$batchId],
@@ -1610,6 +1627,12 @@ class TelegramBotService
             $order = app(OtpOrderService::class)->changeNumber($order);
             app(OtpOrderWatcher::class)->start($order);
 
+            if ($order->isPartOfBatch()) {
+                $this->notifyBatchOrderUpdated($bot, $member, $order->getBatchOrders());
+
+                return;
+            }
+
             $service = e($order->otpService?->name ?? 'Kopken');
             $text = $this->formatOrderCard(
                 $order,
@@ -1629,13 +1652,18 @@ class TelegramBotService
                 $this->rememberOrderMessage($order, $newId);
             }
         } catch (\Throwable $e) {
-            $this->replyOrSend(
-                $bot,
-                $chatId,
-                $messageId,
-                'Gagal ganti nomor: '.$e->getMessage(),
-                inlineKeyboard: $this->orderActionKeyboard($order)
-            );
+            $errText = 'Gagal ganti nomor: '.$e->getMessage();
+            if ($order->isPartOfBatch()) {
+                $this->notifyBatchOrderUpdated($bot, $member, $order->getBatchOrders());
+            } else {
+                $this->replyOrSend(
+                    $bot,
+                    $chatId,
+                    $messageId,
+                    $errText,
+                    inlineKeyboard: $this->orderActionKeyboard($order)
+                );
+            }
         }
     }
 

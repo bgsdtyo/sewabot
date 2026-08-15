@@ -23,6 +23,92 @@ class OtpOrderWatcher
     }
 
     /**
+     * Start background polling for multiple orders in a single worker process simultaneously.
+     */
+    public function startBatch(array|\Illuminate\Support\Collection $orders): void
+    {
+        $orderIds = collect($orders)->pluck('id')->filter()->map(fn ($id) => (int) $id)->values()->all();
+        if (empty($orderIds)) {
+            return;
+        }
+
+        dispatch(function () use ($orderIds) {
+            app(OtpOrderWatcher::class)->runWatchBatchCycle($orderIds, continueChain: true);
+        })->afterResponse();
+    }
+
+    /**
+     * Watch multiple orders in a batch concurrently in each tick.
+     */
+    public function runWatchBatchCycle(array $orderIds, bool $continueChain = true): void
+    {
+        ignore_user_abort(true);
+        @set_time_limit(150);
+
+        $deadline = time() + 90;
+        $activeIds = array_values(array_unique($orderIds));
+
+        while (time() < $deadline && ! empty($activeIds)) {
+            sleep(2);
+
+            foreach ($activeIds as $k => $orderId) {
+                try {
+                    $order = OtpOrder::query()->find($orderId);
+
+                    if (! $order || in_array($order->status, ['cancelled', 'expired'], true)) {
+                        unset($activeIds[$k]);
+                        continue;
+                    }
+
+                    if ($order->provider_expire_at && $order->provider_expire_at->isPast()) {
+                        app(OtpOrderService::class)->refreshOrder($order);
+                        unset($activeIds[$k]);
+                        continue;
+                    }
+
+                    $previousOtp = $order->otp_code;
+                    $fresh = app(OtpOrderService::class)->refreshOrder($order);
+
+                    if (filled($fresh->otp_code) && $previousOtp === null) {
+                        unset($activeIds[$k]);
+                        continue;
+                    }
+
+                    if (in_array($fresh->status, ['completed', 'cancelled', 'expired'], true)) {
+                        unset($activeIds[$k]);
+                        continue;
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("OtpOrderWatcher batch tick failed on #{$orderId}: ".$e->getMessage());
+                }
+            }
+
+            $activeIds = array_values($activeIds);
+        }
+
+        if (! $continueChain || empty($activeIds)) {
+            return;
+        }
+
+        // Chain next window for any remaining pending orders in the batch
+        foreach ($activeIds as $remId) {
+            try {
+                $url = URL::temporarySignedRoute(
+                    'otp.watch',
+                    now()->addMinutes(25),
+                    ['order' => $remId]
+                );
+
+                Http::timeout(1)
+                    ->withOptions(['http_errors' => false])
+                    ->get($url);
+            } catch (\Throwable $e) {
+                Log::debug('OtpOrderWatcher batch chain ping: '.$e->getMessage());
+            }
+        }
+    }
+
+    /**
      * One watch window (~90s). Optionally chain another HTTP request if still pending.
      */
     public function runWatchCycle(int $orderId, bool $continueChain = true): void
