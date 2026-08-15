@@ -843,13 +843,18 @@ class TelegramBotService
 
     protected function startKopken(TelegramBot $bot, $member, $chatId): void
     {
-        $service = $this->kopkenService();
+        $this->startOrderForService($bot, $member, $chatId);
+    }
+
+    protected function startOrderForService(TelegramBot $bot, $member, int|string $chatId, ?int $serviceId = null): void
+    {
+        $service = ($serviceId ? OtpService::sellable()->whereKey($serviceId)->first() : null) ?? $this->kopkenService();
 
         if (! $service) {
             $this->sendMessage(
                 $bot,
                 $chatId,
-                'Layanan KOPKEN belum tersedia. Pastikan API Key bot sudah dikonfigurasi oleh pemilik bot.',
+                'Layanan OTP belum tersedia. Pastikan API Key bot sudah dikonfigurasi oleh pemilik bot.',
                 $this->mainKeyboard()
             );
 
@@ -983,13 +988,17 @@ class TelegramBotService
         $isStillActive = ($order->provider_expire_at === null || $order->provider_expire_at->isFuture())
             && $order->created_at->isAfter(now()->subMinutes(25));
 
-        $keyboard = $isStillActive ? [
+        $buttons = [];
+        if ($isStillActive) {
+            $buttons[] = ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id];
+        }
+        $buttons[] = ['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)];
+
+        $keyboard = [
             'inline_keyboard' => [
-                [
-                    ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
-                ],
+                $buttons,
             ],
-        ] : null;
+        ];
 
         $messageId = $this->orderMessageId($order);
 
@@ -1305,6 +1314,15 @@ class TelegramBotService
                 'Hold: <b>Rp'.number_format($order->sell_price, 0, ',', '.')."</b>\n\n".
                 'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>';
 
+            $isStillActive = ($order->provider_expire_at === null || $order->provider_expire_at->isFuture())
+                && $order->created_at->isAfter(now()->subMinutes(25));
+
+            $buttons = [];
+            if ($isStillActive) {
+                $buttons[] = ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id];
+            }
+            $buttons[] = ['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)];
+
             $newId = $this->replyOrSend(
                 $bot,
                 $chatId,
@@ -1312,9 +1330,7 @@ class TelegramBotService
                 $text,
                 inlineKeyboard: [
                     'inline_keyboard' => [
-                        [
-                            ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
-                        ],
+                        $buttons,
                     ],
                 ]
             );
@@ -1397,6 +1413,13 @@ class TelegramBotService
         if (str_starts_with($data, 'otp_confirm:')) {
             $serviceId = (int) substr($data, strlen('otp_confirm:'));
             $this->confirmKopkenOrder($bot, $member, $chatId, $serviceId, $messageId ? (int) $messageId : null);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'otp_reorder:')) {
+            $serviceId = (int) substr($data, strlen('otp_reorder:'));
+            $this->startOrderForService($bot, $member, $chatId, $serviceId ?: null);
 
             return;
         }
