@@ -1019,6 +1019,10 @@ class TelegramBotService
             );
         } catch (\Throwable $e) {
             $errMessage = (string) $e->getMessage();
+            if (stripos($errMessage, 'cURL error 28') !== false || stripos($errMessage, 'timed out') !== false || stripos($errMessage, 'Resolving timed out') !== false) {
+                $errMessage = 'Server pemesanan nomor sedang sibuk (koneksi timeout). Silakan coba pesan kembali.';
+            }
+
             $this->replyOrSend(
                 $bot,
                 $chatId,

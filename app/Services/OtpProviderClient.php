@@ -45,7 +45,7 @@ class OtpProviderClient
         throw new RuntimeException('API Key provider belum dikonfigurasi.');
     }
 
-    protected function client(int $timeout = 10): PendingRequest
+    protected function client(int $timeout = 15): PendingRequest
     {
         $base = rtrim((string) (Setting::otpProvider()['api_base_url'] ?? ''), '/');
 
@@ -57,10 +57,12 @@ class OtpProviderClient
             ->withToken($this->resolveApiKey())
             ->acceptJson()
             ->timeout($timeout)
-            ->connectTimeout(min(3, $timeout));
+            ->withOptions([
+                'connect_timeout' => min(8, $timeout),
+            ]);
     }
 
-    public function getServices(int $timeout = 3): array
+    public function getServices(int $timeout = 5): array
     {
         $response = $this->client($timeout)->get('/services');
 
@@ -75,7 +77,7 @@ class OtpProviderClient
     {
         $key = $idempotencyKey ?: (string) Str::uuid();
 
-        $response = $this->client()
+        $response = $this->client(timeout: 20)
             ->withHeaders(['Idempotency-Key' => $key])
             ->post('/orders', ['service_id' => $serviceId]);
 

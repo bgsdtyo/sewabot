@@ -58,20 +58,20 @@ class OtpOrderService
 
     public function getServiceStock(OtpService $service, ?TelegramBot $bot = null, bool $forceFresh = false): int
     {
+        // When not explicitly forced by user (e.g. standard Order OTP / Pesan Lagi),
+        // use local database stock immediately for instant sub-millisecond response.
+        if (! $forceFresh) {
+            return (int) ($service->stock ?? 0);
+        }
+
         if (! $bot || ! filled($bot->otp_api_key)) {
-            return (int) $service->stock;
+            return (int) ($service->stock ?? 0);
         }
 
         $cacheKey = "bot_{$bot->id}_svc_{$service->provider_service_id}_stock";
 
-        // Check fast memory/file cache first so user gets instant response (sub-50ms)
-        if (! $forceFresh && cache()->has($cacheKey)) {
-            return (int) cache()->get($cacheKey);
-        }
-
         try {
-            // Quick 2-second timeout so user never waits if provider network is busy
-            $services = $this->provider->forBot($bot)->getServices(timeout: 2);
+            $services = $this->provider->forBot($bot)->getServices(timeout: 5);
             foreach ($services as $item) {
                 if ((int) ($item['id'] ?? 0) === (int) $service->provider_service_id) {
                     $stock = (int) ($item['stock'] ?? $item['count'] ?? $item['available'] ?? 0);
@@ -82,13 +82,10 @@ class OtpOrderService
                 }
             }
         } catch (\Throwable $e) {
-            Log::debug('Quick stock fetch timeout/error: '.$e->getMessage());
+            Log::debug('Live stock fetch timeout/error: '.$e->getMessage());
         }
 
-        $fallbackStock = (int) $service->stock;
-        cache()->put($cacheKey, $fallbackStock, now()->addSeconds(30));
-
-        return $fallbackStock;
+        return (int) ($service->stock ?? 0);
     }
 
     public function findOrRegisterMember(TelegramBot $bot, array $from): BotMember
