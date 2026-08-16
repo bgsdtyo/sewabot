@@ -93,9 +93,20 @@ class OtpProviderClient
 
     public function getOrder(string $providerOrderId): array
     {
-        $response = $this->client()->get('/orders/'.$providerOrderId);
+        $response = $this->client(timeout: 8)->get('/orders/'.$providerOrderId);
 
         if (! $response->successful()) {
+            $body = $response->json();
+            $data = $body['data'] ?? [];
+            $errMsg = $body['message'] ?? $body['error'] ?? '';
+
+            if (is_array($data) && ! empty($data)) {
+                $data['status'] = $data['status'] ?? 'cancelled';
+                $data['cancel_reason'] = $data['cancel_reason'] ?? (is_string($errMsg) ? $errMsg : null);
+
+                return $data;
+            }
+
             $this->throwFromResponse($response, 'Gagal cek status pesanan OTP');
         }
 

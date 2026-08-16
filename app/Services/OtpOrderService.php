@@ -214,15 +214,30 @@ class OtpOrderService
                                     $checkReason = $check['cancel_reason'] ?? $check['reason'] ?? $check['message'] ?? null;
 
                                     if (
-                                        in_array($checkStatus, ['cancelled', 'canceled', 'banned', 'blocked', 'rejected', 'failed', 'completed'], true)
+                                        in_array($checkStatus, ['cancelled', 'canceled', 'cancel', 'banned', 'blocked', 'rejected', 'failed', 'completed'], true)
                                         || stripos((string) $checkReason, 'banned') !== false
                                         || stripos((string) $checkReason, 'terblokir') !== false
+                                        || stripos((string) $checkReason, 'blocked') !== false
+                                        || stripos((string) $checkReason, 'cancel') !== false
                                     ) {
                                         break; // Definite status reached!
                                     }
                                 }
                             } catch (\Throwable $chkErr) {
-                                // ignore check error, proceed
+                                $errMsg = (string) $chkErr->getMessage();
+                                if (
+                                    stripos($errMsg, 'banned') !== false
+                                    || stripos($errMsg, 'terblokir') !== false
+                                    || stripos($errMsg, 'blocked') !== false
+                                    || stripos($errMsg, 'cancelled') !== false
+                                    || stripos($errMsg, 'canceled') !== false
+                                    || stripos($errMsg, 'dibatalkan') !== false
+                                    || stripos($errMsg, 'not found') !== false
+                                ) {
+                                    $data['status'] = 'cancelled';
+                                    $data['cancel_reason'] = $errMsg;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -232,9 +247,12 @@ class OtpOrderService
                     $phone = $data['phone_number'] ?? $phone;
                     $phoneFormatted = $phone ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : '';
 
-                    $isInitCancelled = in_array($initStatus, ['cancelled', 'canceled', 'banned', 'blocked', 'rejected', 'failed'], true)
+                    $isInitCancelled = in_array($initStatus, ['cancelled', 'canceled', 'cancel', 'banned', 'blocked', 'rejected', 'failed', 'expired', 'refunded'], true)
                         || stripos((string) $cancelReason, 'banned') !== false
-                        || stripos((string) $cancelReason, 'terblokir') !== false;
+                        || stripos((string) $cancelReason, 'terblokir') !== false
+                        || stripos((string) $cancelReason, 'blocked') !== false
+                        || stripos((string) $cancelReason, 'cancel') !== false
+                        || stripos((string) $cancelReason, 'dibatalkan') !== false;
 
                     if ($isInitCancelled) {
                         $this->wallet->releaseHold($member->fresh(), $sellPrice, OtpOrder::class, $item->id, 'Refund: nomor dibatalkan/banned');
@@ -489,15 +507,30 @@ class OtpOrderService
                         $checkReason = $check['cancel_reason'] ?? $check['reason'] ?? $check['message'] ?? null;
 
                         if (
-                            in_array($checkStatus, ['cancelled', 'canceled', 'banned', 'blocked', 'rejected', 'failed', 'completed'], true)
+                            in_array($checkStatus, ['cancelled', 'canceled', 'cancel', 'banned', 'blocked', 'rejected', 'failed', 'completed'], true)
                             || stripos((string) $checkReason, 'banned') !== false
                             || stripos((string) $checkReason, 'terblokir') !== false
+                            || stripos((string) $checkReason, 'blocked') !== false
+                            || stripos((string) $checkReason, 'cancel') !== false
                         ) {
                             break; // Definite status reached!
                         }
                     }
                 } catch (\Throwable $chkErr) {
-                    // ignore
+                    $errMsg = (string) $chkErr->getMessage();
+                    if (
+                        stripos($errMsg, 'banned') !== false
+                        || stripos($errMsg, 'terblokir') !== false
+                        || stripos($errMsg, 'blocked') !== false
+                        || stripos($errMsg, 'cancelled') !== false
+                        || stripos($errMsg, 'canceled') !== false
+                        || stripos($errMsg, 'dibatalkan') !== false
+                        || stripos($errMsg, 'not found') !== false
+                    ) {
+                        $data['status'] = 'cancelled';
+                        $data['cancel_reason'] = $errMsg;
+                        break;
+                    }
                 }
             }
         }
@@ -507,9 +540,12 @@ class OtpOrderService
         $phone = $data['phone_number'] ?? $phone;
         $phoneFormatted = $phone ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : '';
 
-        $isInitCancelled = in_array($initStatus, ['cancelled', 'canceled', 'banned', 'blocked', 'rejected', 'failed'], true)
+        $isInitCancelled = in_array($initStatus, ['cancelled', 'canceled', 'cancel', 'banned', 'blocked', 'rejected', 'failed', 'expired', 'refunded'], true)
             || stripos((string) $cancelReason, 'banned') !== false
-            || stripos((string) $cancelReason, 'terblokir') !== false;
+            || stripos((string) $cancelReason, 'terblokir') !== false
+            || stripos((string) $cancelReason, 'blocked') !== false
+            || stripos((string) $cancelReason, 'cancel') !== false
+            || stripos((string) $cancelReason, 'dibatalkan') !== false;
 
         if ($isInitCancelled) {
             $this->refundLocal($order, 'banned', $cancelReason);
