@@ -47,9 +47,11 @@ class OtpOrderWatcher
 
         $deadline = time() + 90;
         $activeIds = array_values(array_unique($orderIds));
+        $batchCreatedShown = false;
+        $startTime = time();
 
         while (time() < $deadline && ! empty($activeIds)) {
-            sleep(2);
+            sleep(1);
 
             foreach ($activeIds as $k => $orderId) {
                 try {
@@ -84,6 +86,19 @@ class OtpOrderWatcher
             }
 
             $activeIds = array_values($activeIds);
+
+            // After initial verification window (~5 seconds), reveal batch card if pending orders exist
+            if (! $batchCreatedShown && (time() - $startTime) >= 5 && ! empty($activeIds)) {
+                $batchCreatedShown = true;
+                $firstOrder = OtpOrder::query()->find($activeIds[0] ?? null);
+                if ($firstOrder && $firstOrder->telegramBot && $firstOrder->botMember) {
+                    app(TelegramBotService::class)->revealBatchOrderCreated(
+                        $firstOrder->telegramBot,
+                        $firstOrder->botMember,
+                        $firstOrder->getBatchOrders()
+                    );
+                }
+            }
         }
 
         if (! $continueChain || empty($activeIds)) {
@@ -117,9 +132,11 @@ class OtpOrderWatcher
         @set_time_limit(120);
 
         $deadline = time() + 90;
+        $orderCreatedShown = false;
+        $startTime = time();
 
         while (time() < $deadline) {
-            sleep(2);
+            sleep(1);
 
             try {
                 $order = OtpOrder::query()->find($orderId);
@@ -140,8 +157,18 @@ class OtpOrderWatcher
                     return;
                 }
 
-                if (in_array($fresh->status, ['cancelled', 'expired'], true)) {
+                if (in_array($fresh->status, ['cancelled', 'expired', 'completed'], true)) {
                     return;
+                }
+
+                // After initial verification window (~5 seconds) and status is STILL healthy pending:
+                if (! $orderCreatedShown && (time() - $startTime) >= 5) {
+                    $orderCreatedShown = true;
+                    $bot = $fresh->telegramBot;
+                    $member = $fresh->botMember;
+                    if ($bot && $member && $fresh->status === 'pending') {
+                        app(TelegramBotService::class)->revealOrderCreated($bot, $member, $fresh);
+                    }
                 }
             } catch (\Throwable $e) {
                 Log::warning('OtpOrderWatcher tick failed: '.$e->getMessage());

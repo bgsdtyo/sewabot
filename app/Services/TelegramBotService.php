@@ -1096,21 +1096,14 @@ class TelegramBotService
         try {
             if ($quantity > 1) {
                 $orders = $otpOrderService->requestBulkOtp($bot, $member, $service, $quantity);
-                $hasActive = collect($orders)->contains(fn ($o) => $o->status === 'pending');
-                if ($hasActive) {
-                    $this->sendBatchOrderCreatedMessage($bot, $chatId, $orders, $workingMessageId ?? $previewMessageId);
-                    app(OtpOrderWatcher::class)->startBatch($orders);
-                } else {
-                    $this->notifyBatchOrderUpdated($bot, $member, $orders);
+                foreach ($orders as $o) {
+                    $this->rememberOrderMessage($o, $workingMessageId ?? $previewMessageId);
                 }
+                app(OtpOrderWatcher::class)->startBatch($orders);
             } else {
                 $order = $otpOrderService->requestOtp($bot, $member, $service);
-                if (in_array(strtolower((string) $order->status), ['cancelled', 'canceled', 'expired', 'banned'], true)) {
-                    $this->notifyOrderCancelled($bot, $member, $order, $order->status);
-                } else {
-                    $this->sendOrderCreatedMessage($bot, $chatId, $order, $workingMessageId ?? $previewMessageId);
-                    app(OtpOrderWatcher::class)->start($order);
-                }
+                $this->rememberOrderMessage($order, $workingMessageId ?? $previewMessageId);
+                app(OtpOrderWatcher::class)->start($order);
             }
         } catch (ValidationException $e) {
             $this->replyOrSend(
@@ -1362,6 +1355,72 @@ class TelegramBotService
         }
 
         $this->sendMessage($bot, $member->telegram_chat_id, $text, null, $keyboard);
+    }
+
+    public function revealOrderCreated(TelegramBot $bot, $member, OtpOrder $order): void
+    {
+        $fresh = $order->fresh(['otpService', 'botMember', 'telegramBot']);
+        if (! $fresh || in_array(strtolower((string) $fresh->status), ['cancelled', 'canceled', 'expired', 'banned', 'failed'], true)) {
+            if ($fresh) {
+                $this->notifyOrderCancelled($bot, $member, $fresh, $fresh->status);
+            }
+
+            return;
+        }
+
+        $service = e($fresh->otpService?->name ?? 'Kopken');
+        $text = $this->formatOrderCard(
+            $fresh,
+            title: "Order {$service} Berhasil Dibuat 📲",
+            footer: 'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.'
+        );
+
+        $messageId = $this->orderMessageId($fresh);
+
+        if ($messageId) {
+            $this->editMessage(
+                $bot,
+                $member->telegram_chat_id,
+                $messageId,
+                $text,
+                $this->orderActionKeyboard($fresh),
+                false
+            );
+        }
+    }
+
+    public function revealBatchOrderCreated(TelegramBot $bot, $member, $orders): void
+    {
+        $ordersColl = collect($orders);
+        $hasActive = $ordersColl->contains(fn ($o) => $o->status === 'pending');
+        if (! $hasActive) {
+            $this->notifyBatchOrderUpdated($bot, $member, $ordersColl);
+
+            return;
+        }
+
+        $first = $ordersColl->first();
+        $service = e($first?->otpService?->name ?? 'Kopken');
+        $count = $ordersColl->count();
+
+        $text = $this->formatBatchOrderCard(
+            $ordersColl,
+            title: "Order {$service} ({$count} Nomor) Sedang Diproses 📲",
+            footer: 'Saldo ditahan. Bubble ini akan otomatis terupdate saat OTP masuk.'
+        );
+
+        $messageId = $this->orderMessageId($first);
+
+        if ($messageId) {
+            $this->editMessage(
+                $bot,
+                $member->telegram_chat_id,
+                $messageId,
+                $text,
+                $this->batchOrderActionKeyboard($ordersColl),
+                false
+            );
+        }
     }
 
     protected function sendOrderCreatedMessage(TelegramBot $bot, int|string $chatId, OtpOrder $order, ?int $editMessageId = null): void
