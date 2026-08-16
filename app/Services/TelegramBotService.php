@@ -1204,7 +1204,8 @@ class TelegramBotService
     ): string {
         $orders = collect($orders);
         $first = $orders->first();
-        $totalHold = $orders->sum('sell_price');
+        $totalHold = $orders->where('wallet_status', 'held')->sum('sell_price');
+        $totalRefunded = $orders->where('wallet_status', 'refunded')->sum('sell_price');
 
         $lines = [];
         if ($title) {
@@ -1217,7 +1218,12 @@ class TelegramBotService
             $numIcon = $numIcons[$index] ?? ('#'.($index + 1));
             $phone = $this->formatPhoneNumber($order->phone_number);
             $phoneStr = $phone !== '' ? '<code>'.e($phone).'</code>' : '<i>Menunggu nomor...</i>';
-            $otp = filled($order->otp_code) ? '<code>'.e((string) $order->otp_code).'</code> ✅' : '<code>⏳ Menunggu OTP...</code>';
+            $otp = match (true) {
+                filled($order->otp_code) => '<code>'.e((string) $order->otp_code).'</code> ✅',
+                in_array(strtolower((string) $order->status), ['cancelled', 'canceled', 'banned'], true) => '<i>Dibatalkan / Banned</i> ❌',
+                strtolower((string) $order->status) === 'expired' => '<i>Kedaluwarsa</i> ⏳',
+                default => '<code>⏳ Menunggu OTP...</code>',
+            };
             $status = match (strtolower((string) $order->status)) {
                 'completed' => '<b>Berhasil</b> 🎉',
                 'pending' => 'Pending',
@@ -1233,6 +1239,10 @@ class TelegramBotService
 
         $formattedTotalHold = 'Rp '.number_format($totalHold, 0, ',', '.');
         $lines[] = "Total Hold: <b>{$formattedTotalHold}</b>";
+
+        if ($totalRefunded > 0) {
+            $lines[] = ' (Refund: Rp '.number_format($totalRefunded, 0, ',', '.').')';
+        }
 
         if ($footer) {
             $lines[] = "\n{$footer}";
@@ -1359,6 +1369,12 @@ class TelegramBotService
 
     public function revealOrderCreated(TelegramBot $bot, $member, OtpOrder $order): void
     {
+        if ($order->isPartOfBatch()) {
+            $this->revealBatchOrderCreated($bot, $member, $order->getBatchOrders());
+
+            return;
+        }
+
         $fresh = $order->fresh(['otpService', 'botMember', 'telegramBot']);
         if (! $fresh || in_array(strtolower((string) $fresh->status), ['cancelled', 'canceled', 'expired', 'banned', 'failed'], true)) {
             if ($fresh) {
@@ -1425,6 +1441,12 @@ class TelegramBotService
 
     protected function sendOrderCreatedMessage(TelegramBot $bot, int|string $chatId, OtpOrder $order, ?int $editMessageId = null): void
     {
+        if ($order->isPartOfBatch()) {
+            $this->sendBatchOrderCreatedMessage($bot, $chatId, $order->getBatchOrders()->all(), $editMessageId);
+
+            return;
+        }
+
         if (in_array(strtolower((string) $order->status), ['cancelled', 'canceled', 'expired', 'banned'], true)) {
             $this->notifyOrderCancelled($bot, $order->botMember, $order, $order->status);
 
@@ -1451,6 +1473,12 @@ class TelegramBotService
 
     public function notifyOrderCompleted(TelegramBot $bot, $member, OtpOrder $order): void
     {
+        if ($order->isPartOfBatch()) {
+            $this->notifyBatchOrderUpdated($bot, $member, $order->getBatchOrders());
+
+            return;
+        }
+
         $service = e($order->otpService?->name ?? 'Kopken');
         $text = $this->formatOrderCard(
             $order,
@@ -1502,6 +1530,11 @@ class TelegramBotService
         string $reasonType = 'cancelled',
         ?string $customReason = null
     ): void {
+        if ($order->isPartOfBatch()) {
+            $this->notifyBatchOrderUpdated($bot, $member, $order->getBatchOrders());
+
+            return;
+        }
         $phone = $this->formatPhoneNumber($order->phone_number);
         $phoneFormatted = $phone !== '' ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : '';
         $service = e($order->otpService?->name ?? 'Kopken');
