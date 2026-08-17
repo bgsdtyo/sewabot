@@ -208,7 +208,7 @@
 
         {{-- Filter & Search Section --}}
         @php
-            $activeFilterCount = collect(['search', 'member_id', 'status', 'service_id', 'date_from', 'date_to'])
+            $activeFilterCount = collect(['search', 'member_id', 'status', 'date_from', 'date_to'])
                 ->filter(fn ($key) => filled(request($key)))
                 ->count();
         @endphp
@@ -317,23 +317,7 @@
                 </div>
 
                 {{-- Secondary Filters --}}
-                <div class="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-4 pt-2 border-t border-brand-100">
-                    {{-- Filter Service --}}
-                    <div>
-                        <label for="filter-service" class="block text-xs font-bold uppercase tracking-wider text-brand-600 mb-1.5">
-                            Layanan OTP
-                        </label>
-                        <select id="filter-service" name="service_id"
-                                class="w-full rounded-xl border-brand-200 py-2.5 px-3 text-sm text-brand-900 focus:border-brand-900 focus:ring-brand-900">
-                            <option value="">Semua Layanan</option>
-                            @foreach ($services as $svc)
-                                <option value="{{ $svc->id }}" @selected(request('service_id') == $svc->id)>
-                                    {{ $svc->name }} (Rp{{ number_format($svc->sell_price, 0, ',', '.') }})
-                                </option>
-                            @endforeach
-                        </select>
-                    </div>
-
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-3 pt-2 border-t border-brand-100">
                     {{-- Date From --}}
                     <div>
                         <label for="filter-date-from" class="block text-xs font-bold uppercase tracking-wider text-brand-600 mb-1.5">
@@ -893,33 +877,18 @@
                         <input type="hidden" name="telegram_bot_id" value="{{ $bots->first()?->id }}">
                     @endif
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {{-- Member Target --}}
-                        <div>
-                            <label for="create-member" class="block text-xs font-bold uppercase tracking-wider text-brand-600 mb-1.5">
-                                Member <span class="text-rose-500">*</span>
-                            </label>
-                            <select id="create-member" name="bot_member_id" required
-                                    class="w-full rounded-xl border-brand-200 py-2.5 px-3 text-sm text-brand-900 focus:border-brand-900 focus:ring-brand-900">
-                                <option value="">-- Pilih Member --</option>
-                                @foreach ($members as $m)
-                                    <option value="{{ $m->id }}">{{ $m->displayName() }} (ID: {{ $m->telegram_chat_id }})</option>
-                                @endforeach
-                            </select>
-                        </div>
-
-                        {{-- Service --}}
-                        <div>
-                            <label for="create-service" class="block text-xs font-bold uppercase tracking-wider text-brand-600 mb-1.5">
-                                Layanan <span class="text-rose-500">*</span>
-                            </label>
-                            <select id="create-service" name="otp_service_id" required
-                                    class="w-full rounded-xl border-brand-200 py-2.5 px-3 text-sm text-brand-900 focus:border-brand-900 focus:ring-brand-900">
-                                @foreach ($services as $s)
-                                    <option value="{{ $s->id }}">{{ $s->name }} (Rp{{ number_format($s->sell_price, 0, ',', '.') }})</option>
-                                @endforeach
-                            </select>
-                        </div>
+                    <div>
+                        <label for="create-member" class="block text-xs font-bold uppercase tracking-wider text-brand-600 mb-1.5">
+                            Member <span class="text-rose-500">*</span>
+                        </label>
+                        <select id="create-member" name="bot_member_id" required
+                                class="w-full rounded-xl border-brand-200 py-2.5 px-3 text-sm text-brand-900 focus:border-brand-900 focus:ring-brand-900">
+                            <option value="">-- Pilih Member --</option>
+                            @foreach ($members as $m)
+                                <option value="{{ $m->id }}">{{ $m->displayName() }} (ID: {{ $m->telegram_chat_id }})</option>
+                            @endforeach
+                        </select>
+                        <p class="mt-1.5 text-[11px] font-semibold text-brand-500">Layanan: KOPKEN</p>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -948,7 +917,7 @@
                             <label for="create-sell-price" class="block text-xs font-bold uppercase tracking-wider text-brand-600 mb-1.5">
                                 Harga Jual Member (Rp) <span class="text-rose-500">*</span>
                             </label>
-                            <input type="number" id="create-sell-price" name="sell_price" required min="0" value="4100"
+                            <input type="number" id="create-sell-price" name="sell_price" required min="0" value="{{ $kopkenService?->sell_price ?? 4100 }}"
                                    class="w-full rounded-xl border-brand-200 py-2.5 px-3 text-sm font-mono text-brand-900 focus:border-brand-900 focus:ring-brand-900">
                         </div>
 
@@ -957,7 +926,7 @@
                             <label for="create-provider-price" class="block text-xs font-bold uppercase tracking-wider text-brand-600 mb-1.5">
                                 Modal Provider (Rp)
                             </label>
-                            <input type="number" id="create-provider-price" name="provider_price" min="0" value="3500"
+                            <input type="number" id="create-provider-price" name="provider_price" min="0" value="{{ $kopkenService?->provider_price ?? 3500 }}"
                                    class="w-full rounded-xl border-brand-200 py-2.5 px-3 text-sm font-mono text-brand-900 focus:border-brand-900 focus:ring-brand-900">
                         </div>
                     </div>

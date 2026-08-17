@@ -61,4 +61,11 @@ class OtpService extends Model
     {
         return $query->where('is_active', true)->where('is_enabled', true);
     }
+
+    public function scopeKopken($query)
+    {
+        return $query->where(function ($q) {
+            $q->where('slug', 'kopken')->orWhereRaw('UPPER(name) = ?', ['KOPKEN']);
+        });
+    }
 }

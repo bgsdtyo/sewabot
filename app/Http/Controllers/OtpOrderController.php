@@ -40,9 +40,9 @@ class OtpOrderController extends Controller
             $query->where('status', $request->string('status'));
         }
 
-        // Filter by OTP Service
-        if ($request->filled('service_id')) {
-            $query->where('otp_service_id', $request->integer('service_id'));
+        $kopkenService = OtpService::query()->kopken()->first();
+        if ($kopkenService) {
+            $query->where('otp_service_id', $kopkenService->id);
         }
 
         // Filter by Date range
@@ -71,6 +71,9 @@ class OtpOrderController extends Controller
 
         // Summary metrics
         $statsBase = OtpOrder::query()->whereIn('telegram_bot_id', $botIds);
+        if ($kopkenService) {
+            $statsBase->where('otp_service_id', $kopkenService->id);
+        }
         if ($request->filled('bot_id')) {
             $statsBase->where('telegram_bot_id', $request->integer('bot_id'));
         }
@@ -95,14 +98,11 @@ class OtpOrderController extends Controller
             ->orderBy('telegram_name')
             ->get();
 
-        // Get active services
-        $services = OtpService::sellable()->orderBy('name')->get();
-
         return view('otp-orders.index', compact(
             'orders',
             'bots',
             'members',
-            'services',
+            'kopkenService',
             'totalOrders',
             'completedCount',
             'pendingCount',
@@ -120,7 +120,6 @@ class OtpOrderController extends Controller
         $data = $request->validate([
             'telegram_bot_id' => ['required', 'integer', 'in:'.implode(',', $botIds)],
             'bot_member_id' => ['required', 'integer'],
-            'otp_service_id' => ['required', 'integer', 'exists:otp_services,id'],
             'phone_number' => ['required', 'string', 'max:30'],
             'otp_code' => ['nullable', 'string', 'max:20'],
             'sell_price' => ['required', 'integer', 'min:0'],
@@ -134,7 +133,7 @@ class OtpOrderController extends Controller
             ->where('telegram_bot_id', $data['telegram_bot_id'])
             ->firstOrFail();
 
-        $service = OtpService::findOrFail($data['otp_service_id']);
+        $service = OtpService::query()->kopken()->firstOrFail();
 
         $order = OtpOrder::create([
             'telegram_bot_id' => $data['telegram_bot_id'],
