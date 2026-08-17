@@ -241,8 +241,20 @@
 
         {{-- Table Card Section --}}
         <section class="rounded-3xl border border-brand-200 bg-white shadow-soft overflow-hidden">
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm text-brand-900">
+            {{-- Mobile Hint --}}
+            <div class="sm:hidden flex items-center justify-between px-5 py-3 bg-brand-50/80 border-b border-brand-100 text-xs font-semibold text-brand-600">
+                <span class="flex items-center gap-1.5">
+                    <svg class="h-4 w-4 text-brand-500 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                    </svg>
+                    Tabel dapat digeser ke kanan & kiri 👉
+                </span>
+                <span class="text-[11px] text-brand-400 font-mono">{{ $orders->total() }} Data</span>
+            </div>
+
+            {{-- Responsive Scrollable Table Container --}}
+            <div class="overflow-x-auto w-full overscroll-x-contain">
+                <table class="w-full min-w-[860px] text-left text-sm text-brand-900">
                     <thead class="bg-brand-50/80 border-b border-brand-100 text-xs font-bold uppercase tracking-wider text-brand-500">
                         <tr>
                             <th class="px-5 py-4">Waktu & ID</th>
