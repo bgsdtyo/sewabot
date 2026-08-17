@@ -1,3 +1,21 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer components {
+    .otp-table-scroll {
+        -webkit-overflow-scrolling: touch;
+        overflow-x: auto;
+        overflow-y: hidden;
+        max-width: 100%;
+        touch-action: pan-x pan-y;
+        overscroll-behavior-x: contain;
+    }
+
+    .otp-table-scroll table {
+        width: max-content;
+        min-width: 980px;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+}

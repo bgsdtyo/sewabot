@@ -73,7 +73,7 @@
         }
     }"
     @open-create-otp-modal.window="createModal = true"
-    class="mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
+    class="mx-auto min-w-0 max-w-6xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
 
         {{-- Toast / Session Messages --}}
         @if (session('success'))
@@ -240,21 +240,22 @@
         </section>
 
         {{-- Table Card Section --}}
-        <section class="rounded-3xl border border-brand-200 bg-white shadow-soft overflow-hidden">
+        <section class="min-w-0 overflow-hidden rounded-3xl border border-brand-200 bg-white shadow-soft">
             {{-- Mobile Hint --}}
-            <div class="sm:hidden flex items-center justify-between px-5 py-3 bg-brand-50/80 border-b border-brand-100 text-xs font-semibold text-brand-600">
+            <div class="flex items-center justify-between px-5 py-3 bg-brand-50/80 border-b border-brand-100 text-xs font-semibold text-brand-600 sm:hidden">
                 <span class="flex items-center gap-1.5">
-                    <svg class="h-4 w-4 text-brand-500 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg class="h-4 w-4 shrink-0 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                     </svg>
-                    Tabel dapat digeser ke kanan & kiri 👉
+                    Geser ke kanan untuk kolom lain
                 </span>
                 <span class="text-[11px] text-brand-400 font-mono">{{ $orders->total() }} Data</span>
             </div>
 
-            {{-- Responsive Scrollable Table Container --}}
-            <div class="overflow-x-auto w-full overscroll-x-contain">
-                <table class="w-full min-w-[860px] text-left text-sm text-brand-900">
+            {{-- Horizontal swipe container --}}
+            <div class="relative min-w-0">
+                <div class="otp-table-scroll">
+                    <table class="text-left text-sm text-brand-900">
                     <thead class="bg-brand-50/80 border-b border-brand-100 text-xs font-bold uppercase tracking-wider text-brand-500">
                         <tr>
                             <th class="px-5 py-4">Waktu & ID</th>
@@ -461,6 +462,8 @@
                         @endforelse
                     </tbody>
                 </table>
+                </div>
+                <div class="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent sm:hidden"></div>
             </div>
 
             {{-- Pagination Links --}}
