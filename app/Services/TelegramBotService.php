@@ -869,15 +869,55 @@ class TelegramBotService
             ->latest()
             ->first();
 
+        // Auto-refresh dari provider: pastikan order yg sudah selesai di provider
+        // tidak terus memblokir user akibat status stale di database kita.
+        if ($pending) {
+            $otpRefreshService = app(OtpOrderService::class);
+            try {
+                if ($pending->isPartOfBatch()) {
+                    foreach ($pending->getBatchOrders() as $bOrder) {
+                        if ($bOrder->status === 'pending' && $bOrder->provider_order_id) {
+                            $otpRefreshService->refreshOrder($bOrder);
+                        }
+                    }
+                } elseif ($pending->provider_order_id) {
+                    $otpRefreshService->refreshOrder($pending);
+                }
+            } catch (\Throwable) {}
+
+            // Re-query setelah refresh — jika sudah selesai, lanjut ke order baru
+            $pending = OtpOrder::query()
+                ->where('bot_member_id', $member->id)
+                ->where('status', 'pending')
+                ->latest()
+                ->first();
+        }
+
         if ($pending) {
             if ($pending->isPartOfBatch()) {
-                $batchOrders = $pending->getBatchOrders();
-                $text = $this->formatBatchOrderCard(
-                    $batchOrders,
-                    title: 'Masih Ada Order Aktif ⚠️',
-                    footer: 'Selesaikan / batalkan order ini dulu sebelum membuat order baru.'
-                );
-                $kb = $this->batchOrderActionKeyboard($batchOrders);
+                $batchOrders = collect($pending->getBatchOrders());
+                $numIcons = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣'];
+
+                $lines = ["<b>Masih Ada Order Aktif ⚠️</b>\n"];
+                foreach ($batchOrders as $idx => $bOrder) {
+                    $icon = $numIcons[$idx] ?? ('#'.($idx + 1));
+                    $phone = $this->formatPhoneNumber($bOrder->phone_number);
+                    $phoneStr = $phone !== '' ? '<code>'.e($phone).'</code>' : '<i>Menunggu nomor...</i>';
+                    $lines[] = "{$icon} {$phoneStr} — Status: Pending";
+                }
+                $lines[] = "\n<i>Selesaikan / batalkan order ini dulu sebelum membuat order baru.</i>";
+                $text = implode("\n", $lines);
+
+                // Tombol per order — tidak ada lagi "Batalkan Semua" / "Cek Status Semua"
+                $buttons = [];
+                foreach ($batchOrders as $idx => $bOrder) {
+                    $slotNum = $idx + 1;
+                    $buttons[] = [
+                        ['text' => "🔀 Ganti #{$slotNum}", 'callback_data' => 'otp_change:'.$bOrder->id],
+                        ['text' => "❌ Batalkan #{$slotNum}", 'callback_data' => 'otp_cancel:'.$bOrder->id],
+                    ];
+                }
+                $kb = ['inline_keyboard' => $buttons];
             } else {
                 $text = $this->formatOrderCard(
                     $pending,
