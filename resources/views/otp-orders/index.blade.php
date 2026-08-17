@@ -663,7 +663,7 @@
                                                 {{ $order->botMember?->displayName() ?? 'Member #'.$order->bot_member_id }}
                                             </p>
                                             <p class="text-[11px] text-brand-400 font-mono">
-                                                ID: {{ $order->botMember?->telegram_chat_id ?? '-' }}
+                                                {{ $order->botMember?->telegram_chat_id ?? '-' }}
                                             </p>
                                         </div>
                                     </div>
@@ -673,7 +673,7 @@
                                 <td class="px-5 py-4 whitespace-nowrap">
                                     <span class="font-bold text-brand-900 text-xs">{{ $order->otpService?->name ?? 'Kopken' }}</span>
                                     @if ($order->provider_order_id)
-                                        <div class="text-[10px] text-brand-400 font-mono">PID: {{ Str::limit($order->provider_order_id, 10) }}</div>
+                                        <div class="text-[10px] text-brand-400 font-mono">{{ Str::before($order->provider_order_id, '-') }}</div>
                                     @endif
                                 </td>
 

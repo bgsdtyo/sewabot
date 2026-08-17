@@ -1,6 +1,7 @@
 # Current Status — SewaBot MVP
 
 ## Updated
+2026-08-18 — `/otp-orders`: kolom member tampil ID mentah, PID layanan disingkat
 2026-08-18 — `/otp-orders`: modal detail (icon mata) rapih & responsive mobile
 2026-08-18 — `/otp-orders`: hapus filter layanan, khusus KOPKEN saja
 2026-08-18 — `/otp-orders`: filter member bisa dicari (username / ID)
