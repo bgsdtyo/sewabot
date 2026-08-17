@@ -273,6 +273,12 @@ class TelegramBotService
             return;
         }
 
+        if (str_starts_with($text, '/aktif') || $this->isButton($text, 'Order Aktif')) {
+            $this->showActiveOrders($bot, $member, $chatId);
+
+            return;
+        }
+
         $this->sendMessage(
             $bot,
             $chatId,
@@ -670,7 +676,8 @@ class TelegramBotService
         $rows = [
             [['text' => '📱 Order OTP'], ['text' => '💰 Saldo']],
             [['text' => '➕ Deposit'], ['text' => '👤 Akun']],
-            [['text' => '📋 Riwayat'], ['text' => '❓ Bantuan']],
+            [['text' => '📦 Order Aktif'], ['text' => '📋 Riwayat']],
+            [['text' => '❓ Bantuan']],
         ];
 
         if ($this->currentBot && $this->currentFromId && $this->currentBot->isTelegramAdmin($this->currentFromId)) {
@@ -831,6 +838,98 @@ class TelegramBotService
         $text = "<b>Riwayat Transaksi</b> 💰\n\n".implode("\n\n", $cards);
 
         $this->sendMessage($bot, $chatId, $text, $this->mainKeyboard());
+    }
+
+    protected function showActiveOrders(TelegramBot $bot, $member, int|string $chatId): void
+    {
+        $orders = OtpOrder::query()
+            ->where('bot_member_id', $member->id)
+            ->where('status', 'pending')
+            ->with('otpService')
+            ->latest()
+            ->get();
+
+        if ($orders->isEmpty()) {
+            $this->sendMessage(
+                $bot,
+                $chatId,
+                "⚠️ <b>Tidak Ada Order Aktif</b>\n\nSaat ini Anda tidak memiliki pesanan pending yang sedang aktif.",
+                $this->mainKeyboard()
+            );
+
+            return;
+        }
+
+        $count = $orders->count();
+        $text = "📦 <b>Order Aktif</b> — {$count} order aktif\n\n"
+            .'Pilih order untuk melihat nomornya:';
+
+        $buttons = [];
+        foreach ($orders as $order) {
+            $phone = $this->formatPhoneNumber($order->phone_number);
+            $phoneLabel = $phone !== '' ? $phone : 'Menunggu nomor...';
+            $serviceName = e($order->otpService?->name ?? 'Kopken');
+            $buttons[] = [['text' => "{$phoneLabel} | {$serviceName}", 'callback_data' => 'otp_view_order:'.$order->id]];
+        }
+
+        $this->sendMessage($bot, $chatId, $text, $this->mainKeyboard(), ['inline_keyboard' => $buttons]);
+    }
+
+    protected function showOrderDetail(TelegramBot $bot, $member, int|string $chatId, int $orderId, ?int $editMessageId = null): void
+    {
+        $order = OtpOrder::query()
+            ->where('bot_member_id', $member->id)
+            ->whereKey($orderId)
+            ->with('otpService')
+            ->first();
+
+        if (! $order) {
+            $this->replyOrSend($bot, $chatId, $editMessageId, 'Order tidak ditemukan.', removeInlineKeyboard: true);
+
+            return;
+        }
+
+        // Refresh dari provider jika masih pending
+        if ($order->status === 'pending' && $order->provider_order_id) {
+            try {
+                $order = app(OtpOrderService::class)->refreshOrder($order);
+            } catch (\Throwable) {}
+        }
+
+        $service = e($order->otpService?->name ?? 'Kopken');
+
+        if ($order->status === 'completed') {
+            $text = $this->formatOrderCard(
+                $order,
+                title: "Order {$service} — OTP MASUK 🎉",
+                footer: 'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>',
+                statusOverride: 'Berhasil'
+            );
+            $isStillActive = ($order->provider_expire_at === null || $order->provider_expire_at->isFuture())
+                && $order->created_at->isAfter(now()->subMinutes(25));
+            $actionButtons = [];
+            if ($isStillActive) {
+                $actionButtons[] = ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id];
+            }
+            $actionButtons[] = ['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)];
+            $keyboard = ['inline_keyboard' => [$actionButtons]];
+        } elseif ($order->status === 'pending') {
+            $text = $this->formatOrderCard(
+                $order,
+                title: "Order {$service} 📲",
+                footer: 'OTP akan masuk otomatis ke bubble pemesanan.'
+            );
+            $keyboard = $this->orderActionKeyboard($order);
+        } else {
+            $text = $this->formatOrderCard($order, title: "Order {$service}");
+            $keyboard = [
+                'inline_keyboard' => [
+                    [['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)]],
+                ],
+            ];
+        }
+
+        $this->replyOrSend($bot, $chatId, $editMessageId, $text, inlineKeyboard: $keyboard);
     }
 
     protected function startKopken(TelegramBot $bot, $member, $chatId): void
@@ -2333,6 +2432,13 @@ class TelegramBotService
         if (str_starts_with($data, 'otp_cancel:')) {
             $orderId = (int) substr($data, strlen('otp_cancel:'));
             $this->cancelPending($bot, $member, $chatId, $orderId, $messageId ? (int) $messageId : null);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'otp_view_order:')) {
+            $orderId = (int) substr($data, strlen('otp_view_order:'));
+            $this->showOrderDetail($bot, $member, $chatId, $orderId, $messageId ? (int) $messageId : null);
 
             return;
         }
