@@ -5,6 +5,7 @@ use App\Http\Controllers\CheckoutController;
 use App\Http\Controllers\CronController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LandingController;
+use App\Http\Controllers\OtpOrderController;
 use App\Http\Controllers\OtpWatchController;
 use App\Http\Controllers\PaymentHistoryController;
 use App\Http\Controllers\ProfileController;
@@ -36,6 +37,13 @@ Route::get('/internal/otp-watch/{order}', OtpWatchController::class)
 Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
     Route::get('/payments', PaymentHistoryController::class)->name('payments.index');
+
+    Route::get('/otp-orders', [OtpOrderController::class, 'index'])->name('otp-orders.index');
+    Route::post('/otp-orders', [OtpOrderController::class, 'store'])->name('otp-orders.store');
+    Route::put('/otp-orders/{otpOrder}', [OtpOrderController::class, 'update'])->name('otp-orders.update');
+    Route::delete('/otp-orders/{otpOrder}', [OtpOrderController::class, 'destroy'])->name('otp-orders.destroy');
+    Route::post('/otp-orders/{otpOrder}/refresh', [OtpOrderController::class, 'refreshStatus'])->name('otp-orders.refresh');
+    Route::post('/otp-orders/{otpOrder}/cancel', [OtpOrderController::class, 'cancel'])->name('otp-orders.cancel');
 
     Route::get('/bots/{telegramBot}', [BotDetailController::class, 'show'])->name('bots.show');
     Route::put('/bots/{telegramBot}/settings', [BotDetailController::class, 'updateSettings'])->name('bots.settings');

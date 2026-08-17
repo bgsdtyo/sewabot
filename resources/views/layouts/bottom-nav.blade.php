@@ -11,12 +11,12 @@
             <span class="text-[10px] leading-none">Home</span>
         </a>
 
-        <a href="{{ route('payments.index') }}"
-           class="flex w-1/5 flex-col items-center gap-0.5 pb-2 pt-2 transition-colors {{ request()->routeIs('payments.*') ? 'text-white font-semibold' : 'text-slate-400 hover:text-white' }}">
+        <a href="{{ route('otp-orders.index') }}"
+           class="flex w-1/5 flex-col items-center gap-0.5 pb-2 pt-2 transition-colors {{ request()->routeIs('otp-orders.*') ? 'text-white font-semibold' : 'text-slate-400 hover:text-white' }}">
             <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
             </svg>
-            <span class="text-[10px] leading-none">Bayar</span>
+            <span class="text-[10px] leading-none">Riwayat OTP</span>
         </a>
 
         {{-- Center raised button --}}
@@ -31,6 +31,14 @@
             <span class="mt-1 text-[10px] font-semibold leading-none {{ request()->routeIs('dashboard', 'bots.*') ? 'text-white' : 'text-slate-400' }}">Bot</span>
         </div>
 
+        <a href="{{ route('payments.index') }}"
+           class="flex w-1/5 flex-col items-center gap-0.5 pb-2 pt-2 transition-colors {{ request()->routeIs('payments.*') ? 'text-white font-semibold' : 'text-slate-400 hover:text-white' }}">
+            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+            </svg>
+            <span class="text-[10px] leading-none">Bayar</span>
+        </a>
+
         <a href="{{ route('profile.edit') }}"
            class="flex w-1/5 flex-col items-center gap-0.5 pb-2 pt-2 transition-colors {{ request()->routeIs('profile.*') ? 'text-white font-semibold' : 'text-slate-400 hover:text-white' }}">
             <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
@@ -38,16 +46,6 @@
             </svg>
             <span class="text-[10px] leading-none">Profil</span>
         </a>
-
-        <form method="POST" action="{{ route('logout') }}" class="flex w-1/5 flex-col items-center gap-0.5 pb-2 pt-2 text-slate-400 hover:text-red-400 transition-colors">
-            @csrf
-            <button type="submit" class="flex flex-col items-center gap-0.5">
-                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
-                </svg>
-                <span class="text-[10px] font-semibold leading-none">Keluar</span>
-            </button>
-        </form>
     </div>
 </nav>
 @endauth
