@@ -21,7 +21,7 @@
             </header>
         @endisset
 
-        <main class="min-w-0 overflow-x-hidden">
+        <main class="min-w-0">
             <div class="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
                 @if (session('success'))
                     <div class="mt-6 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800 shadow-sm">

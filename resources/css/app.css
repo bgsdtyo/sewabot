@@ -4,17 +4,26 @@
 
 @layer components {
     .otp-table-scroll {
-        -webkit-overflow-scrolling: touch;
-        overflow-x: auto;
-        overflow-y: hidden;
+        display: block;
+        width: 100%;
         max-width: 100%;
-        touch-action: pan-x pan-y;
+        overflow-x: scroll;
+        overflow-y: visible;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-x;
         overscroll-behavior-x: contain;
     }
 
-    .otp-table-scroll table {
+    .otp-table-inner {
+        display: block;
         width: max-content;
-        min-width: 980px;
+        min-width: 1100px;
+    }
+
+    .otp-table-inner table {
+        width: 1100px;
+        min-width: 1100px;
+        table-layout: fixed;
         border-collapse: separate;
         border-spacing: 0;
     }

@@ -1,6 +1,7 @@
 # Current Status — SewaBot MVP
 
 ## Updated
+2026-08-18 — `/otp-orders`: swipe kiri-kanan via inline CSS + touch handler (tanpa andalkan Vite build)
 2026-08-18 — `/otp-orders`: tabel bisa digeser kiri-kanan di mobile
 2026-08-15 — Fix dashboard: tampilkan bot dari user_id + sync subscription saat assign admin
 2026-08-15 — Admin dashboard: stats bot aktif, chart OTP/revenue, tabel performa bot

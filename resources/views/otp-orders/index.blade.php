@@ -1,4 +1,28 @@
 <x-app-layout>
+    <style>
+        .otp-table-scroll {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            overflow-x: scroll;
+            overflow-y: visible;
+            -webkit-overflow-scrolling: touch;
+            touch-action: pan-x;
+            overscroll-behavior-x: contain;
+        }
+        .otp-table-inner {
+            display: block;
+            width: max-content;
+            min-width: 1100px;
+        }
+        .otp-table-inner table {
+            width: 1100px;
+            min-width: 1100px;
+            table-layout: fixed;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+    </style>
     <x-slot name="header">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -253,8 +277,42 @@
             </div>
 
             {{-- Horizontal swipe container --}}
-            <div class="relative min-w-0">
-                <div class="otp-table-scroll">
+            <div class="relative min-w-0 max-w-full">
+                <div
+                    x-ref="otpTableScroll"
+                    class="otp-table-scroll"
+                    style="width:100%;max-width:100%;overflow-x:scroll;-webkit-overflow-scrolling:touch;touch-action:pan-x;"
+                    x-init="
+                        const el = $refs.otpTableScroll;
+                        if (!el) return;
+                        let startX = 0, startY = 0, startLeft = 0, locked = null, active = false;
+                        el.addEventListener('touchstart', (e) => {
+                            const t = e.touches[0];
+                            active = true;
+                            locked = null;
+                            startX = t.pageX;
+                            startY = t.pageY;
+                            startLeft = el.scrollLeft;
+                        }, { passive: true });
+                        el.addEventListener('touchmove', (e) => {
+                            if (!active) return;
+                            const t = e.touches[0];
+                            const dx = t.pageX - startX;
+                            const dy = t.pageY - startY;
+                            if (!locked) {
+                                if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+                                locked = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+                            }
+                            if (locked === 'x') {
+                                e.preventDefault();
+                                el.scrollLeft = startLeft - dx;
+                            }
+                        }, { passive: false });
+                        el.addEventListener('touchend', () => { active = false; locked = null; }, { passive: true });
+                        el.addEventListener('touchcancel', () => { active = false; locked = null; }, { passive: true });
+                    "
+                >
+                    <div class="otp-table-inner" style="min-width:1100px;width:max-content;">
                     <table class="text-left text-sm text-brand-900">
                     <thead class="bg-brand-50/80 border-b border-brand-100 text-xs font-bold uppercase tracking-wider text-brand-500">
                         <tr>
@@ -462,6 +520,7 @@
                         @endforelse
                     </tbody>
                 </table>
+                    </div>
                 </div>
                 <div class="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent sm:hidden"></div>
             </div>
