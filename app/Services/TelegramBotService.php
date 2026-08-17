@@ -1082,6 +1082,103 @@ class TelegramBotService
             return;
         }
 
+        // ── Bulk order (qty > 1): kirim satu loading bubble per slot ─────────
+        if ($quantity > 1) {
+            $svcName = e($service->name ?? 'Kopken');
+            $loadingMessageIds = [];
+
+            for ($slot = 1; $slot <= $quantity; $slot++) {
+                $slotLoadingText = "⏳ <b>Memeriksa Nomor #{$slot}</b>\n\n"
+                    .'Mohon tunggu, sistem sedang memverifikasi nomor sebelum diberikan kepada Anda...';
+
+                if ($slot === 1) {
+                    // Edit/ganti preview message untuk slot pertama
+                    $msgId = $this->replyOrSend($bot, $chatId, $previewMessageId, $slotLoadingText, removeInlineKeyboard: true);
+                } else {
+                    // Kirim bubble baru untuk slot berikutnya
+                    $msgId = $this->sendMessage($bot, $chatId, $slotLoadingText);
+                }
+
+                $loadingMessageIds[] = $msgId;
+            }
+
+            try {
+                $orders = $otpOrderService->requestBulkOtp($bot, $member, $service, $quantity);
+
+                // Link setiap order ke loading bubble miliknya sendiri
+                foreach ($orders as $idx => $o) {
+                    $this->rememberOrderMessage($o, $loadingMessageIds[$idx] ?? $loadingMessageIds[0]);
+                }
+
+                // Edit setiap loading bubble dengan info order yang sebenarnya
+                foreach ($orders as $idx => $o) {
+                    $slotNum = $idx + 1;
+                    $orderText = $this->formatOrderCard(
+                        $o,
+                        title: "Order {$svcName} #{$slotNum} — Memeriksa Nomor 📲",
+                        footer: 'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.'
+                    );
+                    $loadMsgId = $this->orderMessageId($o);
+                    if ($loadMsgId) {
+                        $this->editMessage($bot, $chatId, $loadMsgId, $orderText, $this->orderActionKeyboard($o), false);
+                    }
+                }
+
+                app(OtpOrderWatcher::class)->startBatch($orders);
+            } catch (ValidationException $e) {
+                // Tampilkan error di bubble pertama, hapus bubble loading extra
+                foreach (array_slice($loadingMessageIds, 1) as $extraMsgId) {
+                    if ($extraMsgId) {
+                        try { $this->deleteMessage($bot, $chatId, $extraMsgId); } catch (\Throwable $deleteErr) {}
+                    }
+                }
+                $this->replyOrSend(
+                    $bot, $chatId, $loadingMessageIds[0] ?? null,
+                    collect($e->errors())->flatten()->first() ?? 'Gagal membuat order.',
+                    removeInlineKeyboard: true
+                );
+            } catch (\Throwable $e) {
+                $errMessage = (string) $e->getMessage();
+                if (stripos($errMessage, 'cURL error 28') !== false || stripos($errMessage, 'timed out') !== false || stripos($errMessage, 'Resolving timed out') !== false) {
+                    $errMessage = 'Server pemesanan nomor sedang sibuk (koneksi timeout). Silakan coba pesan kembali.';
+                }
+                $isCancelledOrBanned = stripos($errMessage, 'terblokir') !== false
+                    || stripos($errMessage, 'banned') !== false
+                    || stripos($errMessage, 'dibatalkan') !== false
+                    || stripos($errMessage, 'cancelled') !== false
+                    || stripos($errMessage, 'canceled') !== false;
+
+                foreach (array_slice($loadingMessageIds, 1) as $extraMsgId) {
+                    if ($extraMsgId) {
+                        try { $this->deleteMessage($bot, $chatId, $extraMsgId); } catch (\Throwable $deleteErr) {}
+                    }
+                }
+
+                if ($isCancelledOrBanned) {
+                    $this->replyOrSend(
+                        $bot, $chatId, $loadingMessageIds[0] ?? null,
+                        "❌ <b>Pesanan Dibatalkan</b>\n\n{$errMessage}",
+                        inlineKeyboard: [
+                            'inline_keyboard' => [
+                                [['text' => '📱 Pesan nomor baru', 'callback_data' => 'otp_reorder:'.$service->id]],
+                            ],
+                        ]
+                    );
+
+                    return;
+                }
+
+                $this->replyOrSend(
+                    $bot, $chatId, $loadingMessageIds[0] ?? null,
+                    "⚠️ <b>Gagal Membuat Order</b>\n\n{$errMessage}",
+                    removeInlineKeyboard: true
+                );
+            }
+
+            return;
+        }
+
+        // ── Single order flow ────────────────────────────────────────────────
         $loadingText = "⏳ <b>Memeriksa Ketersediaan Nomor</b>\n\n"
             ."Mohon tunggu, sistem sedang memverifikasi nomor sebelum diberikan kepada Anda...";
 
@@ -1094,17 +1191,9 @@ class TelegramBotService
         );
 
         try {
-            if ($quantity > 1) {
-                $orders = $otpOrderService->requestBulkOtp($bot, $member, $service, $quantity);
-                foreach ($orders as $o) {
-                    $this->rememberOrderMessage($o, $workingMessageId ?? $previewMessageId);
-                }
-                app(OtpOrderWatcher::class)->startBatch($orders);
-            } else {
-                $order = $otpOrderService->requestOtp($bot, $member, $service);
-                $this->rememberOrderMessage($order, $workingMessageId ?? $previewMessageId);
-                app(OtpOrderWatcher::class)->start($order);
-            }
+            $order = $otpOrderService->requestOtp($bot, $member, $service);
+            $this->rememberOrderMessage($order, $workingMessageId ?? $previewMessageId);
+            app(OtpOrderWatcher::class)->start($order);
         } catch (ValidationException $e) {
             $this->replyOrSend(
                 $bot,
@@ -1297,25 +1386,22 @@ class TelegramBotService
     protected function sendBatchOrderCreatedMessage(TelegramBot $bot, int|string $chatId, array $orders, ?int $editMessageId = null): void
     {
         $ordersColl = collect($orders);
-        $first = $ordersColl->first();
-        $service = e($first?->otpService?->name ?? 'Kopken');
-        $count = $ordersColl->count();
+        $service = e($ordersColl->first()?->otpService?->name ?? 'Kopken');
 
-        $text = $this->formatBatchOrderCard(
-            $ordersColl,
-            title: "Order {$service} ({$count} Nomor) Sedang Diproses 📲",
-            footer: 'Saldo ditahan. Bubble ini akan otomatis terupdate saat OTP masuk.'
-        );
+        foreach ($ordersColl as $index => $order) {
+            $slotNum = $index + 1;
+            $text = $this->formatOrderCard(
+                $order,
+                title: "Order {$service} #{$slotNum} Berhasil Dibuat 📲",
+                footer: 'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.'
+            );
 
-        $messageId = $this->replyOrSend(
-            $bot,
-            $chatId,
-            $editMessageId,
-            $text,
-            inlineKeyboard: $this->batchOrderActionKeyboard($ordersColl)
-        );
+            if ($index === 0) {
+                $messageId = $this->replyOrSend($bot, $chatId, $editMessageId, $text, inlineKeyboard: $this->orderActionKeyboard($order));
+            } else {
+                $messageId = $this->sendMessage($bot, $chatId, $text, null, $this->orderActionKeyboard($order));
+            }
 
-        foreach ($ordersColl as $order) {
             $this->rememberOrderMessage($order, $messageId);
         }
     }
@@ -1327,44 +1413,77 @@ class TelegramBotService
             return;
         }
 
-        $first = $orders->first();
-        $service = e($first->otpService?->name ?? 'Kopken');
-        $hasCompleted = $orders->where('status', 'completed')->isNotEmpty();
-        $allCompleted = $orders->every(fn ($o) => $o->status === 'completed');
-        $allCancelledOrExpired = $orders->every(fn ($o) => in_array($o->status, ['cancelled', 'expired'], true));
+        $memberFresh = $member->fresh();
 
-        $title = match (true) {
-            $allCompleted => "Order {$service} — Semua OTP Berhasil 🎉",
-            $hasCompleted => "Order {$service} — Update OTP Masuk 🎉",
-            $allCancelledOrExpired => "Order {$service} — Selesai / Dibatalkan",
-            default => "Order {$service} ({$orders->count()} Nomor) 📲",
-        };
+        foreach ($orders as $index => $order) {
+            $order = $order->fresh(['otpService', 'botMember']);
+            if (! $order) {
+                continue;
+            }
 
-        $text = $this->formatBatchOrderCard(
-            $orders,
-            title: $title,
-            footer: 'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>'
-        );
+            $messageId = $this->orderMessageId($order);
+            $service = e($order->otpService?->name ?? 'Kopken');
+            $slotNum = $index + 1;
+            $status = strtolower((string) $order->status);
 
-        $keyboard = $this->batchOrderActionKeyboard($orders);
-        $messageId = $this->orderMessageId($first);
+            if ($status === 'completed') {
+                $text = $this->formatOrderCard(
+                    $order,
+                    title: "Order {$service} — OTP MASUK 🎉",
+                    footer: 'Saldo tersedia: <b>'.$memberFresh->formattedAvailable().'</b>',
+                    statusOverride: 'Berhasil'
+                );
+                $isStillActive = ($order->provider_expire_at === null || $order->provider_expire_at->isFuture())
+                    && $order->created_at->isAfter(now()->subMinutes(25));
+                $actionButtons = [];
+                if ($isStillActive) {
+                    $actionButtons[] = ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id];
+                }
+                $actionButtons[] = ['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)];
+                $keyboard = ['inline_keyboard' => [$actionButtons]];
+            } elseif ($status === 'expired') {
+                $text = "⏳ <b>Pesanan #{$slotNum} Kedaluwarsa</b>\n\n"
+                    ."Waktu pemesanan OTP untuk layanan <b>{$service}</b> telah habis.\n"
+                    .'Saldo yang tertahan telah dikembalikan.';
+                $keyboard = [
+                    'inline_keyboard' => [
+                        [['text' => '📱 Pesan nomor baru', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)]],
+                    ],
+                ];
+            } elseif (in_array($status, ['cancelled', 'canceled', 'banned', 'blocked', 'failed'], true)) {
+                $phone = $this->formatPhoneNumber($order->phone_number);
+                $phoneFormatted = $phone !== '' ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : '';
+                $targetPhone = $phoneFormatted !== '' ? " {$phoneFormatted}" : '';
+                $text = "❌ <b>Pesanan #{$slotNum} Dibatalkan</b>\n\n"
+                    ."Nomor WhatsApp{$targetPhone} terblokir/banned oleh WhatsApp, jadi tidak diberikan kepada Anda.\n"
+                    .'Saldo yang tertahan telah dikembalikan.';
+                $keyboard = [
+                    'inline_keyboard' => [
+                        [['text' => '📱 Pesan nomor baru', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)]],
+                    ],
+                ];
+            } else {
+                // Pending / masih diproses
+                $text = $this->formatOrderCard(
+                    $order,
+                    title: "Order {$service} #{$slotNum} Sedang Diproses 📲",
+                    footer: 'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.'
+                );
+                $keyboard = $this->orderActionKeyboard($order);
+            }
 
-        if ($messageId) {
-            $edited = $this->editMessage(
-                $bot,
-                $member->telegram_chat_id,
-                $messageId,
-                $text,
-                $keyboard,
-                false
-            );
-
-            if ($edited) {
-                return;
+            if ($messageId) {
+                $edited = $this->editMessage($bot, $member->telegram_chat_id, $messageId, $text, $keyboard, false);
+                if (! $edited && in_array($status, ['completed', 'cancelled', 'canceled', 'expired', 'banned', 'failed'], true)) {
+                    // Fallback: kirim bubble baru jika bubble lama hilang
+                    $newMsgId = $this->sendMessage($bot, $member->telegram_chat_id, $text, null, $keyboard);
+                    $this->rememberOrderMessage($order, $newMsgId);
+                }
+            } else {
+                $newMsgId = $this->sendMessage($bot, $member->telegram_chat_id, $text, null, $keyboard);
+                $this->rememberOrderMessage($order, $newMsgId);
             }
         }
-
-        $this->sendMessage($bot, $member->telegram_chat_id, $text, null, $keyboard);
     }
 
     public function revealOrderCreated(TelegramBot $bot, $member, OtpOrder $order): void
@@ -1408,6 +1527,10 @@ class TelegramBotService
     public function revealBatchOrderCreated(TelegramBot $bot, $member, $orders): void
     {
         $ordersColl = collect($orders);
+        if ($ordersColl->isEmpty()) {
+            return;
+        }
+
         $hasActive = $ordersColl->contains(fn ($o) => $o->status === 'pending');
         if (! $hasActive) {
             $this->notifyBatchOrderUpdated($bot, $member, $ordersColl);
@@ -1415,27 +1538,27 @@ class TelegramBotService
             return;
         }
 
-        $first = $ordersColl->first();
-        $service = e($first?->otpService?->name ?? 'Kopken');
-        $count = $ordersColl->count();
+        foreach ($ordersColl as $index => $order) {
+            $order = $order->fresh(['otpService', 'botMember']);
+            if (! $order || in_array(strtolower((string) $order->status), ['cancelled', 'canceled', 'expired', 'banned', 'failed'], true)) {
+                continue;
+            }
 
-        $text = $this->formatBatchOrderCard(
-            $ordersColl,
-            title: "Order {$service} ({$count} Nomor) Sedang Diproses 📲",
-            footer: 'Saldo ditahan. Bubble ini akan otomatis terupdate saat OTP masuk.'
-        );
+            $messageId = $this->orderMessageId($order);
+            if (! $messageId) {
+                continue;
+            }
 
-        $messageId = $this->orderMessageId($first);
+            $service = e($order->otpService?->name ?? 'Kopken');
+            $slotNum = $index + 1;
 
-        if ($messageId) {
-            $this->editMessage(
-                $bot,
-                $member->telegram_chat_id,
-                $messageId,
-                $text,
-                $this->batchOrderActionKeyboard($ordersColl),
-                false
+            $text = $this->formatOrderCard(
+                $order,
+                title: "Order {$service} #{$slotNum} Sedang Diproses 📲",
+                footer: 'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.'
             );
+
+            $this->editMessage($bot, $member->telegram_chat_id, $messageId, $text, $this->orderActionKeyboard($order), false);
         }
     }
 
