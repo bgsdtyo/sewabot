@@ -1,6 +1,7 @@
 # Current Status — SewaBot MVP
 
 ## Updated
+2026-08-18 — `/otp-orders`: filter member bisa dicari (username / ID)
 2026-08-18 — `/otp-orders`: toggle filter mobile pakai CSS+JS native (tanpa Tailwind JIT)
 2026-08-18 — `/otp-orders`: filter mobile bisa buka/tutup, default tertutup
 2026-08-18 — `/otp-orders`: swipe kiri-kanan via inline CSS + touch handler (tanpa andalkan Vite build)

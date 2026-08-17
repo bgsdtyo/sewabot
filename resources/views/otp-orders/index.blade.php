@@ -32,6 +32,49 @@
             .otp-filter-toggle { display: none !important; }
             .otp-filter-form { display: block !important; margin-top: 0; }
         }
+        .otp-member-search { position: relative; }
+        .otp-member-search input[type="text"] {
+            width: 100%;
+            border-radius: 0.75rem;
+            border: 1px solid #cbd5e1;
+            padding: 0.625rem 2.25rem 0.625rem 0.75rem;
+            font-size: 0.875rem;
+            color: #0f172a;
+        }
+        .otp-member-search input[type="text"]:focus {
+            outline: none;
+            border-color: #0f172a;
+            box-shadow: 0 0 0 1px #0f172a;
+        }
+        .otp-member-list {
+            position: absolute;
+            z-index: 30;
+            left: 0;
+            right: 0;
+            top: calc(100% + 4px);
+            max-height: 16rem;
+            overflow-y: auto;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.75rem;
+            background: #fff;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+        }
+        .otp-member-list[hidden] { display: none !important; }
+        .otp-member-list button {
+            display: block;
+            width: 100%;
+            text-align: left;
+            padding: 0.625rem 0.75rem;
+            font-size: 0.8125rem;
+            color: #0f172a;
+            background: #fff;
+            border: 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .otp-member-list button:last-child { border-bottom: 0; }
+        .otp-member-list button.is-selected,
+        .otp-member-list button:hover { background: #1d4ed8; color: #fff; }
+        .otp-member-empty { padding: 0.75rem; font-size: 0.75rem; color: #64748b; }
     </style>
     <x-slot name="header">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -211,19 +254,50 @@
                     </div>
 
                     {{-- Filter by User / Member --}}
+                    @php
+                        $selectedMember = $members->firstWhere('id', (int) request('member_id'));
+                        $selectedMemberLabel = $selectedMember
+                            ? $selectedMember->displayName().' (ID: '.$selectedMember->telegram_chat_id.')'
+                            : '';
+                    @endphp
                     <div>
-                        <label for="filter-member" class="block text-xs font-bold uppercase tracking-wider text-brand-600 mb-1.5">
+                        <label for="otp-member-query" class="block text-xs font-bold uppercase tracking-wider text-brand-600 mb-1.5">
                             Filter Member (User)
                         </label>
-                        <select id="filter-member" name="member_id"
-                                class="w-full rounded-xl border-brand-200 py-2.5 px-3 text-sm text-brand-900 focus:border-brand-900 focus:ring-brand-900">
-                            <option value="">Semua Member</option>
-                            @foreach ($members as $m)
-                                <option value="{{ $m->id }}" @selected(request('member_id') == $m->id)>
-                                    {{ $m->displayName() }} (ID: {{ $m->telegram_chat_id }})
-                                </option>
-                            @endforeach
-                        </select>
+                        <div class="otp-member-search" id="otp-member-search">
+                            <input type="hidden" name="member_id" id="filter-member" value="{{ request('member_id') }}">
+                            <input type="text"
+                                   id="otp-member-query"
+                                   value="{{ $selectedMemberLabel }}"
+                                   placeholder="Cari username atau ID member..."
+                                   autocomplete="off"
+                                   inputmode="search">
+                            <div class="otp-member-list" id="otp-member-list" hidden>
+                                <button type="button" data-id="" data-label="Semua Member" data-search="semua member all">
+                                    Semua Member
+                                </button>
+                                @foreach ($members as $m)
+                                    @php
+                                        $memberLabel = $m->displayName().' (ID: '.$m->telegram_chat_id.')';
+                                        $memberSearch = strtolower(trim(implode(' ', array_filter([
+                                            $m->displayName(),
+                                            $m->telegram_username,
+                                            $m->telegram_name,
+                                            (string) $m->telegram_chat_id,
+                                            (string) $m->id,
+                                        ]))));
+                                    @endphp
+                                    <button type="button"
+                                            data-id="{{ $m->id }}"
+                                            data-label="{{ $memberLabel }}"
+                                            data-search="{{ $memberSearch }}"
+                                            @class(['is-selected' => (string) request('member_id') === (string) $m->id])>
+                                        {{ $memberLabel }}
+                                    </button>
+                                @endforeach
+                                <div class="otp-member-empty" id="otp-member-empty" hidden>Member tidak ditemukan</div>
+                            </div>
+                        </div>
                     </div>
 
                     {{-- Filter by Status --}}
@@ -302,11 +376,73 @@
             (function () {
                 var btn = document.getElementById('otp-filter-toggle');
                 var form = document.getElementById('otp-filter-form');
-                if (!btn || !form) return;
-                btn.addEventListener('click', function () {
-                    var open = form.classList.toggle('is-open');
-                    btn.classList.toggle('is-open', open);
-                    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                if (btn && form) {
+                    btn.addEventListener('click', function () {
+                        var open = form.classList.toggle('is-open');
+                        btn.classList.toggle('is-open', open);
+                        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                    });
+                }
+
+                var wrap = document.getElementById('otp-member-search');
+                var hidden = document.getElementById('filter-member');
+                var query = document.getElementById('otp-member-query');
+                var list = document.getElementById('otp-member-list');
+                var empty = document.getElementById('otp-member-empty');
+                if (!wrap || !hidden || !query || !list) return;
+
+                var options = Array.prototype.slice.call(list.querySelectorAll('button[data-id]'));
+
+                function openList() {
+                    list.hidden = false;
+                }
+
+                function closeList() {
+                    list.hidden = true;
+                }
+
+                function filterOptions() {
+                    var term = (query.value || '').toLowerCase().trim();
+                    var shown = 0;
+                    options.forEach(function (item) {
+                        var hay = item.getAttribute('data-search') || item.getAttribute('data-label') || '';
+                        var match = !term || hay.indexOf(term) !== -1;
+                        item.hidden = !match;
+                        if (match) shown += 1;
+                    });
+                    if (empty) empty.hidden = shown > 0;
+                }
+
+                function selectOption(item) {
+                    hidden.value = item.getAttribute('data-id') || '';
+                    query.value = item.getAttribute('data-label') || '';
+                    options.forEach(function (opt) { opt.classList.remove('is-selected'); });
+                    item.classList.add('is-selected');
+                    closeList();
+                }
+
+                query.addEventListener('focus', function () {
+                    openList();
+                    filterOptions();
+                });
+                query.addEventListener('click', function () {
+                    openList();
+                    filterOptions();
+                });
+                query.addEventListener('input', function () {
+                    hidden.value = '';
+                    openList();
+                    filterOptions();
+                });
+
+                options.forEach(function (item) {
+                    item.addEventListener('click', function () {
+                        selectOption(item);
+                    });
+                });
+
+                document.addEventListener('click', function (e) {
+                    if (!wrap.contains(e.target)) closeList();
                 });
             })();
         </script>
