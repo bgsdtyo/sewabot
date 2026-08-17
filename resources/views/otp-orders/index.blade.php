@@ -22,6 +22,7 @@
             border-collapse: separate;
             border-spacing: 0;
         }
+        [x-cloak] { display: none !important; }
     </style>
     <x-slot name="header">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -63,6 +64,7 @@
             id: null,
             actionUrl: ''
         },
+        filterOpen: false,
         copied: false,
         copyText(text) {
             if (!text) return;
@@ -154,8 +156,33 @@
         </section>
 
         {{-- Filter & Search Section --}}
+        @php
+            $activeFilterCount = collect(['search', 'member_id', 'status', 'service_id', 'date_from', 'date_to'])
+                ->filter(fn ($key) => filled(request($key)))
+                ->count();
+        @endphp
         <section class="rounded-3xl border border-brand-200 bg-white p-5 sm:p-6 shadow-soft">
-            <form method="GET" action="{{ route('otp-orders.index') }}" class="space-y-4">
+            <button type="button"
+                    class="flex w-full items-center justify-between sm:hidden"
+                    @click="filterOpen = !filterOpen"
+                    :aria-expanded="filterOpen.toString()">
+                <span class="inline-flex items-center gap-2 text-sm font-bold text-brand-900">
+                    <svg class="h-4 w-4 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                    </svg>
+                    Filter
+                    @if ($activeFilterCount > 0)
+                        <span class="rounded-full bg-brand-900 px-2 py-0.5 text-[10px] font-bold text-white">{{ $activeFilterCount }}</span>
+                    @endif
+                </span>
+                <svg class="h-5 w-5 text-brand-500 transition-transform" :class="filterOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+
+            <form method="GET" action="{{ route('otp-orders.index') }}"
+                  class="mt-4 space-y-4 hidden sm:mt-0 sm:block"
+                  :class="filterOpen && 'max-sm:!block'">
                 <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     {{-- Search Input --}}
                     <div class="lg:col-span-2">
