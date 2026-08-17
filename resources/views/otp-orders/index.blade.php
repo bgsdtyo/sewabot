@@ -75,6 +75,142 @@
         .otp-member-list button.is-selected,
         .otp-member-list button:hover { background: #1d4ed8; color: #fff; }
         .otp-member-empty { padding: 0.75rem; font-size: 0.75rem; color: #64748b; }
+        .otp-detail-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding: 0;
+        }
+        .otp-detail-sheet {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            max-height: 92vh;
+            background: #fff;
+            border-radius: 1.25rem 1.25rem 0 0;
+            box-shadow: 0 -8px 30px rgba(15, 23, 42, 0.18);
+            overflow: hidden;
+        }
+        .otp-detail-head,
+        .otp-detail-foot {
+            flex-shrink: 0;
+            background: #fff;
+        }
+        .otp-detail-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 16px 16px 12px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .otp-detail-body {
+            flex: 1;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 16px;
+        }
+        .otp-detail-foot {
+            padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+            border-top: 1px solid #e2e8f0;
+            background: #f8fafc;
+        }
+        .otp-detail-hero {
+            text-align: center;
+            padding: 16px 12px;
+            border: 1px solid #bbf7d0;
+            background: #ecfdf5;
+            border-radius: 1rem;
+        }
+        .otp-detail-code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: clamp(1.5rem, 8vw, 2rem);
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            color: #059669;
+            word-break: break-all;
+            line-height: 1.2;
+        }
+        .otp-detail-list {
+            margin-top: 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 1rem;
+            overflow: hidden;
+        }
+        .otp-detail-row {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 11px 14px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .otp-detail-row:last-child { border-bottom: 0; }
+        .otp-detail-row .lbl {
+            flex: 0 0 38%;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #64748b;
+            padding-top: 2px;
+        }
+        .otp-detail-row .val {
+            flex: 1;
+            min-width: 0;
+            text-align: right;
+            font-size: 13px;
+            font-weight: 700;
+            color: #0f172a;
+            word-break: break-word;
+        }
+        .otp-detail-row .val.mono {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 11px;
+            word-break: break-all;
+        }
+        .otp-detail-sms {
+            margin-top: 16px;
+            padding: 12px 14px;
+            border-radius: 1rem;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+        }
+        .otp-detail-sms p {
+            margin: 0;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #1e293b;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .otp-detail-close {
+            display: block;
+            width: 100%;
+            border-radius: 0.75rem;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #334155;
+        }
+        @media (min-width: 640px) {
+            .otp-detail-overlay {
+                align-items: center;
+                padding: 16px;
+            }
+            .otp-detail-sheet {
+                max-width: 28rem;
+                border-radius: 1.5rem;
+                max-height: 85vh;
+            }
+        }
     </style>
     <x-slot name="header">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -117,6 +253,10 @@
             actionUrl: ''
         },
         copied: false,
+        statusLabel(status) {
+            const map = { completed: 'Berhasil', pending: 'Pending', cancelled: 'Dibatalkan', expired: 'Expired' };
+            return map[status] || status || '-';
+        },
         copyText(text) {
             if (!text) return;
             navigator.clipboard.writeText(text);
@@ -702,9 +842,7 @@
         </section>
 
         {{-- ================= MODAL DETAIL ORDER ================= --}}
-        <div x-cloak x-show="detailModal"
-             class="fixed inset-0 z-50 flex items-center justify-center p-4"
-             role="dialog" aria-modal="true">
+        <div x-cloak x-show="detailModal" class="otp-detail-overlay" role="dialog" aria-modal="true">
             <div x-show="detailModal"
                  x-transition:enter="ease-out duration-200"
                  x-transition:enter-start="opacity-0"
@@ -713,113 +851,94 @@
                  x-transition:leave-start="opacity-100"
                  x-transition:leave-end="opacity-0"
                  @click="detailModal = false"
-                 class="fixed inset-0 bg-brand-900/60 backdrop-blur-sm"></div>
+                 class="fixed inset-0 bg-brand-900/60"></div>
 
-            <div x-show="detailModal"
+            <div x-show="detailModal && selectedOrder"
                  x-transition:enter="ease-out duration-200"
-                 x-transition:enter-start="opacity-0 scale-95"
-                 x-transition:enter-end="opacity-100 scale-100"
+                 x-transition:enter-start="opacity-0 translate-y-6"
+                 x-transition:enter-end="opacity-100 translate-y-0"
                  x-transition:leave="ease-in duration-150"
-                 x-transition:leave-start="opacity-100 scale-100"
-                 x-transition:leave-end="opacity-0 scale-95"
-                 class="relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl bg-white shadow-2xl">
-                <div class="flex items-center justify-between border-b border-brand-100 px-6 py-5 sticky top-0 bg-white/95 backdrop-blur z-10">
-                    <div>
-                        <h3 class="text-lg font-extrabold text-brand-900">
-                            Detail Transaksi OTP <span class="font-mono text-brand-500" x-text="'#' + (selectedOrder ? selectedOrder.id : '')"></span>
+                 x-transition:leave-start="opacity-100 translate-y-0"
+                 x-transition:leave-end="opacity-0 translate-y-6"
+                 class="otp-detail-sheet"
+                 @click.stop>
+                <div class="otp-detail-head">
+                    <div class="min-w-0">
+                        <h3 class="text-base font-extrabold text-brand-900">
+                            Detail OTP <span class="font-mono text-brand-500" x-text="selectedOrder ? '#' + selectedOrder.id : ''"></span>
                         </h3>
-                        <p class="text-xs text-brand-500">Informasi lengkap nomor telepon, kode OTP, dan status.</p>
+                        <p class="mt-0.5 text-[11px] text-brand-500">KOPKEN</p>
                     </div>
-                    <button type="button" @click="detailModal = false" class="rounded-xl p-1.5 text-brand-400 hover:bg-brand-100 hover:text-brand-900">
+                    <button type="button" @click="detailModal = false" class="shrink-0 rounded-xl p-1.5 text-brand-400">
                         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                         </svg>
                     </button>
                 </div>
 
-                <div class="p-6 space-y-5" x-if="selectedOrder">
-                    {{-- OTP & Nomor Highlight Box --}}
-                    <div class="rounded-2xl border border-brand-200 bg-brand-50/70 p-5 text-center">
-                        <p class="text-xs font-bold uppercase tracking-wider text-brand-500">Kode OTP Masuk</p>
-                        <div class="mt-2 flex items-center justify-center gap-3">
-                            <span class="font-mono text-3xl font-black text-emerald-600 tracking-widest" x-text="selectedOrder.otp_code || 'BELUM MASUK'"></span>
-                            <button type="button" x-show="selectedOrder.otp_code" @click="copyText(selectedOrder.otp_code)"
-                                    class="rounded-xl bg-white border border-brand-200 p-2 text-brand-700 hover:bg-brand-100 shadow-xs transition" title="Salin OTP">
+                <div class="otp-detail-body">
+                    <div class="otp-detail-hero">
+                        <p class="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Kode OTP</p>
+                        <div class="mt-2 flex items-center justify-center gap-2">
+                            <span class="otp-detail-code" x-text="selectedOrder.otp_code || 'BELUM MASUK'"></span>
+                            <button type="button" x-show="selectedOrder.otp_code" @click="copyText(selectedOrder.otp_code)" class="rounded-lg border border-emerald-200 bg-white p-1.5 text-emerald-700" title="Salin OTP">
                                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                                 </svg>
                             </button>
                         </div>
-                        <p class="mt-3 text-xs text-brand-600 font-mono">
-                            Nomor: <span class="font-bold text-brand-900" x-text="selectedOrder.phone_number || '-'"></span>
-                        </p>
+                        <p class="mt-2 text-xs font-mono text-brand-700" x-text="'Nomor: ' + (selectedOrder.phone_number || '-')"></p>
                     </div>
 
-                    {{-- Data Grid --}}
-                    <div class="grid grid-cols-2 gap-4 text-xs">
-                        <div class="p-3 rounded-xl border border-brand-100 bg-white">
-                            <p class="text-brand-400 font-bold uppercase">Member</p>
-                            <p class="font-bold text-brand-900 text-sm mt-1" x-text="selectedOrder.member_name"></p>
-                            <p class="text-brand-500 font-mono text-[11px]" x-text="'Chat ID: ' + selectedOrder.member_chat_id"></p>
+                    <div class="otp-detail-list">
+                        <div class="otp-detail-row">
+                            <span class="lbl">Member</span>
+                            <span class="val" x-text="selectedOrder.member_name"></span>
                         </div>
-
-                        <div class="p-3 rounded-xl border border-brand-100 bg-white">
-                            <p class="text-brand-400 font-bold uppercase">Layanan</p>
-                            <p class="font-bold text-brand-900 text-sm mt-1" x-text="selectedOrder.service_name"></p>
-                            <p class="text-brand-500 font-mono text-[11px]" x-text="'PID: ' + (selectedOrder.provider_order_id || '-')"></p>
+                        <div class="otp-detail-row">
+                            <span class="lbl">Chat ID</span>
+                            <span class="val mono" x-text="selectedOrder.member_chat_id"></span>
                         </div>
-
-                        <div class="p-3 rounded-xl border border-brand-100 bg-white">
-                            <p class="text-brand-400 font-bold uppercase">Harga Jual</p>
-                            <p class="font-bold text-brand-900 text-sm mt-1" x-text="'Rp' + selectedOrder.sell_price"></p>
-                            <p class="text-brand-500 text-[11px]" x-text="'Beli Provider: Rp' + selectedOrder.provider_price"></p>
+                        <div class="otp-detail-row">
+                            <span class="lbl">Harga</span>
+                            <span class="val" x-text="'Rp' + selectedOrder.sell_price"></span>
                         </div>
-
-                        <div class="p-3 rounded-xl border border-brand-100 bg-white">
-                            <p class="text-brand-400 font-bold uppercase">Status / Wallet</p>
-                            <p class="font-bold text-sm mt-1 uppercase"
-                               :class="selectedOrder.status === 'completed' ? 'text-emerald-600' : (selectedOrder.status === 'pending' ? 'text-amber-600' : 'text-rose-600')"
-                               x-text="selectedOrder.status"></p>
-                            <p class="text-brand-500 text-[11px]" x-text="'Wallet: ' + selectedOrder.wallet_status"></p>
+                        <div class="otp-detail-row">
+                            <span class="lbl">Modal</span>
+                            <span class="val" x-text="'Rp' + selectedOrder.provider_price"></span>
                         </div>
-
-                        <div class="p-3 rounded-xl border border-brand-100 bg-white">
-                            <p class="text-brand-400 font-bold uppercase">Waktu Order</p>
-                            <p class="font-bold text-brand-900 text-xs mt-1" x-text="selectedOrder.created_at"></p>
+                        <div class="otp-detail-row">
+                            <span class="lbl">Status</span>
+                            <span class="val"
+                                  :style="selectedOrder.status === 'completed' ? 'color:#059669' : (selectedOrder.status === 'pending' ? 'color:#d97706' : 'color:#e11d48')"
+                                  x-text="statusLabel(selectedOrder.status)"></span>
                         </div>
-
-                        <div class="p-3 rounded-xl border border-brand-100 bg-white">
-                            <p class="text-brand-400 font-bold uppercase">Waktu Selesai</p>
-                            <p class="font-bold text-brand-900 text-xs mt-1" x-text="selectedOrder.completed_at"></p>
+                        <div class="otp-detail-row">
+                            <span class="lbl">Wallet</span>
+                            <span class="val" x-text="selectedOrder.wallet_status || '-'"></span>
+                        </div>
+                        <div class="otp-detail-row">
+                            <span class="lbl">Order</span>
+                            <span class="val" x-text="selectedOrder.created_at"></span>
+                        </div>
+                        <div class="otp-detail-row">
+                            <span class="lbl">Selesai</span>
+                            <span class="val" x-text="selectedOrder.completed_at"></span>
+                        </div>
+                        <div class="otp-detail-row" x-show="selectedOrder.provider_order_id">
+                            <span class="lbl">PID</span>
+                            <span class="val mono" x-text="selectedOrder.provider_order_id"></span>
                         </div>
                     </div>
 
-                    {{-- Full SMS Text --}}
-                    <div x-show="selectedOrder.full_text" class="rounded-2xl border border-brand-100 bg-brand-50 p-4">
-                        <p class="text-xs font-bold uppercase tracking-wider text-brand-500 mb-1.5">Isi Pesan SMS Lengkap</p>
-                        <p class="font-mono text-xs text-brand-800 whitespace-pre-wrap" x-text="selectedOrder.full_text"></p>
-                    </div>
-
-                    {{-- Raw Payload Accordion --}}
-                    <div x-data="{ showRaw: false }" class="rounded-2xl border border-brand-100 bg-white">
-                        <button type="button" @click="showRaw = !showRaw" class="w-full flex items-center justify-between px-4 py-3 text-xs font-bold text-brand-600 hover:text-brand-900">
-                            <span>Raw JSON Payload</span>
-                            <svg class="h-4 w-4 transition" :class="showRaw ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                            </svg>
-                        </button>
-                        <div x-show="showRaw" class="px-4 pb-4 border-t border-brand-100 pt-3">
-                            <pre class="rounded-xl bg-slate-900 p-3 text-[11px] font-mono text-emerald-400 overflow-x-auto max-h-48"
-                                 x-text="JSON.stringify(selectedOrder.raw_payload, null, 2)"></pre>
-                        </div>
+                    <div class="otp-detail-sms" x-show="selectedOrder.full_text">
+                        <p class="mb-1 text-[11px] font-bold uppercase tracking-wider text-brand-500" style="font-family:inherit">Isi SMS</p>
+                        <p x-text="selectedOrder.full_text"></p>
                     </div>
                 </div>
 
-                <div class="border-t border-brand-100 px-6 py-4 bg-brand-50/50 flex justify-end">
-                    <button type="button" @click="detailModal = false"
-                            class="rounded-xl border border-brand-200 bg-white px-5 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-100 transition">
-                        Tutup
-                    </button>
+                <div class="otp-detail-foot">
+                    <button type="button" @click="detailModal = false" class="otp-detail-close">Tutup</button>
                 </div>
             </div>
         </div>

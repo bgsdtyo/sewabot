@@ -1,6 +1,7 @@
 # Current Status — SewaBot MVP
 
 ## Updated
+2026-08-18 — `/otp-orders`: modal detail (icon mata) rapih & responsive mobile
 2026-08-18 — `/otp-orders`: hapus filter layanan, khusus KOPKEN saja
 2026-08-18 — `/otp-orders`: filter member bisa dicari (username / ID)
 2026-08-18 — `/otp-orders`: toggle filter mobile pakai CSS+JS native (tanpa Tailwind JIT)
