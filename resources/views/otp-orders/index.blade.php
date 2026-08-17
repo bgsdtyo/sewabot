@@ -122,10 +122,10 @@
                 <p class="mt-1 text-[11px] font-semibold text-rose-700">Saldo direfund</p>
             </div>
 
-            <div class="col-span-2 sm:col-span-2 lg:col-span-1 rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-900 to-brand-800 p-5 text-white shadow-soft">
-                <p class="text-xs font-bold uppercase tracking-wider text-brand-200">Estimasi Margin</p>
-                <p class="mt-2 text-2xl font-black text-emerald-300">Rp{{ number_format($totalProfit, 0, ',', '.') }}</p>
-                <p class="mt-1 text-[11px] font-medium text-brand-200">Dari order selesai</p>
+            <div class="col-span-2 sm:col-span-2 lg:col-span-1 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-5 shadow-soft">
+                <p class="text-xs font-bold uppercase tracking-wider text-emerald-700">Estimasi Margin</p>
+                <p class="mt-2 text-2xl font-black text-emerald-700">Rp{{ number_format($totalProfit, 0, ',', '.') }}</p>
+                <p class="mt-1 text-[11px] font-semibold text-emerald-600">Dari order selesai</p>
             </div>
         </section>
 
