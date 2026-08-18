@@ -1233,23 +1233,30 @@ class TelegramBotService
                 $slotLoadingText = "⏳ <b>Memeriksa Nomor #{$slot}</b>\n\n"
                     .'Mohon tunggu, sistem sedang memverifikasi nomor sebelum diberikan kepada Anda...';
 
-                if ($slot === 1) {
-                    $msgId = $this->replyOrSend($bot, $chatId, $previewMessageId, $slotLoadingText, removeInlineKeyboard: true);
-                } else {
-                    usleep(350000);
-                    $msgId = $this->sendMessage($bot, $chatId, $slotLoadingText);
+                $msgId = null;
+                for ($try = 1; $try <= 3 && ! $msgId; $try++) {
+                    if ($slot === 1 && $try === 1) {
+                        $msgId = $this->replyOrSend($bot, $chatId, $previewMessageId, $slotLoadingText, removeInlineKeyboard: true);
+                    } else {
+                        if ($try > 1 || $slot > 1) {
+                            usleep(400000);
+                        }
+                        $msgId = $this->sendMessage($bot, $chatId, $slotLoadingText);
+                    }
                 }
 
                 $loadingMessageIds[] = $msgId;
             }
 
             try {
-                $orders = $otpOrderService->requestBulkOtp($bot, $member, $service, $quantity);
+                $orders = array_values($otpOrderService->requestBulkOtp($bot, $member, $service, $quantity));
 
                 foreach ($orders as $idx => $o) {
                     $msgId = $loadingMessageIds[$idx] ?? null;
                     if ($msgId) {
                         $this->rememberOrderMessage($o, $msgId);
+                    } else {
+                        Log::warning("Bulk OTP slot #".($idx + 1)." tidak punya telegram_message_id (order {$o->id})");
                     }
                 }
 
@@ -1637,10 +1644,16 @@ class TelegramBotService
         }
 
         $fresh = $order->fresh(['otpService', 'botMember', 'telegramBot']);
-        if (! $fresh || in_array(strtolower((string) $fresh->status), ['cancelled', 'canceled', 'expired', 'banned', 'failed'], true)) {
-            if ($fresh) {
-                $this->notifyOrderCancelled($bot, $member, $fresh, $fresh->status);
-            }
+        if (! $fresh) {
+            return;
+        }
+
+        if (filled($fresh->otp_code) || $fresh->status === 'completed') {
+            return;
+        }
+
+        if (in_array(strtolower((string) $fresh->status), ['cancelled', 'canceled', 'expired', 'banned', 'failed'], true)) {
+            $this->notifyOrderCancelled($bot, $member, $fresh, $fresh->status);
 
             return;
         }
@@ -1682,7 +1695,7 @@ class TelegramBotService
 
         foreach ($ordersColl as $index => $order) {
             $order = $order->fresh(['otpService', 'botMember']);
-            if (! $order || in_array(strtolower((string) $order->status), ['completed', 'cancelled', 'canceled', 'expired', 'banned', 'failed'], true)) {
+            if (! $order || filled($order->otp_code) || in_array(strtolower((string) $order->status), ['completed', 'cancelled', 'canceled', 'expired', 'banned', 'failed'], true)) {
                 continue;
             }
 

@@ -47,8 +47,6 @@ class OtpOrderWatcher
 
         $deadline = time() + 90;
         $activeIds = array_values(array_unique($orderIds));
-        $batchCreatedShown = false;
-        $startTime = time();
 
         while (time() < $deadline && ! empty($activeIds)) {
             sleep(1);
@@ -80,19 +78,6 @@ class OtpOrderWatcher
             }
 
             $activeIds = array_values($activeIds);
-
-            // After initial verification window (~5 seconds), reveal batch card if pending orders exist
-            if (! $batchCreatedShown && (time() - $startTime) >= 5 && ! empty($activeIds)) {
-                $batchCreatedShown = true;
-                $firstOrder = OtpOrder::query()->find($activeIds[0] ?? null);
-                if ($firstOrder && $firstOrder->telegramBot && $firstOrder->botMember) {
-                    app(TelegramBotService::class)->revealBatchOrderCreated(
-                        $firstOrder->telegramBot,
-                        $firstOrder->botMember,
-                        $firstOrder->getBatchOrders()
-                    );
-                }
-            }
         }
 
         if (! $continueChain || empty($activeIds)) {
@@ -157,7 +142,7 @@ class OtpOrderWatcher
                     $orderCreatedShown = true;
                     $bot = $fresh->telegramBot;
                     $member = $fresh->botMember;
-                    if ($bot && $member && $fresh->status === 'pending') {
+                    if ($bot && $member && $fresh->status === 'pending' && ! filled($fresh->otp_code)) {
                         app(TelegramBotService::class)->revealOrderCreated($bot, $member, $fresh);
                     }
                 }

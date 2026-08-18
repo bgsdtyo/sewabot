@@ -320,29 +320,23 @@ class OtpOrderService
     {
         $status = strtolower((string) ($data['status'] ?? ''));
         $previousOtp = $order->otp_code;
-        $newOtp = $data['otp'] ?? $order->otp_code;
+        $newOtp = $this->extractOtp($data, $order->otp_code);
 
         $order->update([
             'phone_number' => $data['phone_number'] ?? $order->phone_number,
             'otp_code' => $newOtp,
-            'full_text' => $data['full_text'] ?? $order->full_text,
+            'full_text' => $data['full_text'] ?? $data['sms'] ?? $order->full_text,
             'raw_payload' => $data,
             'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : $order->provider_expire_at,
         ]);
 
         $order = $order->fresh(['otpService', 'botMember', 'telegramBot']) ?? $order;
 
-        if ($status === 'completed' && $order->status === 'pending') {
-            return $this->completeOrder($order);
-        }
+        $providerSaysDone = in_array($status, ['completed', 'complete', 'success', 'succeed', 'received', 'delivered', 'ok', 'done'], true);
 
-        // OTP arrived while still pending (or resent) — edit this order's bubble only.
-        if ($order->status === 'pending' && filled($newOtp) && ! filled($previousOtp)) {
-            $bot = $order->telegramBot;
-            $member = $order->botMember;
-            if ($bot && $member) {
-                $this->telegram->notifyOrderCompleted($bot, $member, $order);
-            }
+        // OTP in = order selesai. Jangan biarkan watcher menimpa bubble OTP MASUK.
+        if ($order->status === 'pending' && ($providerSaysDone || filled($newOtp))) {
+            return $this->completeOrder($order);
         }
 
         // If order was already completed, but a new/updated OTP code arrived after resend
@@ -592,5 +586,22 @@ class OtpOrderService
                 'otp_api_key' => 'Isi API Key provider dulu di Konfigurasi Bot.',
             ]);
         }
+    }
+
+    protected function extractOtp(array $data, mixed $fallback = null): ?string
+    {
+        foreach (['otp', 'otp_code', 'code', 'sms_code', 'verification_code'] as $key) {
+            $value = $data[$key] ?? null;
+            if (filled($value) && ! is_array($value)) {
+                return trim((string) $value);
+            }
+        }
+
+        $text = (string) ($data['full_text'] ?? $data['sms'] ?? $data['message'] ?? '');
+        if ($text !== '' && preg_match('/\b(\d{4,8})\b/', $text, $match)) {
+            return $match[1];
+        }
+
+        return filled($fallback) ? trim((string) $fallback) : null;
     }
 }
