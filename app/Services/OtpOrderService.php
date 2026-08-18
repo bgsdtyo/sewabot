@@ -590,18 +590,44 @@ class OtpOrderService
 
     protected function extractOtp(array $data, mixed $fallback = null): ?string
     {
-        foreach (['otp', 'otp_code', 'code', 'sms_code', 'verification_code'] as $key) {
+        $found = $this->findOtpIn($data);
+        if (filled($found)) {
+            return $found;
+        }
+
+        return filled($fallback) ? trim((string) $fallback) : null;
+    }
+
+    protected function findOtpIn(array $data, int $depth = 0): ?string
+    {
+        if ($depth > 4) {
+            return null;
+        }
+
+        foreach (['otp', 'otp_code', 'code', 'sms_code', 'verification_code', 'pin'] as $key) {
             $value = $data[$key] ?? null;
-            if (filled($value) && ! is_array($value)) {
+            if (filled($value) && ! is_array($value) && preg_match('/^\d{4,8}$/', trim((string) $value))) {
                 return trim((string) $value);
             }
         }
 
-        $text = (string) ($data['full_text'] ?? $data['sms'] ?? $data['message'] ?? '');
+        $text = (string) ($data['full_text'] ?? $data['sms'] ?? $data['message'] ?? $data['text'] ?? '');
+        if ($text !== '' && preg_match('/\*(\d{4,8})\*/', $text, $match)) {
+            return $match[1];
+        }
         if ($text !== '' && preg_match('/\b(\d{4,8})\b/', $text, $match)) {
             return $match[1];
         }
 
-        return filled($fallback) ? trim((string) $fallback) : null;
+        foreach ($data as $value) {
+            if (is_array($value)) {
+                $nested = $this->findOtpIn($value, $depth + 1);
+                if (filled($nested)) {
+                    return $nested;
+                }
+            }
+        }
+
+        return null;
     }
 }

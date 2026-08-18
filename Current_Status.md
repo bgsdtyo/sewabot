@@ -1,6 +1,7 @@
 # Current Status — SewaBot MVP
 
 ## Updated
+2026-08-18 — Fix bulk OTP #3: watcher per-order (HTTP terpisah), jangan nunggu #1/#2
 2026-08-18 — Fix bulk OTP: jangan timpa OTP MASUK; complete saat OTP ada
 2026-08-18 — Fix bulk OTP: edit bubble #2/#3 saat OTP masuk (per-order message_id, no fan-out)
 2026-08-18 — `/otp-orders`: kolom member tampil ID mentah, PID layanan disingkat
