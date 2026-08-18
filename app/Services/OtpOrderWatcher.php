@@ -6,8 +6,6 @@ use App\Models\OtpOrder;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
 
-use function Illuminate\Support\php_binary;
-
 class OtpOrderWatcher
 {
     /**
@@ -16,7 +14,12 @@ class OtpOrderWatcher
      */
     public function start(OtpOrder $order): void
     {
-        $this->spawn([(int) $order->id]);
+        try {
+            $this->spawn([(int) $order->id]);
+        } catch (\Throwable $e) {
+            Log::warning('OtpOrderWatcher start failed: '.$e->getMessage());
+            $this->fallbackTerminating([(int) $order->id]);
+        }
     }
 
     public function startBatch(array|\Illuminate\Support\Collection $orders): void
@@ -26,7 +29,12 @@ class OtpOrderWatcher
             return;
         }
 
-        $this->spawn($orderIds);
+        try {
+            $this->spawn($orderIds);
+        } catch (\Throwable $e) {
+            Log::warning('OtpOrderWatcher startBatch failed: '.$e->getMessage());
+            $this->fallbackTerminating($orderIds);
+        }
     }
 
     /**
@@ -144,6 +152,7 @@ class OtpOrderWatcher
 
     /**
      * Detach a CLI watcher so FPM can finish the webhook.
+     * Never throw — order creation must not fail because of watcher spawn.
      */
     protected function spawn(array $orderIds): void
     {
@@ -161,21 +170,33 @@ class OtpOrderWatcher
             return;
         }
 
-        Log::warning('OtpOrderWatcher spawn failed, using terminating fallback', ['ids' => $orderIds]);
+        Log::warning('OtpOrderWatcher spawn skipped, using terminating fallback', ['ids' => $orderIds]);
+        $this->fallbackTerminating($orderIds);
+    }
 
+    protected function fallbackTerminating(array $orderIds): void
+    {
         ignore_user_abort(true);
         @set_time_limit(180);
 
         app()->terminating(function () use ($orderIds) {
             ignore_user_abort(true);
             @set_time_limit(180);
-            app(OtpOrderWatcher::class)->runWatchBatchCycle($orderIds);
+            if (count($orderIds) === 1) {
+                app(OtpOrderWatcher::class)->runWatchCycle($orderIds[0]);
+            } else {
+                app(OtpOrderWatcher::class)->runWatchBatchCycle($orderIds);
+            }
         });
     }
 
     protected function spawnArtisan(string $ids): bool
     {
         $php = $this->phpCliPath();
+        if ($php === null) {
+            return false;
+        }
+
         $artisan = base_path('artisan');
         $log = storage_path('logs/otp-watch.log');
 
@@ -257,8 +278,16 @@ class OtpOrderWatcher
         return in_array($name, $disabled, true);
     }
 
-    protected function phpCliPath(): string
+    /**
+     * Skip CLI spawn on open_basedir hosts — probing /opt/alt/php... fatals.
+     */
+    protected function phpCliPath(): ?string
     {
+        $basedir = (string) ini_get('open_basedir');
+        if ($basedir !== '') {
+            return null;
+        }
+
         $configured = (string) env('PHP_CLI_PATH', '');
         if ($configured !== '') {
             return $configured;
@@ -284,14 +313,6 @@ class OtpOrderWatcher
             }
         }
 
-        try {
-            $found = php_binary();
-            if (is_string($found) && $found !== '' && ! str_contains(strtolower($found), 'fpm')) {
-                $candidates[] = $found;
-            }
-        } catch (\Throwable) {
-        }
-
         $candidates[] = '/usr/local/bin/php';
         $candidates[] = '/usr/bin/php';
         $candidates[] = 'php';
@@ -300,8 +321,15 @@ class OtpOrderWatcher
             if ($path === 'php') {
                 return $path;
             }
-            if (is_string($path) && $path !== '' && is_executable($path) && ! is_dir($path) && ! str_contains(strtolower($path), 'fpm')) {
-                return $path;
+            if (! is_string($path) || $path === '' || str_contains(strtolower($path), 'fpm')) {
+                continue;
+            }
+            try {
+                if (@is_file($path) && @is_executable($path) && ! @is_dir($path)) {
+                    return $path;
+                }
+            } catch (\Throwable) {
+                continue;
             }
         }
 

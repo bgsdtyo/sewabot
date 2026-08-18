@@ -1273,7 +1273,11 @@ class TelegramBotService
                     }
                 }
 
-                app(OtpOrderWatcher::class)->startBatch($orders);
+                try {
+                    app(OtpOrderWatcher::class)->startBatch($orders);
+                } catch (\Throwable $watchErr) {
+                    Log::warning('Bulk OTP watcher failed to start: '.$watchErr->getMessage());
+                }
             } catch (ValidationException $e) {
                 // Tampilkan error di bubble pertama, hapus bubble loading extra
                 foreach (array_slice($loadingMessageIds, 1) as $extraMsgId) {
@@ -1342,7 +1346,11 @@ class TelegramBotService
         try {
             $order = $otpOrderService->requestOtp($bot, $member, $service);
             $this->rememberOrderMessage($order, $workingMessageId ?? $previewMessageId);
-            app(OtpOrderWatcher::class)->start($order);
+            try {
+                app(OtpOrderWatcher::class)->start($order);
+            } catch (\Throwable $watchErr) {
+                Log::warning('OTP watcher failed to start: '.$watchErr->getMessage());
+            }
         } catch (ValidationException $e) {
             $this->replyOrSend(
                 $bot,
@@ -2111,7 +2119,11 @@ class TelegramBotService
 
         try {
             $order = app(OtpOrderService::class)->changeNumber($order);
-            app(OtpOrderWatcher::class)->start($order);
+            try {
+                app(OtpOrderWatcher::class)->start($order);
+            } catch (\Throwable $watchErr) {
+                Log::warning('OTP watcher failed to start: '.$watchErr->getMessage());
+            }
 
             if ($order->isPartOfBatch()) {
                 $this->notifyBatchOrderUpdated($bot, $member, $order->getBatchOrders());
@@ -2190,8 +2202,11 @@ class TelegramBotService
                 'full_text' => null,
             ]);
 
-            // Start watcher to poll for the new OTP
-            app(OtpOrderWatcher::class)->start($order);
+            try {
+                app(OtpOrderWatcher::class)->start($order);
+            } catch (\Throwable $watchErr) {
+                Log::warning('OTP watcher failed to start: '.$watchErr->getMessage());
+            }
 
             $service = e($order->otpService?->name ?? 'Kopken');
             $text = $this->formatOrderCard(

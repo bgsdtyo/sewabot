@@ -1,7 +1,6 @@
 # Current Status — SewaBot MVP
 
-## Updated
-2026-08-18 — Fix bulk OTP: watcher CLI detached (bukan FPM afterResponse). Cron HTTP `/cron/otp-poll` + Cek OTP di bubble.
+2026-08-18 — Fix bulk OTP: jangan probe PHP CLI di luar open_basedir (gagal buat order)
 2026-08-18 — Fix bulk OTP: watcher in-process (tanpa HTTP ke diri sendiri; deadlock FPM). Poll semua dulu, baru edit bubble.
 2026-08-18 — Fix bulk OTP #3: watcher per-order (HTTP terpisah), jangan nunggu #1/#2
 2026-08-18 — Fix bulk OTP: jangan timpa OTP MASUK; complete saat OTP ada
