@@ -32,6 +32,13 @@ class PollOtpOrdersCommand extends Command
 
         $this->info('Polled: '.$pending->count());
 
+        try {
+            $stripped = app(\App\Services\TelegramBotService::class)->stripExpiredResendButtons();
+            $this->info('Resend buttons stripped: '.$stripped);
+        } catch (\Throwable $e) {
+            $this->warn('strip resend: '.$e->getMessage());
+        }
+
         return self::SUCCESS;
     }
 }

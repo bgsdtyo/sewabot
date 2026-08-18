@@ -18,6 +18,10 @@ class CronController extends Controller
     public function checkSubscriptions(Request $request, TelegramBotService $telegramBotService): JsonResponse
     {
         $this->pollPendingOtpQuietly();
+        try {
+            app(TelegramBotService::class)->stripExpiredResendButtons();
+        } catch (\Throwable) {
+        }
 
         $expiredSubscriptions = Subscription::query()
             ->where('status', 'active')
@@ -79,6 +83,10 @@ class CronController extends Controller
         \App\Services\OtpProviderClient $client
     ): JsonResponse {
         $this->pollPendingOtpQuietly();
+        try {
+            app(TelegramBotService::class)->stripExpiredResendButtons();
+        } catch (\Throwable) {
+        }
 
         $bots = TelegramBot::query()
             ->whereNotNull('otp_api_key')
@@ -116,6 +124,10 @@ class CronController extends Controller
         \App\Services\OtpProviderClient $providerClient
     ): JsonResponse {
         $this->pollPendingOtpQuietly();
+        try {
+            app(TelegramBotService::class)->stripExpiredResendButtons();
+        } catch (\Throwable) {
+        }
 
         $activeBot = TelegramBot::query()
             ->where('status', 'active')
@@ -194,11 +206,18 @@ class CronController extends Controller
         @set_time_limit(90);
 
         $results = $this->pollPendingOtpQuietly();
+        $stripped = 0;
+        try {
+            $stripped = app(\App\Services\TelegramBotService::class)->stripExpiredResendButtons();
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('cron strip resend: '.$e->getMessage());
+        }
 
         return response()->json([
             'success' => true,
             'message' => 'Poll OTP pending selesai.',
             'polled' => $results,
+            'resend_buttons_stripped' => $stripped,
             'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
         ]);
     }

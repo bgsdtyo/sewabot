@@ -1,5 +1,6 @@
 # Current Status — SewaBot MVP
 
+2026-08-18 — Sembunyikan tombol Minta Ulang OTP setelah waktu provider habis
 2026-08-18 — Fix bulk OTP: jangan probe PHP CLI di luar open_basedir (gagal buat order)
 2026-08-18 — Fix bulk OTP: watcher in-process (tanpa HTTP ke diri sendiri; deadlock FPM). Poll semua dulu, baru edit bubble.
 2026-08-18 — Fix bulk OTP #3: watcher per-order (HTTP terpisah), jangan nunggu #1/#2

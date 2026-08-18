@@ -563,9 +563,7 @@ class OtpOrderService
     public function resend(OtpOrder $order): void
     {
         $isPending = $order->status === 'pending';
-        $isCompletedAndActive = $order->status === 'completed'
-            && ($order->provider_expire_at === null || $order->provider_expire_at->isFuture())
-            && $order->created_at->isAfter(now()->subMinutes(25));
+        $isCompletedAndActive = $order->status === 'completed' && $order->canResendOtp();
 
         if ((! $isPending && ! $isCompletedAndActive) || ! $order->provider_order_id) {
             throw ValidationException::withMessages(['order' => 'Order sudah kedaluwarsa atau tidak bisa minta ulang OTP.']);

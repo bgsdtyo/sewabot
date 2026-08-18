@@ -83,4 +83,29 @@ class OtpOrder extends Model
             ->orderBy('id', 'asc')
             ->get();
     }
+
+    public function otpWindowExpiresAt(): ?\Illuminate\Support\Carbon
+    {
+        if ($this->provider_expire_at) {
+            return $this->provider_expire_at;
+        }
+
+        $seconds = (int) ($this->otpService?->duration_seconds ?: 1200);
+        if ($seconds <= 0 || ! $this->created_at) {
+            return null;
+        }
+
+        return $this->created_at->copy()->addSeconds($seconds);
+    }
+
+    public function canResendOtp(): bool
+    {
+        if (! in_array($this->status, ['pending', 'completed'], true)) {
+            return false;
+        }
+
+        $expiresAt = $this->otpWindowExpiresAt();
+
+        return $expiresAt !== null && $expiresAt->isFuture();
+    }
 }

@@ -905,14 +905,7 @@ class TelegramBotService
                 footer: 'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>',
                 statusOverride: 'Berhasil'
             );
-            $isStillActive = ($order->provider_expire_at === null || $order->provider_expire_at->isFuture())
-                && $order->created_at->isAfter(now()->subMinutes(25));
-            $actionButtons = [];
-            if ($isStillActive) {
-                $actionButtons[] = ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id];
-            }
-            $actionButtons[] = ['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)];
-            $keyboard = ['inline_keyboard' => [$actionButtons]];
+            $keyboard = $this->completedOrderKeyboard($order);
         } elseif ($order->status === 'pending') {
             $text = $this->formatOrderCard(
                 $order,
@@ -1590,14 +1583,7 @@ class TelegramBotService
                     footer: 'Saldo tersedia: <b>'.$memberFresh->formattedAvailable().'</b>',
                     statusOverride: 'Berhasil'
                 );
-                $isStillActive = ($order->provider_expire_at === null || $order->provider_expire_at->isFuture())
-                    && $order->created_at->isAfter(now()->subMinutes(25));
-                $actionButtons = [];
-                if ($isStillActive) {
-                    $actionButtons[] = ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id];
-                }
-                $actionButtons[] = ['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)];
-                $keyboard = ['inline_keyboard' => [$actionButtons]];
+                $keyboard = $this->completedOrderKeyboard($order);
             } elseif ($status === 'expired') {
                 $text = "⏳ <b>Pesanan #{$slotNum} Kedaluwarsa</b>\n\n"
                     ."Waktu pemesanan OTP untuk layanan <b>{$service}</b> telah habis.\n"
@@ -1788,22 +1774,58 @@ class TelegramBotService
             return;
         }
 
-        $isStillActive = ($order->provider_expire_at === null || $order->provider_expire_at->isFuture())
-            && $order->created_at->isAfter(now()->subMinutes(25));
+        $keyboard = $this->completedOrderKeyboard($order);
 
+        $this->pushOrderBubble($bot, $member, $order, $text, $keyboard);
+    }
+
+    /**
+     * @return array{inline_keyboard: list<list<array{text: string, callback_data: string}>>}
+     */
+    protected function completedOrderKeyboard(OtpOrder $order): array
+    {
         $buttons = [];
-        if ($isStillActive) {
+        if ($order->canResendOtp()) {
             $buttons[] = ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id];
         }
         $buttons[] = ['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)];
 
-        $keyboard = [
-            'inline_keyboard' => [
-                $buttons,
-            ],
-        ];
+        return ['inline_keyboard' => [$buttons]];
+    }
 
-        $this->pushOrderBubble($bot, $member, $order, $text, $keyboard);
+    public function stripExpiredResendButtons(): int
+    {
+        $orders = OtpOrder::query()
+            ->where('status', 'completed')
+            ->whereNotNull('telegram_message_id')
+            ->where('completed_at', '>=', now()->subHours(6))
+            ->with(['otpService', 'botMember', 'telegramBot'])
+            ->orderBy('id')
+            ->limit(30)
+            ->get();
+
+        $stripped = 0;
+        foreach ($orders as $order) {
+            if ($order->canResendOtp() || Cache::has('otp_resend_stripped:'.$order->id)) {
+                continue;
+            }
+
+            $bot = $order->telegramBot;
+            $member = $order->botMember;
+            if (! $bot || ! $member) {
+                continue;
+            }
+
+            try {
+                $this->notifyOrderCompleted($bot, $member, $order);
+                Cache::put('otp_resend_stripped:'.$order->id, 1, now()->addHours(12));
+                $stripped++;
+            } catch (\Throwable $e) {
+                Log::warning('stripExpiredResendButtons failed: '.$e->getMessage(), ['order' => $order->id]);
+            }
+        }
+
+        return $stripped;
     }
 
     public function notifyOrderCancelled(
@@ -1917,15 +1939,19 @@ class TelegramBotService
 
     protected function orderActionKeyboard(OtpOrder $order): array
     {
+        $secondRow = [
+            ['text' => '🔀 Ganti Nomor', 'callback_data' => 'otp_change:'.$order->id],
+        ];
+        if ($order->canResendOtp()) {
+            $secondRow[] = ['text' => '🔄 Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id];
+        }
+
         return [
             'inline_keyboard' => [
                 [
                     ['text' => '🔍 Cek OTP', 'callback_data' => 'otp_status:'.$order->id],
                 ],
-                [
-                    ['text' => '🔀 Ganti Nomor', 'callback_data' => 'otp_change:'.$order->id],
-                    ['text' => '🔄 Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
-                ],
+                $secondRow,
                 [
                     ['text' => '❌ Batalkan', 'callback_data' => 'otp_cancel:'.$order->id],
                 ],
@@ -2170,22 +2196,26 @@ class TelegramBotService
         $order = OtpOrder::query()
             ->where('bot_member_id', $member->id)
             ->whereIn('status', ['pending', 'completed'])
-            ->where(function ($q) {
-                $q->whereNull('provider_expire_at')
-                    ->orWhere('provider_expire_at', '>', now());
-            })
-            ->where('created_at', '>=', now()->subMinutes(25))
+            ->with('otpService')
             ->when($orderId, fn ($q) => $q->whereKey($orderId))
             ->latest()
             ->first();
 
-        if (! $order) {
+        if (! $order || ! $order->canResendOtp()) {
+            if ($order && $order->status === 'completed') {
+                $this->notifyOrderCompleted($bot, $member, $order);
+
+                return;
+            }
+
             $this->replyOrSend(
                 $bot,
                 $chatId,
                 $editMessageId,
-                'Tidak ada order OTP yang sedang berjalan atau aktif.',
-                removeInlineKeyboard: true
+                'Waktu minta ulang OTP dari provider sudah habis.',
+                inlineKeyboard: $order
+                    ? $this->completedOrderKeyboard($order)
+                    : ['inline_keyboard' => [[['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:0']]]]
             );
 
             return;
@@ -2221,14 +2251,7 @@ class TelegramBotService
                 $chatId,
                 $messageId,
                 $text,
-                inlineKeyboard: [
-                    'inline_keyboard' => [
-                        [
-                            ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],
-                            ['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)],
-                        ],
-                    ],
-                ]
+                inlineKeyboard: $this->completedOrderKeyboard($order)
             );
 
             if ($newId) {
@@ -2284,25 +2307,14 @@ class TelegramBotService
                 statusOverride: 'Berhasil'
             );
 
-            $isStillActive = ($order->provider_expire_at === null || $order->provider_expire_at->isFuture())
-                && $order->created_at->isAfter(now()->subMinutes(25));
-
-            $buttons = [];
-            if ($isStillActive) {
-                $buttons[] = ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id];
-            }
-            $buttons[] = ['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)];
+            $keyboard = $this->completedOrderKeyboard($order);
 
             $newId = $this->replyOrSend(
                 $bot,
                 $chatId,
                 $messageId,
                 $text,
-                inlineKeyboard: [
-                    'inline_keyboard' => [
-                        $buttons,
-                    ],
-                ]
+                inlineKeyboard: $keyboard
             );
 
             if ($newId) {
