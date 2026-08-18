@@ -60,6 +60,18 @@ class OtpOrder extends Model
         return filled($this->batch_id);
     }
 
+    public function batchSlotNumber(): int
+    {
+        if (! $this->isPartOfBatch()) {
+            return 1;
+        }
+
+        return (int) static::query()
+            ->where('batch_id', $this->batch_id)
+            ->where('id', '<=', $this->id)
+            ->count();
+    }
+
     public function getBatchOrders()
     {
         if (! $this->isPartOfBatch()) {

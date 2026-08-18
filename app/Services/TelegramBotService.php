@@ -1223,6 +1223,9 @@ class TelegramBotService
 
         // ── Bulk order (qty > 1): kirim satu loading bubble per slot ─────────
         if ($quantity > 1) {
+            ignore_user_abort(true);
+            @set_time_limit(180);
+
             $svcName = e($service->name ?? 'Kopken');
             $loadingMessageIds = [];
 
@@ -1231,10 +1234,9 @@ class TelegramBotService
                     .'Mohon tunggu, sistem sedang memverifikasi nomor sebelum diberikan kepada Anda...';
 
                 if ($slot === 1) {
-                    // Edit/ganti preview message untuk slot pertama
                     $msgId = $this->replyOrSend($bot, $chatId, $previewMessageId, $slotLoadingText, removeInlineKeyboard: true);
                 } else {
-                    // Kirim bubble baru untuk slot berikutnya
+                    usleep(350000);
                     $msgId = $this->sendMessage($bot, $chatId, $slotLoadingText);
                 }
 
@@ -1244,12 +1246,13 @@ class TelegramBotService
             try {
                 $orders = $otpOrderService->requestBulkOtp($bot, $member, $service, $quantity);
 
-                // Link setiap order ke loading bubble miliknya sendiri
                 foreach ($orders as $idx => $o) {
-                    $this->rememberOrderMessage($o, $loadingMessageIds[$idx] ?? $loadingMessageIds[0]);
+                    $msgId = $loadingMessageIds[$idx] ?? null;
+                    if ($msgId) {
+                        $this->rememberOrderMessage($o, $msgId);
+                    }
                 }
 
-                // Edit setiap loading bubble dengan info order yang sebenarnya
                 foreach ($orders as $idx => $o) {
                     $slotNum = $idx + 1;
                     $orderText = $this->formatOrderCard(
@@ -1679,7 +1682,7 @@ class TelegramBotService
 
         foreach ($ordersColl as $index => $order) {
             $order = $order->fresh(['otpService', 'botMember']);
-            if (! $order || in_array(strtolower((string) $order->status), ['cancelled', 'canceled', 'expired', 'banned', 'failed'], true)) {
+            if (! $order || in_array(strtolower((string) $order->status), ['completed', 'cancelled', 'canceled', 'expired', 'banned', 'failed'], true)) {
                 continue;
             }
 
@@ -1735,19 +1738,27 @@ class TelegramBotService
 
     public function notifyOrderCompleted(TelegramBot $bot, $member, OtpOrder $order): void
     {
-        if ($order->isPartOfBatch()) {
-            $this->notifyBatchOrderUpdated($bot, $member, $order->getBatchOrders());
+        $order = $order->fresh(['otpService', 'botMember']) ?? $order;
+        $service = e($order->otpService?->name ?? 'Kopken');
+        $slot = $order->isPartOfBatch() ? $order->batchSlotNumber() : null;
+        $title = $slot
+            ? "Order {$service} #{$slot} — OTP MASUK 🎉"
+            : "Order {$service} — OTP MASUK 🎉";
+
+        $text = $this->formatOrderCard(
+            $order,
+            title: $title,
+            footer: $order->status === 'completed'
+                ? 'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>'
+                : 'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.',
+            statusOverride: $order->status === 'completed' ? 'Berhasil' : null
+        );
+
+        if ($order->status === 'pending') {
+            $this->pushOrderBubble($bot, $member, $order, $text, $this->orderActionKeyboard($order));
 
             return;
         }
-
-        $service = e($order->otpService?->name ?? 'Kopken');
-        $text = $this->formatOrderCard(
-            $order,
-            title: "Order {$service} — OTP MASUK 🎉",
-            footer: 'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>',
-            statusOverride: 'Berhasil'
-        );
 
         $isStillActive = ($order->provider_expire_at === null || $order->provider_expire_at->isFuture())
             && $order->created_at->isAfter(now()->subMinutes(25));
@@ -1764,25 +1775,7 @@ class TelegramBotService
             ],
         ];
 
-        $messageId = $this->orderMessageId($order);
-
-        if ($messageId) {
-            $edited = $this->editMessage(
-                $bot,
-                $member->telegram_chat_id,
-                $messageId,
-                $text,
-                $keyboard,
-                false
-            );
-
-            if ($edited) {
-                return;
-            }
-        }
-
-        // Fallback only if bubble hilang / belum tersimpan — tetap kirim OTP ke user.
-        $this->sendMessage($bot, $member->telegram_chat_id, $text, null, $keyboard);
+        $this->pushOrderBubble($bot, $member, $order, $text, $keyboard);
     }
 
     public function notifyOrderCancelled(
@@ -1792,36 +1785,36 @@ class TelegramBotService
         string $reasonType = 'cancelled',
         ?string $customReason = null
     ): void {
-        if ($order->isPartOfBatch()) {
-            $this->notifyBatchOrderUpdated($bot, $member, $order->getBatchOrders());
-
-            return;
-        }
         $phone = $this->formatPhoneNumber($order->phone_number);
         $phoneFormatted = $phone !== '' ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : '';
         $service = e($order->otpService?->name ?? 'Kopken');
+        $slot = $order->isPartOfBatch() ? $order->batchSlotNumber() : null;
+        $slotPrefix = $slot ? " #{$slot}" : '';
 
         if ($reasonType === 'expired') {
-            $text = "⏳ <b>Pesanan Kedaluwarsa</b>\n\n"
+            $text = "⏳ <b>Pesanan{$slotPrefix} Kedaluwarsa</b>\n\n"
                 ."Waktu pemesanan OTP untuk layanan <b>{$service}</b> telah habis.\n"
                 ."Saldo yang tertahan telah dikembalikan.";
         } else {
             $targetPhone = $phoneFormatted !== '' ? " {$phoneFormatted}" : '';
-            $text = "❌ <b>Pesanan Dibatalkan</b>\n\n"
+            $text = "❌ <b>Pesanan{$slotPrefix} Dibatalkan</b>\n\n"
                 ."Nomor WhatsApp{$targetPhone} terblokir/banned oleh WhatsApp, jadi tidak diberikan kepada Anda.\n"
                 ."Saldo yang tertahan telah dikembalikan.";
         }
 
-        $buttons = [
-            [
-                ['text' => '📱 Pesan nomor baru', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)],
+        $keyboard = [
+            'inline_keyboard' => [
+                [
+                    ['text' => '📱 Pesan nomor baru', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)],
+                ],
             ],
         ];
 
-        $keyboard = [
-            'inline_keyboard' => $buttons,
-        ];
+        $this->pushOrderBubble($bot, $member, $order, $text, $keyboard);
+    }
 
+    protected function pushOrderBubble(TelegramBot $bot, $member, OtpOrder $order, string $text, ?array $keyboard = null): void
+    {
         $messageId = $this->orderMessageId($order);
 
         if ($messageId) {
@@ -1839,7 +1832,8 @@ class TelegramBotService
             }
         }
 
-        $this->sendMessage($bot, $member->telegram_chat_id, $text, null, $keyboard);
+        $newMsgId = $this->sendMessage($bot, $member->telegram_chat_id, $text, null, $keyboard);
+        $this->rememberOrderMessage($order, $newMsgId);
     }
 
     protected function rememberOrderMessage(OtpOrder $order, ?int $messageId): void
@@ -2528,42 +2522,37 @@ class TelegramBotService
         ?array $inlineKeyboard = null,
         bool $removeInlineKeyboard = false
     ): bool {
-        try {
-            $payload = [
-                'chat_id' => $chatId,
-                'message_id' => $messageId,
-                'text' => $text,
-                'parse_mode' => 'HTML',
-                'disable_web_page_preview' => true,
-            ];
+        $payload = [
+            'chat_id' => $chatId,
+            'message_id' => $messageId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+            'disable_web_page_preview' => true,
+        ];
 
-            if ($removeInlineKeyboard) {
-                $payload['reply_markup'] = ['inline_keyboard' => []];
-            } elseif ($inlineKeyboard) {
-                $payload['reply_markup'] = $inlineKeyboard;
-            }
+        if ($removeInlineKeyboard) {
+            $payload['reply_markup'] = ['inline_keyboard' => []];
+        } elseif ($inlineKeyboard) {
+            $payload['reply_markup'] = $inlineKeyboard;
+        }
 
-            $response = Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/editMessageText", $payload);
-
-            if ($response->successful()) {
-                return true;
-            }
-
-            $description = strtolower((string) $response->json('description', ''));
-
-            // Same content → Telegram rejects; treat as already up to date.
-            if (str_contains($description, 'message is not modified')) {
-                return true;
-            }
-
-            Log::warning('Telegram editMessage failed: '.$description);
-
-            return false;
-        } catch (\Throwable $e) {
-            Log::warning('Telegram editMessage failed: '.$e->getMessage());
-
+        $data = $this->telegramApi($bot, 'editMessageText', $payload);
+        if ($data === null) {
             return false;
         }
+
+        if (($data['ok'] ?? false) || ($data['not_modified'] ?? false)) {
+            return true;
+        }
+
+        $description = strtolower((string) ($data['description'] ?? ''));
+        if (str_contains($description, 'message is not modified')) {
+            return true;
+        }
+
+        Log::warning('Telegram editMessage failed: '.$description);
+
+        return false;
     }
 
     public function sendMessage(
@@ -2573,37 +2562,73 @@ class TelegramBotService
         ?array $replyMarkup = null,
         ?array $inlineKeyboard = null
     ): ?int {
-        try {
-            $payload = [
-                'chat_id' => $chatId,
-                'text' => $text,
-                'parse_mode' => 'HTML',
-                'disable_web_page_preview' => true,
-            ];
+        $payload = [
+            'chat_id' => $chatId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+            'disable_web_page_preview' => true,
+        ];
 
-            if ($inlineKeyboard) {
-                $payload['reply_markup'] = $inlineKeyboard;
-            } elseif ($replyMarkup) {
-                $payload['reply_markup'] = $replyMarkup;
-            }
+        if ($inlineKeyboard) {
+            $payload['reply_markup'] = $inlineKeyboard;
+        } elseif ($replyMarkup) {
+            $payload['reply_markup'] = $replyMarkup;
+        }
 
-            $response = Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/sendMessage", $payload);
-            $data = $response->json();
-
-            if (! ($data['ok'] ?? false)) {
-                Log::error('Telegram sendMessage rejected: '.($data['description'] ?? $response->body()));
-
-                return null;
-            }
-
-            $messageId = $data['result']['message_id'] ?? null;
-
-            return $messageId !== null ? (int) $messageId : null;
-        } catch (\Throwable $e) {
-            Log::error('Telegram sendMessage error: '.$e->getMessage());
+        $data = $this->telegramApi($bot, 'sendMessage', $payload);
+        if (! ($data['ok'] ?? false)) {
+            Log::error('Telegram sendMessage rejected: '.($data['description'] ?? 'unknown'));
 
             return null;
         }
+
+        $messageId = $data['result']['message_id'] ?? null;
+
+        return $messageId !== null ? (int) $messageId : null;
+    }
+
+    /**
+     * POST to Telegram Bot API with retry on 429 / transient errors.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function telegramApi(TelegramBot $bot, string $method, array $payload): ?array
+    {
+        $url = "https://api.telegram.org/bot{$bot->token}/{$method}";
+
+        for ($attempt = 1; $attempt <= 4; $attempt++) {
+            try {
+                $response = Http::timeout(20)->asJson()->post($url, $payload);
+                $data = $response->json();
+                if (is_array($data) && ($data['ok'] ?? false)) {
+                    return $data;
+                }
+
+                $description = strtolower((string) (is_array($data) ? ($data['description'] ?? '') : $response->body()));
+                $retryAfter = (int) data_get($data, 'parameters.retry_after', 0);
+
+                if ($response->status() === 429 || str_contains($description, 'too many') || str_contains($description, 'retry after')) {
+                    sleep(max(1, min($retryAfter ?: $attempt, 5)));
+                    continue;
+                }
+
+                if (str_contains($description, 'message is not modified')) {
+                    return ['ok' => true, 'not_modified' => true];
+                }
+
+                Log::warning("Telegram {$method} failed: ".$description);
+
+                return is_array($data) ? $data : null;
+            } catch (\Throwable $e) {
+                Log::warning("Telegram {$method} error: ".$e->getMessage());
+                if ($attempt < 4) {
+                    usleep(300000 * $attempt);
+                    continue;
+                }
+            }
+        }
+
+        return null;
     }
 
     public function checkAndAlertProviderBalance(TelegramBot $bot, ?OtpProviderClient $client = null): array

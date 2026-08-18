@@ -68,13 +68,7 @@ class OtpOrderWatcher
                         continue;
                     }
 
-                    $previousOtp = $order->otp_code;
                     $fresh = app(OtpOrderService::class)->refreshOrder($order);
-
-                    if (filled($fresh->otp_code) && $previousOtp === null) {
-                        unset($activeIds[$k]);
-                        continue;
-                    }
 
                     if (in_array($fresh->status, ['completed', 'cancelled', 'expired'], true)) {
                         unset($activeIds[$k]);
@@ -105,21 +99,24 @@ class OtpOrderWatcher
             return;
         }
 
-        // Chain next window for any remaining pending orders in the batch
-        foreach ($activeIds as $remId) {
-            try {
-                $url = URL::temporarySignedRoute(
-                    'otp.watch',
-                    now()->addMinutes(25),
-                    ['order' => $remId]
-                );
+        // Chain next window once for the remaining batch (controller expands to all pending).
+        $remId = $activeIds[0] ?? null;
+        if (! $remId) {
+            return;
+        }
 
-                Http::timeout(1)
-                    ->withOptions(['http_errors' => false])
-                    ->get($url);
-            } catch (\Throwable $e) {
-                Log::debug('OtpOrderWatcher batch chain ping: '.$e->getMessage());
-            }
+        try {
+            $url = URL::temporarySignedRoute(
+                'otp.watch',
+                now()->addMinutes(25),
+                ['order' => $remId]
+            );
+
+            Http::timeout(1)
+                ->withOptions(['http_errors' => false])
+                ->get($url);
+        } catch (\Throwable $e) {
+            Log::debug('OtpOrderWatcher batch chain ping: '.$e->getMessage());
         }
     }
 
@@ -149,13 +146,7 @@ class OtpOrderWatcher
                     return;
                 }
 
-                $previousOtp = $order->otp_code;
                 $fresh = app(OtpOrderService::class)->refreshOrder($order);
-
-                // If OTP arrived (either initial or resent)
-                if (filled($fresh->otp_code) && $previousOtp === null) {
-                    return;
-                }
 
                 if (in_array($fresh->status, ['cancelled', 'expired', 'completed'], true)) {
                     return;

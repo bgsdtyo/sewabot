@@ -171,7 +171,7 @@ class OtpOrderService
 
         for ($i = 0; $i < $quantity; $i++) {
             try {
-                $order = DB::transaction(function () use ($bot, $member, $service, $sellPrice, $batchId) {
+                $order = DB::transaction(function () use ($bot, $member, $service, $sellPrice, $batchId, $quantity) {
                     $item = OtpOrder::create([
                         'batch_id' => $batchId,
                         'telegram_bot_id' => $bot->id,
@@ -202,9 +202,11 @@ class OtpOrderService
                     $providerOrderId = $data['id'] ?? null;
                     $phone = $data['phone_number'] ?? null;
 
-                    // Verification check loop (gives provider up to ~5.5s to complete its automated WhatsApp health check)
-                    if ($providerOrderId) {
-                        for ($attempt = 1; $attempt <= 5; $attempt++) {
+                    // Single order: wait for provider health check. Bulk skips this so webhook
+                    // is not killed by 5s × N slots; watcher applies banned/OTP updates per bubble.
+                    $maxVerifyAttempts = $quantity > 1 ? 0 : 5;
+                    if ($providerOrderId && $maxVerifyAttempts > 0) {
+                        for ($attempt = 1; $attempt <= $maxVerifyAttempts; $attempt++) {
                             try {
                                 usleep(1000000); // 1.0s per tick
                                 $check = $this->provider->forBot($bot)->getOrder($providerOrderId);
@@ -328,8 +330,19 @@ class OtpOrderService
             'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : $order->provider_expire_at,
         ]);
 
+        $order = $order->fresh(['otpService', 'botMember', 'telegramBot']) ?? $order;
+
         if ($status === 'completed' && $order->status === 'pending') {
-            return $this->completeOrder($order->fresh());
+            return $this->completeOrder($order);
+        }
+
+        // OTP arrived while still pending (or resent) — edit this order's bubble only.
+        if ($order->status === 'pending' && filled($newOtp) && ! filled($previousOtp)) {
+            $bot = $order->telegramBot;
+            $member = $order->botMember;
+            if ($bot && $member) {
+                $this->telegram->notifyOrderCompleted($bot, $member, $order);
+            }
         }
 
         // If order was already completed, but a new/updated OTP code arrived after resend
@@ -338,11 +351,7 @@ class OtpOrderService
             $bot = $order->telegramBot;
 
             if ($bot && $member) {
-                if ($order->isPartOfBatch()) {
-                    $this->telegram->notifyBatchOrderUpdated($bot, $member, $order->getBatchOrders());
-                } else {
-                    $this->telegram->notifyOrderCompleted($bot, $member, $order->fresh());
-                }
+                $this->telegram->notifyOrderCompleted($bot, $member, $order->fresh());
             }
         }
 
@@ -398,11 +407,7 @@ class OtpOrderService
         $bot = $completed->telegramBot;
 
         if ($bot && $member) {
-            if ($completed->isPartOfBatch()) {
-                $this->telegram->notifyBatchOrderUpdated($bot, $member, $completed->getBatchOrders());
-            } else {
-                $this->telegram->notifyOrderCompleted($bot, $member, $completed);
-            }
+            $this->telegram->notifyOrderCompleted($bot, $member, $completed);
         }
 
         return $completed;
@@ -452,11 +457,7 @@ class OtpOrderService
         $member = $refunded->botMember;
 
         if ($bot && $member) {
-            if ($refunded->isPartOfBatch()) {
-                $this->telegram->notifyBatchOrderUpdated($bot, $member, $refunded->getBatchOrders());
-            } else {
-                $this->telegram->notifyOrderCancelled($bot, $member, $refunded, $status, $reason);
-            }
+            $this->telegram->notifyOrderCancelled($bot, $member, $refunded, $status, $reason);
         }
 
         return $refunded;
