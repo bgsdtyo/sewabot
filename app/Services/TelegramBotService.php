@@ -1767,6 +1767,13 @@ class TelegramBotService
             statusOverride: $order->status === 'completed' ? 'Berhasil' : null
         );
 
+        Log::info('notifyOrderCompleted', [
+            'order' => $order->id,
+            'message_id' => $this->orderMessageId($order),
+            'status' => $order->status,
+            'has_otp' => filled($order->otp_code),
+        ]);
+
         if ($order->status === 'pending') {
             $this->pushOrderBubble($bot, $member, $order, $text, $this->orderActionKeyboard($order));
 
@@ -1904,6 +1911,9 @@ class TelegramBotService
     {
         return [
             'inline_keyboard' => [
+                [
+                    ['text' => '🔍 Cek OTP', 'callback_data' => 'otp_status:'.$order->id],
+                ],
                 [
                     ['text' => '🔀 Ganti Nomor', 'callback_data' => 'otp_change:'.$order->id],
                     ['text' => '🔄 Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id],

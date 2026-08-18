@@ -13,6 +13,9 @@ class TelegramWebhookController extends Controller
 
     public function __invoke(Request $request, TelegramBot $telegramBot): Response
     {
+        ignore_user_abort(true);
+        @set_time_limit(180);
+
         $secret = (string) $request->query('secret');
         $expected = (string) config('services.telegram.webhook_secret');
 

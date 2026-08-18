@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\OtpOrder;
 use App\Models\Subscription;
 use App\Models\TelegramBot;
+use App\Services\OtpOrderService;
 use App\Services\TelegramBotService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,6 +17,8 @@ class CronController extends Controller
      */
     public function checkSubscriptions(Request $request, TelegramBotService $telegramBotService): JsonResponse
     {
+        $this->pollPendingOtpQuietly();
+
         $expiredSubscriptions = Subscription::query()
             ->where('status', 'active')
             ->where('expires_at', '<=', now())
@@ -74,6 +78,8 @@ class CronController extends Controller
         TelegramBotService $telegramBotService,
         \App\Services\OtpProviderClient $client
     ): JsonResponse {
+        $this->pollPendingOtpQuietly();
+
         $bots = TelegramBot::query()
             ->whereNotNull('otp_api_key')
             ->where('otp_api_key', '!=', '')
@@ -109,6 +115,8 @@ class CronController extends Controller
         Request $request,
         \App\Services\OtpProviderClient $providerClient
     ): JsonResponse {
+        $this->pollPendingOtpQuietly();
+
         $activeBot = TelegramBot::query()
             ->where('status', 'active')
             ->whereNotNull('otp_api_key')
@@ -177,6 +185,59 @@ class CronController extends Controller
                 'message' => 'Gagal sinkronisasi stok: '.$e->getMessage(),
                 'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
             ], 500);
+        }
+    }
+
+    public function pollOtp(): JsonResponse
+    {
+        ignore_user_abort(true);
+        @set_time_limit(90);
+
+        $results = $this->pollPendingOtpQuietly();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Poll OTP pending selesai.',
+            'polled' => $results,
+            'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
+        ]);
+    }
+
+    /**
+     * @return list<array{id: int, status: string}>
+     */
+    protected function pollPendingOtpQuietly(): array
+    {
+        try {
+            $otp = app(OtpOrderService::class);
+            $pending = OtpOrder::query()
+                ->where('status', 'pending')
+                ->whereNotNull('provider_order_id')
+                ->orderBy('id')
+                ->limit(10)
+                ->get();
+
+            $results = [];
+            foreach ($pending as $order) {
+                try {
+                    $fresh = $otp->refreshOrder($order);
+                    $results[] = [
+                        'id' => (int) $order->id,
+                        'status' => (string) $fresh->status,
+                    ];
+                } catch (\Throwable $e) {
+                    $results[] = [
+                        'id' => (int) $order->id,
+                        'status' => 'error',
+                    ];
+                }
+            }
+
+            return $results;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('cron otp poll: '.$e->getMessage());
+
+            return [];
         }
     }
 }

@@ -104,13 +104,13 @@ class OtpProviderClient
                 $data['status'] = $data['status'] ?? 'cancelled';
                 $data['cancel_reason'] = $data['cancel_reason'] ?? (is_string($errMsg) ? $errMsg : null);
 
-                return $data;
+                return $this->unwrapOrderPayload($data);
             }
 
             $this->throwFromResponse($response, 'Gagal cek status pesanan OTP');
         }
 
-        return $response->json('data') ?? [];
+        return $this->unwrapOrderPayload($response->json());
     }
 
     public function cancelOrder(string $providerOrderId): array
@@ -169,6 +169,28 @@ class OtpProviderClient
             'balance' => $data['balance'] ?? 0,
             'currency' => (string) ($data['currency'] ?? 'IDR'),
         ];
+    }
+
+    /**
+     * @param  mixed  $json
+     * @return array<string, mixed>
+     */
+    protected function unwrapOrderPayload(mixed $json): array
+    {
+        if (! is_array($json)) {
+            return [];
+        }
+
+        $data = $json['data'] ?? $json;
+        if (! is_array($data)) {
+            return is_array($json) ? $json : [];
+        }
+
+        if (isset($data['data']) && is_array($data['data']) && ! isset($data['otp']) && ! isset($data['otp_code']) && ! isset($data['status'])) {
+            $data = array_merge($data, $data['data']);
+        }
+
+        return $data;
     }
 
     protected function throwFromResponse($response, string $fallback): void

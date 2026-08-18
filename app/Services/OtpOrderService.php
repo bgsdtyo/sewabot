@@ -295,7 +295,7 @@ class OtpOrderService
         return $orders;
     }
 
-    public function refreshOrder(OtpOrder $order): OtpOrder
+    public function refreshOrder(OtpOrder $order, bool $notify = true): OtpOrder
     {
         if (! $order->provider_order_id || $order->status !== 'pending') {
             return $order;
@@ -313,10 +313,10 @@ class OtpOrderService
             return $order;
         }
 
-        return $this->applyProviderStatus($order, $data);
+        return $this->applyProviderStatus($order, $data, $notify);
     }
 
-    public function applyProviderStatus(OtpOrder $order, array $data): OtpOrder
+    public function applyProviderStatus(OtpOrder $order, array $data, bool $notify = true): OtpOrder
     {
         $status = strtolower((string) ($data['status'] ?? ''));
         $previousOtp = $order->otp_code;
@@ -334,13 +334,11 @@ class OtpOrderService
 
         $providerSaysDone = in_array($status, ['completed', 'complete', 'success', 'succeed', 'received', 'delivered', 'ok', 'done'], true);
 
-        // OTP in = order selesai. Jangan biarkan watcher menimpa bubble OTP MASUK.
         if ($order->status === 'pending' && ($providerSaysDone || filled($newOtp))) {
-            return $this->completeOrder($order);
+            return $this->completeOrder($order, $notify);
         }
 
-        // If order was already completed, but a new/updated OTP code arrived after resend
-        if ($order->status === 'completed' && filled($newOtp) && ($previousOtp === null || $newOtp !== $previousOtp)) {
+        if ($notify && $order->status === 'completed' && filled($newOtp) && ($previousOtp === null || $newOtp !== $previousOtp)) {
             $member = $order->botMember;
             $bot = $order->telegramBot;
 
@@ -360,13 +358,13 @@ class OtpOrderService
                 ? 'banned'
                 : ($status === 'expired' ? 'expired' : 'cancelled');
 
-            return $this->refundLocal($order->fresh(), $reasonType, $cancelReason);
+            return $this->refundLocal($order->fresh(), $reasonType, $cancelReason, $notify);
         }
 
         return $order->fresh();
     }
 
-    public function completeOrder(OtpOrder $order): OtpOrder
+    public function completeOrder(OtpOrder $order, bool $notify = true): OtpOrder
     {
         if ($order->status === 'completed') {
             return $order;
@@ -397,11 +395,12 @@ class OtpOrderService
             return $order->fresh(['otpService', 'botMember', 'telegramBot']);
         });
 
-        $member = $completed->botMember;
-        $bot = $completed->telegramBot;
-
-        if ($bot && $member) {
-            $this->telegram->notifyOrderCompleted($bot, $member, $completed);
+        if ($notify) {
+            $member = $completed->botMember;
+            $bot = $completed->telegramBot;
+            if ($bot && $member) {
+                $this->telegram->notifyOrderCompleted($bot, $member, $completed);
+            }
         }
 
         return $completed;
@@ -424,7 +423,7 @@ class OtpOrderService
         return $this->refundLocal($order, 'cancelled');
     }
 
-    protected function refundLocal(OtpOrder $order, string $status, ?string $reason = null): OtpOrder
+    protected function refundLocal(OtpOrder $order, string $status, ?string $reason = null, bool $notify = true): OtpOrder
     {
         $refunded = DB::transaction(function () use ($order, $status) {
             $order = OtpOrder::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
@@ -447,11 +446,12 @@ class OtpOrderService
             return $order->fresh(['otpService', 'botMember', 'telegramBot']);
         });
 
-        $bot = $refunded->telegramBot;
-        $member = $refunded->botMember;
-
-        if ($bot && $member) {
-            $this->telegram->notifyOrderCancelled($bot, $member, $refunded, $status, $reason);
+        if ($notify) {
+            $bot = $refunded->telegramBot;
+            $member = $refunded->botMember;
+            if ($bot && $member) {
+                $this->telegram->notifyOrderCancelled($bot, $member, $refunded, $status, $reason);
+            }
         }
 
         return $refunded;
@@ -604,27 +604,39 @@ class OtpOrderService
             return null;
         }
 
-        foreach (['otp', 'otp_code', 'code', 'sms_code', 'verification_code', 'pin'] as $key) {
+        $skipKeys = ['id', 'provider_order_id', 'service_id', 'phone_number', 'phone', 'price', 'expire_at', 'created_at', 'updated_at'];
+
+        foreach (['otp', 'otp_code', 'code', 'sms_code', 'verification_code', 'pin', 'token'] as $key) {
             $value = $data[$key] ?? null;
-            if (filled($value) && ! is_array($value) && preg_match('/^\d{4,8}$/', trim((string) $value))) {
-                return trim((string) $value);
+            if (is_array($value) || ! filled($value)) {
+                continue;
+            }
+            $digits = preg_replace('/\D+/', '', (string) $value);
+            if (is_string($digits) && preg_match('/^\d{4,8}$/', $digits)) {
+                return $digits;
             }
         }
 
-        $text = (string) ($data['full_text'] ?? $data['sms'] ?? $data['message'] ?? $data['text'] ?? '');
-        if ($text !== '' && preg_match('/\*(\d{4,8})\*/', $text, $match)) {
-            return $match[1];
-        }
-        if ($text !== '' && preg_match('/\b(\d{4,8})\b/', $text, $match)) {
-            return $match[1];
+        $text = (string) ($data['full_text'] ?? $data['sms'] ?? $data['sms_text'] ?? $data['full_sms'] ?? $data['content'] ?? $data['message'] ?? $data['text'] ?? '');
+        if ($text !== '') {
+            if (preg_match('/\*(\d{4,8})\*/', $text, $match)) {
+                return $match[1];
+            }
+            if (preg_match('/(?:otp|kode|code|pin)[^\d]{0,12}(\d{4,8})/i', $text, $match)) {
+                return $match[1];
+            }
+            if (preg_match('/\b(\d{6,8})\b/', $text, $match)) {
+                return $match[1];
+            }
         }
 
-        foreach ($data as $value) {
-            if (is_array($value)) {
-                $nested = $this->findOtpIn($value, $depth + 1);
-                if (filled($nested)) {
-                    return $nested;
-                }
+        foreach ($data as $key => $value) {
+            if (! is_array($value) || in_array((string) $key, $skipKeys, true)) {
+                continue;
+            }
+            $nested = $this->findOtpIn($value, $depth + 1);
+            if (filled($nested)) {
+                return $nested;
             }
         }
 

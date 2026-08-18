@@ -33,6 +33,14 @@ Route::post('/telegram/webhook/{telegramBot}', TelegramWebhookController::class)
 Route::get('/internal/otp-watch/{order}', OtpWatchController::class)
     ->middleware('signed')
     ->name('otp.watch');
+Route::get('/internal/otp-watch-batch', [OtpWatchController::class, 'batch'])
+    ->middleware('signed')
+    ->name('otp.watch.batch');
+
+Route::get('/cron/otp-poll', [CronController::class, 'pollOtp'])->name('cron.otp-poll');
+Route::get('/cron/poll-otp', [CronController::class, 'pollOtp'])->name('cron.poll-otp');
+Route::get('/cron/check-otp', [CronController::class, 'pollOtp'])->name('cron.check-otp');
+Route::get('/cron/watch-otp', [CronController::class, 'pollOtp'])->name('cron.watch-otp');
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
