@@ -1393,6 +1393,12 @@ class TelegramBotService
                     }
                 }
 
+                try {
+                    app(OtpOrderWatcher::class)->startBatch(array_values($ordersBySlot));
+                } catch (\Throwable $watchErr) {
+                    Log::warning('Bulk OTP watcher failed to start: '.$watchErr->getMessage());
+                }
+
                 foreach ($ordersBySlot as $idx => $o) {
                     $slotNum = $idx + 1;
                     $orderText = $this->formatOrderCard(
@@ -1434,12 +1440,6 @@ class TelegramBotService
                         ],
                         false
                     );
-                }
-
-                try {
-                    app(OtpOrderWatcher::class)->startBatch(array_values($ordersBySlot));
-                } catch (\Throwable $watchErr) {
-                    Log::warning('Bulk OTP watcher failed to start: '.$watchErr->getMessage());
                 }
             } catch (ValidationException $e) {
                 // Tampilkan error di bubble pertama, hapus bubble loading extra

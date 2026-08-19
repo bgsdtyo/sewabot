@@ -1,5 +1,6 @@
 # Current Status — SewaBot MVP
 
+2026-08-19 — Bulk OTP: watcher selalu in-process setelah webhook (jangan andalkan curl spawn)
 2026-08-19 — Bulk OTP: slot sisa gagal jelas jika saldo provider habis (jangan stuck Memeriksa Nomor)
 2026-08-19 — Fix ganti nomor: jangan anggap cancel nomor lama sebagai order batal, OTP tetap edit bubble
 2026-08-18 — Sembunyikan tombol Minta Ulang OTP setelah waktu provider habis

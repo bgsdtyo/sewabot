@@ -169,27 +169,20 @@ class OtpOrderWatcher
     }
 
     /**
-     * Detach a CLI watcher so FPM can finish the webhook.
-     * Never throw — order creation must not fail because of watcher spawn.
+     * Always watch in this PHP request after the webhook replies.
+     * Detached curl/CLI is extra only — never skip the in-process fallback.
      */
     protected function spawn(array $orderIds): void
     {
-        $ids = implode(',', $orderIds);
-
-        if ($this->spawnArtisan($ids)) {
-            Log::info('OtpOrderWatcher spawned artisan', ['ids' => $orderIds]);
-
-            return;
-        }
-
-        if ($this->spawnCurl($orderIds)) {
-            Log::info('OtpOrderWatcher spawned curl', ['ids' => $orderIds]);
-
-            return;
-        }
-
-        Log::warning('OtpOrderWatcher spawn skipped, using terminating fallback', ['ids' => $orderIds]);
         $this->fallbackTerminating($orderIds);
+
+        try {
+            if ($this->spawnCurl($orderIds)) {
+                Log::info('OtpOrderWatcher also spawned curl', ['ids' => $orderIds]);
+            }
+        } catch (\Throwable $e) {
+            Log::debug('OtpOrderWatcher extra spawn: '.$e->getMessage());
+        }
     }
 
     protected function fallbackTerminating(array $orderIds): void
