@@ -6,6 +6,7 @@ use App\Models\BotMember;
 use App\Models\OtpOrder;
 use App\Models\OtpService;
 use App\Models\TelegramBot;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -297,7 +298,14 @@ class OtpOrderService
 
     public function refreshOrder(OtpOrder $order, bool $notify = true): OtpOrder
     {
-        if (! $order->provider_order_id || $order->status !== 'pending') {
+        if (! $order->provider_order_id) {
+            return $order;
+        }
+
+        $canPoll = $order->status === 'pending'
+            || $this->isIgnoringProviderCancel((int) $order->id);
+
+        if (! $canPoll) {
             return $order;
         }
 
@@ -333,8 +341,9 @@ class OtpOrderService
         $order = $order->fresh(['otpService', 'botMember', 'telegramBot']) ?? $order;
 
         $providerSaysDone = in_array($status, ['completed', 'complete', 'success', 'succeed', 'received', 'delivered', 'ok', 'done'], true);
+        $canComplete = $order->status === 'pending' || $this->isIgnoringProviderCancel((int) $order->id);
 
-        if ($order->status === 'pending' && ($providerSaysDone || filled($newOtp))) {
+        if ($canComplete && ($providerSaysDone || filled($newOtp))) {
             return $this->completeOrder($order, $notify);
         }
 
@@ -354,6 +363,10 @@ class OtpOrderService
             || stripos((string) $cancelReason, 'blocked') !== false;
 
         if ($isCancelledOrBanned && $order->status === 'pending') {
+            if ($this->isIgnoringProviderCancel((int) $order->id)) {
+                return $order->fresh(['otpService', 'botMember', 'telegramBot']) ?? $order;
+            }
+
             $reasonType = (stripos((string) $cancelReason, 'banned') !== false || stripos((string) $cancelReason, 'terblokir') !== false || in_array($status, ['banned', 'blocked'], true))
                 ? 'banned'
                 : ($status === 'expired' ? 'expired' : 'cancelled');
@@ -377,7 +390,7 @@ class OtpOrderService
                 return $order->fresh(['otpService', 'botMember', 'telegramBot']);
             }
 
-            if ($order->wallet_status === 'held') {
+            if ($order->wallet_status !== 'charged') {
                 $this->wallet->chargeHeld(
                     $order->botMember,
                     $order->sell_price,
@@ -468,6 +481,9 @@ class OtpOrderService
             throw ValidationException::withMessages(['order' => 'Bot tidak ditemukan.']);
         }
 
+        $this->markIgnoringProviderCancel((int) $order->id);
+        $oldProviderId = (string) $order->provider_order_id;
+
         try {
             $data = $this->provider->forBot($bot)->changeNumber($order->provider_order_id);
         } catch (\Throwable $e) {
@@ -491,61 +507,36 @@ class OtpOrderService
         $newOrderId = $data['id'] ?? $order->provider_order_id;
         $phone = $data['phone_number'] ?? null;
 
-        if ($newOrderId) {
-            for ($attempt = 1; $attempt <= 5; $attempt++) {
-                try {
-                    usleep(1000000); // 1.0s per tick
-                    $check = $this->provider->forBot($bot)->getOrder($newOrderId);
-                    if (! empty($check)) {
-                        $data = array_merge($data, $check);
-                        $checkStatus = strtolower((string) ($check['status'] ?? ''));
-                        $checkReason = $check['cancel_reason'] ?? $check['reason'] ?? $check['message'] ?? null;
-
-                        if (
-                            in_array($checkStatus, ['cancelled', 'canceled', 'cancel', 'banned', 'blocked', 'rejected', 'failed', 'completed'], true)
-                            || stripos((string) $checkReason, 'banned') !== false
-                            || stripos((string) $checkReason, 'terblokir') !== false
-                            || stripos((string) $checkReason, 'blocked') !== false
-                            || stripos((string) $checkReason, 'cancel') !== false
-                        ) {
-                            break; // Definite status reached!
-                        }
-                    }
-                } catch (\Throwable $chkErr) {
-                    $errMsg = (string) $chkErr->getMessage();
-                    if (
-                        stripos($errMsg, 'banned') !== false
-                        || stripos($errMsg, 'terblokir') !== false
-                        || stripos($errMsg, 'blocked') !== false
-                        || stripos($errMsg, 'cancelled') !== false
-                        || stripos($errMsg, 'canceled') !== false
-                        || stripos($errMsg, 'dibatalkan') !== false
-                        || stripos($errMsg, 'not found') !== false
-                    ) {
-                        $data['status'] = 'cancelled';
-                        $data['cancel_reason'] = $errMsg;
-                        break;
-                    }
-                }
-            }
-        }
-
         $initStatus = strtolower((string) ($data['status'] ?? 'pending'));
         $cancelReason = $data['cancel_reason'] ?? $data['reason'] ?? $data['message'] ?? null;
         $phone = $data['phone_number'] ?? $phone;
         $phoneFormatted = $phone ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : '';
 
-        $isInitCancelled = in_array($initStatus, ['cancelled', 'canceled', 'cancel', 'banned', 'blocked', 'rejected', 'failed', 'expired', 'refunded'], true)
+        $hardFail = in_array($initStatus, ['banned', 'blocked', 'failed', 'expired', 'refunded'], true)
             || stripos((string) $cancelReason, 'banned') !== false
             || stripos((string) $cancelReason, 'terblokir') !== false
-            || stripos((string) $cancelReason, 'blocked') !== false
-            || stripos((string) $cancelReason, 'cancel') !== false
-            || stripos((string) $cancelReason, 'dibatalkan') !== false;
+            || stripos((string) $cancelReason, 'blocked') !== false;
+
+        $statusSaysCancelled = in_array($initStatus, ['cancelled', 'canceled', 'cancel'], true);
+        $isInitCancelled = $hardFail || ($statusSaysCancelled && ! filled($phone));
 
         if ($isInitCancelled) {
             $this->refundLocal($order, 'banned', $cancelReason);
             $targetPhone = $phoneFormatted !== '' ? " {$phoneFormatted}" : '';
             throw new \RuntimeException("Nomor WhatsApp{$targetPhone} terblokir/banned oleh WhatsApp, jadi tidak diberikan kepada Anda.\nSaldo yang tertahan telah dikembalikan.");
+        }
+
+        $order = OtpOrder::query()->whereKey($order->id)->firstOrFail();
+        $walletStatus = $order->wallet_status;
+        if (in_array($walletStatus, ['refunded', 'none'], true)) {
+            $this->wallet->hold(
+                $order->botMember,
+                $order->sell_price,
+                OtpOrder::class,
+                $order->id,
+                'Hold ulang setelah ganti nomor'
+            );
+            $walletStatus = 'held';
         }
 
         $order->update([
@@ -554,7 +545,51 @@ class OtpOrderService
             'otp_code' => null,
             'full_text' => null,
             'raw_payload' => $data,
+            'status' => 'pending',
+            'cancelled_at' => null,
+            'wallet_status' => $walletStatus,
             'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : $order->provider_expire_at,
+        ]);
+
+        Log::info('changeNumber ok', [
+            'order' => $order->id,
+            'old_provider_id' => $oldProviderId,
+            'new_provider_id' => $newOrderId,
+        ]);
+
+        return $order->fresh(['otpService', 'botMember', 'telegramBot']);
+    }
+
+    public function markIgnoringProviderCancel(int $orderId): void
+    {
+        Cache::put('otp_ignore_cancel:'.$orderId, 1, now()->addSeconds(45));
+    }
+
+    public function isIgnoringProviderCancel(int $orderId): bool
+    {
+        return Cache::has('otp_ignore_cancel:'.$orderId);
+    }
+
+    public function reviveHold(OtpOrder $order): OtpOrder
+    {
+        $order = OtpOrder::query()->whereKey($order->id)->firstOrFail();
+        $walletStatus = $order->wallet_status;
+
+        if (in_array($walletStatus, ['refunded', 'none'], true)) {
+            $this->wallet->hold(
+                $order->botMember,
+                $order->sell_price,
+                OtpOrder::class,
+                $order->id,
+                'Hold ulang cek OTP setelah ganti nomor'
+            );
+            $walletStatus = 'held';
+        }
+
+        $order->update([
+            'status' => 'pending',
+            'cancelled_at' => null,
+            'wallet_status' => $walletStatus,
         ]);
 
         return $order->fresh(['otpService', 'botMember', 'telegramBot']);

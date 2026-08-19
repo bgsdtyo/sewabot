@@ -64,7 +64,17 @@ class OtpOrderWatcher
                 try {
                     $order = OtpOrder::query()->find($orderId);
 
-                    if (! $order || in_array($order->status, ['completed', 'cancelled', 'expired'], true)) {
+                    if (! $order) {
+                        unset($activeIds[$k]);
+                        continue;
+                    }
+
+                    if (in_array($order->status, ['completed', 'expired'], true)) {
+                        unset($activeIds[$k]);
+                        continue;
+                    }
+
+                    if ($order->status === 'cancelled' && ! app(OtpOrderService::class)->isIgnoringProviderCancel((int) $order->id)) {
                         unset($activeIds[$k]);
                         continue;
                     }
@@ -107,7 +117,15 @@ class OtpOrderWatcher
             try {
                 $order = OtpOrder::query()->find($orderId);
 
-                if (! $order || in_array($order->status, ['cancelled', 'expired', 'completed'], true)) {
+                if (! $order) {
+                    return;
+                }
+
+                if (in_array($order->status, ['completed', 'expired'], true)) {
+                    return;
+                }
+
+                if ($order->status === 'cancelled' && ! app(OtpOrderService::class)->isIgnoringProviderCancel((int) $order->id)) {
                     return;
                 }
 

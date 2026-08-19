@@ -2283,6 +2283,11 @@ class TelegramBotService
 
         try {
             $order = app(OtpOrderService::class)->changeNumber($order);
+
+            if ($messageId) {
+                $this->rememberOrderMessage($order, $messageId);
+            }
+
             try {
                 app(OtpOrderWatcher::class)->start($order);
             } catch (\Throwable $watchErr) {
@@ -2299,7 +2304,8 @@ class TelegramBotService
             $text = $this->formatOrderCard(
                 $order,
                 title: "Order {$service} — Nomor Diganti 🔀",
-                footer: 'Nomor baru aktif. OTP masuk otomatis — bubble ini akan diupdate.'
+                footer: 'Nomor baru aktif. OTP masuk otomatis — bubble ini akan diupdate.',
+                statusOverride: 'Pending'
             );
 
             $newId = $this->replyOrSend(
@@ -2408,17 +2414,20 @@ class TelegramBotService
 
     protected function statusPending(TelegramBot $bot, $member, $chatId, ?int $orderId = null, ?int $editMessageId = null): void
     {
-        $order = OtpOrder::query()
-            ->where('bot_member_id', $member->id)
-            ->whereIn('status', ['pending', 'completed'])
-            ->where(function ($q) {
-                $q->whereNull('provider_expire_at')
-                    ->orWhere('provider_expire_at', '>', now());
-            })
-            ->where('created_at', '>=', now()->subMinutes(25))
-            ->when($orderId, fn ($q) => $q->whereKey($orderId))
-            ->latest()
-            ->first();
+        $otpService = app(OtpOrderService::class);
+
+        $order = $orderId
+            ? OtpOrder::query()
+                ->where('bot_member_id', $member->id)
+                ->whereKey($orderId)
+                ->with(['otpService', 'botMember', 'telegramBot'])
+                ->first()
+            : OtpOrder::query()
+                ->where('bot_member_id', $member->id)
+                ->whereIn('status', ['pending', 'completed'])
+                ->where('created_at', '>=', now()->subMinutes(25))
+                ->latest()
+                ->first();
 
         if (! $order) {
             $this->replyOrSend(
@@ -2432,8 +2441,23 @@ class TelegramBotService
             return;
         }
 
+        if ($order->status === 'cancelled' && filled($order->provider_order_id)) {
+            $otpService->markIgnoringProviderCancel((int) $order->id);
+            if (in_array($order->wallet_status, ['refunded', 'none'], true)) {
+                try {
+                    $otpService->reviveHold($order);
+                    $order = $order->fresh(['otpService', 'botMember', 'telegramBot']) ?? $order;
+                } catch (\Throwable $e) {
+                    Log::warning('Cek OTP revive hold failed: '.$e->getMessage());
+                }
+            } else {
+                $order->update(['status' => 'pending', 'cancelled_at' => null]);
+                $order = $order->fresh(['otpService', 'botMember', 'telegramBot']) ?? $order;
+            }
+        }
+
         $messageId = $editMessageId ?? $this->orderMessageId($order);
-        $order = app(OtpOrderService::class)->refreshOrder($order);
+        $order = $otpService->refreshOrder($order);
 
         $service = e($order->otpService?->name ?? 'Kopken');
 
