@@ -846,9 +846,9 @@ class TelegramBotService
             }
         }
 
-        $dbLine = $this->formatPingLine('Bot / Database', $db);
-        $tgLine = $this->formatPingLine('Telegram API', $telegram);
-        $pvLine = $this->formatPingLine('Provider OTP (result)', $provider);
+        $dbLine = $this->formatPingValue($db);
+        $tgLine = $this->formatPingValue($telegram);
+        $pvLine = $this->formatPingValue($provider);
 
         $worstMs = null;
         foreach ([$db, $telegram, $provider] as $item) {
@@ -861,14 +861,14 @@ class TelegramBotService
 
         $overall = $this->pingRating($worstMs, $worstMs !== 99999);
         $ready = ($db['ok'] ?? false) && ($telegram['ok'] ?? false) && ($provider['ok'] ?? false);
+        $statusText = $ready ? 'SIAP MELAYANI' : 'ADA GANGGUAN';
 
         $text = "<b>Laporan Performa Server</b> 📡\n\n"
-            ."Dicek: <code>{$checkedAt} WIB</code>\n\n"
-            ."{$dbLine}\n"
-            ."{$tgLine}\n"
-            ."{$pvLine}\n\n"
-            .'Status: <b>'.($ready ? 'SIAP MELAYANI' : 'ADA GANGGUAN').'</b> '.$overall['icon']
-            ."\n<i>{$overall['label']}</i>";
+            ."❏ Dicek: <code>{$checkedAt} WIB</code>\n"
+            ."├  Bot / Database: {$dbLine}\n"
+            ."├  Telegram API: {$tgLine}\n"
+            ."├  Provider OTP: {$pvLine}\n"
+            ."└  Status: <b>{$statusText}</b> {$overall['icon']} {$overall['label']}";
 
         $keyboard = [
             'inline_keyboard' => [
@@ -912,7 +912,7 @@ class TelegramBotService
     /**
      * @param  array{ok?: bool, ms?: float|null, error?: string|null}  $result
      */
-    protected function formatPingLine(string $label, array $result): string
+    protected function formatPingValue(array $result): string
     {
         $ok = (bool) ($result['ok'] ?? false);
         $ms = isset($result['ms']) ? (float) $result['ms'] : null;
@@ -921,9 +921,9 @@ class TelegramBotService
             ? number_format($ms, $ms < 10 ? 1 : 0, ',', '.').' ms'
             : 'timeout';
 
-        $line = "❏ {$label}: <b>{$time}</b> {$rating['icon']} {$rating['label']}";
+        $line = "<b>{$time}</b> {$rating['icon']} {$rating['label']}";
         if (! $ok && filled($result['error'] ?? null)) {
-            $line .= "\n<i>".e(\Illuminate\Support\Str::limit((string) $result['error'], 80))."</i>";
+            $line .= ' — <i>'.e(\Illuminate\Support\Str::limit((string) $result['error'], 60)).'</i>';
         }
 
         return $line;
