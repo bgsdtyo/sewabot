@@ -1380,9 +1380,11 @@ class TelegramBotService
             }
 
             try {
-                $orders = array_values($otpOrderService->requestBulkOtp($bot, $member, $service, $quantity));
+                $result = $otpOrderService->requestBulkOtp($bot, $member, $service, $quantity);
+                $ordersBySlot = $result['orders'] ?? [];
+                $failedSlots = $result['failed'] ?? [];
 
-                foreach ($orders as $idx => $o) {
+                foreach ($ordersBySlot as $idx => $o) {
                     $msgId = $loadingMessageIds[$idx] ?? null;
                     if ($msgId) {
                         $this->rememberOrderMessage($o, $msgId);
@@ -1391,7 +1393,7 @@ class TelegramBotService
                     }
                 }
 
-                foreach ($orders as $idx => $o) {
+                foreach ($ordersBySlot as $idx => $o) {
                     $slotNum = $idx + 1;
                     $orderText = $this->formatOrderCard(
                         $o,
@@ -1404,8 +1406,38 @@ class TelegramBotService
                     }
                 }
 
+                $failedBySlot = [];
+                foreach ($failedSlots as $fail) {
+                    $failedBySlot[(int) ($fail['slot'] ?? 0)] = (string) ($fail['message'] ?? 'Gagal membuat nomor.');
+                }
+
+                for ($slot = 1; $slot <= $quantity; $slot++) {
+                    if (isset($ordersBySlot[$slot - 1])) {
+                        continue;
+                    }
+
+                    $reason = $failedBySlot[$slot] ?? 'Gagal membuat nomor.';
+                    $failMsgId = $loadingMessageIds[$slot - 1] ?? null;
+                    if (! $failMsgId) {
+                        continue;
+                    }
+
+                    $this->editMessage(
+                        $bot,
+                        $chatId,
+                        $failMsgId,
+                        $this->formatBulkSlotFailed($slot, $svcName, $reason),
+                        [
+                            'inline_keyboard' => [
+                                [['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.$service->id]],
+                            ],
+                        ],
+                        false
+                    );
+                }
+
                 try {
-                    app(OtpOrderWatcher::class)->startBatch($orders);
+                    app(OtpOrderWatcher::class)->startBatch(array_values($ordersBySlot));
                 } catch (\Throwable $watchErr) {
                     Log::warning('Bulk OTP watcher failed to start: '.$watchErr->getMessage());
                 }
@@ -1529,6 +1561,17 @@ class TelegramBotService
                 removeInlineKeyboard: true
             );
         }
+    }
+
+    protected function formatBulkSlotFailed(int $slot, string $svcName, string $reason): string
+    {
+        $reason = e($reason);
+
+        return "❌ <b>Order {$svcName} #{$slot} Gagal</b>\n\n"
+            ."❏ Slot: <b>#{$slot}</b>\n"
+            ."├  Status: <b>Dibatalkan</b>\n"
+            ."└  Alasan: {$reason}\n\n"
+            .'<i>Saldo Anda tidak dipotong untuk slot ini.</i>';
     }
 
     public function formatOrderCard(

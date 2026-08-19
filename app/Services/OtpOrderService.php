@@ -129,7 +129,13 @@ class OtpOrderService
 
     public function requestOtp(TelegramBot $bot, BotMember $member, OtpService $service): OtpOrder
     {
-        $orders = $this->requestBulkOtp($bot, $member, $service, 1);
+        $result = $this->requestBulkOtp($bot, $member, $service, 1);
+        $orders = array_values($result['orders'] ?? []);
+
+        if ($orders === []) {
+            $failed = $result['failed'][0]['message'] ?? 'Gagal membuat pesanan OTP.';
+            throw new RuntimeException($failed);
+        }
 
         return $orders[0];
     }
@@ -137,7 +143,7 @@ class OtpOrderService
     /**
      * Create 1x - 5x bulk OTP orders under a single batch.
      *
-     * @return array<OtpOrder>
+     * @return array{orders: array<int, OtpOrder>, failed: list<array{slot: int, message: string}>}
      */
     public function requestBulkOtp(TelegramBot $bot, BotMember $member, OtpService $service, int $quantity = 1): array
     {
@@ -168,9 +174,18 @@ class OtpOrderService
 
         $batchId = $quantity > 1 ? (string) Str::uuid() : null;
         $orders = [];
-        $errors = [];
+        $failed = [];
+        $stopRemaining = false;
+        $stopReason = null;
 
         for ($i = 0; $i < $quantity; $i++) {
+            $slot = $i + 1;
+
+            if ($stopRemaining) {
+                $failed[] = ['slot' => $slot, 'message' => (string) $stopReason];
+                continue;
+            }
+
             try {
                 $order = DB::transaction(function () use ($bot, $member, $service, $sellPrice, $batchId, $quantity) {
                     $item = OtpOrder::create([
@@ -282,18 +297,35 @@ class OtpOrderService
                     return $item->fresh(['otpService', 'botMember']);
                 });
 
-                $orders[] = $order;
+                $orders[$i] = $order;
             } catch (\Throwable $e) {
-                $errors[] = $e->getMessage();
+                $message = $e->getMessage();
+                $failed[] = ['slot' => $slot, 'message' => $message];
+
+                if ($this->isFatalBulkProviderError($message)) {
+                    $stopRemaining = true;
+                    $stopReason = $message;
+                }
             }
         }
 
-        if (empty($orders)) {
-            $lastErr = ! empty($errors) ? end($errors) : 'Gagal membuat pesanan OTP.';
+        if ($orders === []) {
+            $lastErr = ! empty($failed) ? (string) end($failed)['message'] : 'Gagal membuat pesanan OTP.';
             throw new \RuntimeException($lastErr);
         }
 
-        return $orders;
+        return ['orders' => $orders, 'failed' => $failed];
+    }
+
+    public function isFatalBulkProviderError(string $message): bool
+    {
+        return stripos($message, 'saldo server') !== false
+            || stripos($message, 'tidak cukup') !== false
+            || stripos($message, 'insufficient') !== false
+            || (stripos($message, 'balance') !== false && stripos($message, 'not enough') !== false)
+            || stripos($message, 'stok nomor') !== false
+            || stripos($message, 'stok habis') !== false
+            || stripos($message, 'out of stock') !== false;
     }
 
     public function refreshOrder(OtpOrder $order, bool $notify = true): OtpOrder

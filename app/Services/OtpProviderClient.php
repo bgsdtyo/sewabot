@@ -260,8 +260,13 @@ class OtpProviderClient
             stripos($message, 'stok') !== false
         ) {
             $message = 'Stok nomor untuk layanan ini saat ini sedang habis. Silakan coba beberapa saat lagi.';
-        } elseif (stripos($message, 'balance') !== false || stripos($message, 'saldo') !== false) {
-            $message = 'Layanan ini sedang dalam proses restock/pemeliharaan. Silakan coba beberapa saat lagi atau hubungi admin.';
+        } elseif (
+            stripos($message, 'balance') !== false ||
+            stripos($message, 'saldo') !== false ||
+            stripos($message, 'insufficient') !== false ||
+            stripos($message, 'not enough') !== false
+        ) {
+            $message = 'Saldo server nomor tidak cukup. Slot ini dibatalkan, saldo Anda tidak dipotong.';
         }
 
         Log::warning('OTP provider error', [

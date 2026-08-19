@@ -1,5 +1,6 @@
 # Current Status — SewaBot MVP
 
+2026-08-19 — Bulk OTP: slot sisa gagal jelas jika saldo provider habis (jangan stuck Memeriksa Nomor)
 2026-08-19 — Fix ganti nomor: jangan anggap cancel nomor lama sebagai order batal, OTP tetap edit bubble
 2026-08-18 — Sembunyikan tombol Minta Ulang OTP setelah waktu provider habis
 2026-08-18 — Fix bulk OTP: jangan probe PHP CLI di luar open_basedir (gagal buat order)
