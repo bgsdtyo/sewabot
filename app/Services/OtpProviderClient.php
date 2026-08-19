@@ -172,6 +172,37 @@ class OtpProviderClient
     }
 
     /**
+     * Lightweight latency check to the OTP result server.
+     *
+     * @return array{ok: bool, ms: float, error: string|null}
+     */
+    public function pingLatency(): array
+    {
+        $started = microtime(true);
+
+        try {
+            $response = $this->client(timeout: 6)->get('/balance');
+            $ms = (microtime(true) - $started) * 1000;
+
+            if (! $response->successful()) {
+                return [
+                    'ok' => false,
+                    'ms' => $ms,
+                    'error' => 'HTTP '.$response->status(),
+                ];
+            }
+
+            return ['ok' => true, 'ms' => $ms, 'error' => null];
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'ms' => (microtime(true) - $started) * 1000,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
      * @param  mixed  $json
      * @return array<string, mixed>
      */

@@ -214,6 +214,12 @@ class TelegramBotService
             return;
         }
 
+        if (str_starts_with($text, '/ping') || $this->isButton($text, 'Ping')) {
+            $this->sendPingReport($bot, $member, $chatId);
+
+            return;
+        }
+
         if (str_starts_with($text, '/saldo') || str_starts_with($text, '/balance') || $this->isButton($text, 'Saldo')) {
             $this->sendBalance($bot, $member, $chatId);
 
@@ -677,7 +683,7 @@ class TelegramBotService
             [['text' => '📱 Order OTP'], ['text' => '💰 Saldo']],
             [['text' => '➕ Deposit'], ['text' => '👤 Akun']],
             [['text' => '📦 Order Aktif'], ['text' => '📋 Riwayat']],
-            [['text' => '❓ Bantuan']],
+            [['text' => '❓ Bantuan'], ['text' => '📡 Ping']],
         ];
 
         if ($this->currentBot && $this->currentFromId && $this->currentBot->isTelegramAdmin($this->currentFromId)) {
@@ -802,6 +808,7 @@ class TelegramBotService
             ."• ➕ Deposit — Informasi rekening & deposit\n"
             ."• 👤 Akun — Data profil & total order\n"
             ."• 📋 Riwayat — 5 transaksi terakhir\n"
+            ."• 📡 Ping — Cek kecepatan server bot & provider OTP\n"
             ."• ❓ Bantuan — Panduan penggunaan ini\n\n"
             ."<i>Aksi pesanan (Ganti Nomor, Ulang OTP, Batalkan) dapat langsung dilakukan melalui tombol pada bubble transaksi masing-masing.</i>";
     }
@@ -813,6 +820,137 @@ class TelegramBotService
                 $q->where('slug', 'kopken')->orWhereRaw('UPPER(name) = ?', ['KOPKEN']);
             })
             ->first();
+    }
+
+    protected function sendPingReport(TelegramBot $bot, $member, int|string $chatId, ?int $editMessageId = null): void
+    {
+        $checkedAt = now()->timezone(config('app.timezone', 'Asia/Jakarta'))->format('d-m-Y H:i:s');
+
+        $db = $this->measurePing(function () {
+            \Illuminate\Support\Facades\DB::select('select 1');
+        });
+
+        $telegram = $this->measurePing(function () use ($bot) {
+            $response = Http::timeout(6)->get("https://api.telegram.org/bot{$bot->token}/getMe");
+            if (! $response->successful()) {
+                throw new \RuntimeException('HTTP '.$response->status());
+            }
+        });
+
+        $provider = ['ok' => false, 'ms' => null, 'error' => 'API Key belum diisi'];
+        if (filled($bot->otp_api_key)) {
+            try {
+                $provider = app(OtpProviderClient::class)->forBot($bot)->pingLatency();
+            } catch (\Throwable $e) {
+                $provider = ['ok' => false, 'ms' => null, 'error' => $e->getMessage()];
+            }
+        }
+
+        $dbLine = $this->formatPingLine('Bot / Database', $db);
+        $tgLine = $this->formatPingLine('Telegram API', $telegram);
+        $pvLine = $this->formatPingLine('Provider OTP (result)', $provider);
+
+        $worstMs = null;
+        foreach ([$db, $telegram, $provider] as $item) {
+            if (! ($item['ok'] ?? false)) {
+                $worstMs = 99999;
+                break;
+            }
+            $worstMs = max((float) $worstMs, (float) ($item['ms'] ?? 0));
+        }
+
+        $overall = $this->pingRating($worstMs, $worstMs !== 99999);
+        $ready = ($db['ok'] ?? false) && ($telegram['ok'] ?? false) && ($provider['ok'] ?? false);
+
+        $text = "<b>Laporan Performa Server</b> 📡\n\n"
+            ."Dicek: <code>{$checkedAt} WIB</code>\n\n"
+            ."{$dbLine}\n"
+            ."{$tgLine}\n"
+            ."{$pvLine}\n\n"
+            .'Status: <b>'.($ready ? 'SIAP MELAYANI' : 'ADA GANGGUAN').'</b> '.$overall['icon']
+            ."\n<i>{$overall['label']}</i>";
+
+        $keyboard = [
+            'inline_keyboard' => [
+                [['text' => '🔄 Ping Lagi', 'callback_data' => 'ping_refresh']],
+            ],
+        ];
+
+        $this->replyOrSend(
+            $bot,
+            $chatId,
+            $editMessageId,
+            $text,
+            inlineKeyboard: $keyboard
+        );
+    }
+
+    /**
+     * @param  callable(): void  $callback
+     * @return array{ok: bool, ms: float|null, error: string|null}
+     */
+    protected function measurePing(callable $callback): array
+    {
+        $started = microtime(true);
+        try {
+            $callback();
+
+            return [
+                'ok' => true,
+                'ms' => (microtime(true) - $started) * 1000,
+                'error' => null,
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'ms' => (microtime(true) - $started) * 1000,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * @param  array{ok?: bool, ms?: float|null, error?: string|null}  $result
+     */
+    protected function formatPingLine(string $label, array $result): string
+    {
+        $ok = (bool) ($result['ok'] ?? false);
+        $ms = isset($result['ms']) ? (float) $result['ms'] : null;
+        $rating = $this->pingRating($ms, $ok);
+        $time = $ok && $ms !== null
+            ? number_format($ms, $ms < 10 ? 1 : 0, ',', '.').' ms'
+            : 'timeout';
+
+        $line = "❏ {$label}: <b>{$time}</b> {$rating['icon']} {$rating['label']}";
+        if (! $ok && filled($result['error'] ?? null)) {
+            $line .= "\n<i>".e(\Illuminate\Support\Str::limit((string) $result['error'], 80))."</i>";
+        }
+
+        return $line;
+    }
+
+    /**
+     * @return array{label: string, icon: string}
+     */
+    protected function pingRating(?float $ms, bool $ok): array
+    {
+        if (! $ok || $ms === null) {
+            return ['label' => 'gagal', 'icon' => '❌'];
+        }
+        if ($ms < 200) {
+            return ['label' => 'sangat cepat', 'icon' => '🟢'];
+        }
+        if ($ms < 500) {
+            return ['label' => 'cepat', 'icon' => '🟢'];
+        }
+        if ($ms < 1000) {
+            return ['label' => 'normal', 'icon' => '🟡'];
+        }
+        if ($ms < 2000) {
+            return ['label' => 'lambat', 'icon' => '🟠'];
+        }
+
+        return ['label' => 'sangat lambat', 'icon' => '🔴'];
     }
 
     protected function showHistory(TelegramBot $bot, $member, $chatId): void
@@ -2375,6 +2513,12 @@ class TelegramBotService
                 $this->deleteMessage($bot, $chatId, $messageId);
             }
             $this->sendDepositInfo($bot, $chatId);
+
+            return;
+        }
+
+        if ($data === 'ping_refresh') {
+            $this->sendPingReport($bot, $member, $chatId, $messageId ? (int) $messageId : null);
 
             return;
         }
