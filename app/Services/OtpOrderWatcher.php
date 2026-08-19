@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\OtpOrder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
 
@@ -38,15 +39,16 @@ class OtpOrderWatcher
     }
 
     /**
-     * Poll every order first (no Telegram), then edit bubbles.
-     * So #3 is not stuck behind #1/#2 Telegram API calls.
+     * Poll every pending order first (no Telegram), then edit bubbles.
+     * Keep an id in the loop until the Telegram edit actually succeeds —
+     * otherwise #3 gets dropped after a 429 and stays stale until Cek OTP.
      */
     public function runWatchBatchCycle(array $orderIds): void
     {
         ignore_user_abort(true);
-        @set_time_limit(180);
+        @set_time_limit(240);
 
-        $deadline = time() + 150;
+        $deadline = time() + 180;
         $activeIds = array_values(array_unique($orderIds));
         $firstTick = true;
 
@@ -62,6 +64,11 @@ class OtpOrderWatcher
 
             foreach ($activeIds as $k => $orderId) {
                 try {
+                    if ($this->bubbleDelivered((int) $orderId)) {
+                        unset($activeIds[$k]);
+                        continue;
+                    }
+
                     $order = OtpOrder::query()->find($orderId);
 
                     if (! $order) {
@@ -69,13 +76,12 @@ class OtpOrderWatcher
                         continue;
                     }
 
-                    if (in_array($order->status, ['completed', 'expired'], true)) {
-                        unset($activeIds[$k]);
+                    if ($order->status === 'cancelled' && app(OtpOrderService::class)->isIgnoringProviderCancel((int) $order->id)) {
                         continue;
                     }
 
-                    if ($order->status === 'cancelled' && ! app(OtpOrderService::class)->isIgnoringProviderCancel((int) $order->id)) {
-                        unset($activeIds[$k]);
+                    if (in_array($order->status, ['completed', 'cancelled', 'expired'], true) || filled($order->otp_code)) {
+                        $toNotify[] = $order;
                         continue;
                     }
 
@@ -83,7 +89,6 @@ class OtpOrderWatcher
 
                     if (in_array($fresh->status, ['completed', 'cancelled', 'expired'], true) || filled($fresh->otp_code)) {
                         $toNotify[] = $fresh;
-                        unset($activeIds[$k]);
                     }
                 } catch (\Throwable $e) {
                     Log::warning("OtpOrderWatcher batch tick failed on #{$orderId}: ".$e->getMessage());
@@ -92,8 +97,20 @@ class OtpOrderWatcher
 
             $activeIds = array_values($activeIds);
 
-            foreach ($toNotify as $done) {
-                $this->notifyWatchedOrder($done);
+            foreach ($toNotify as $i => $done) {
+                if ($i > 0) {
+                    usleep(400000);
+                }
+
+                if (! $this->notifyWatchedOrder($done)) {
+                    continue;
+                }
+
+                $this->markBubbleDelivered((int) $done->id);
+                $activeIds = array_values(array_filter(
+                    $activeIds,
+                    fn ($id) => (int) $id !== (int) $done->id
+                ));
             }
         }
     }
@@ -101,9 +118,9 @@ class OtpOrderWatcher
     public function runWatchCycle(int $orderId): void
     {
         ignore_user_abort(true);
-        @set_time_limit(180);
+        @set_time_limit(240);
 
-        $deadline = time() + 150;
+        $deadline = time() + 180;
         $firstTick = true;
 
         Log::info('OtpOrderWatcher start', ['id' => $orderId, 'sapi' => PHP_SAPI]);
@@ -115,26 +132,31 @@ class OtpOrderWatcher
             $firstTick = false;
 
             try {
+                if ($this->bubbleDelivered($orderId)) {
+                    return;
+                }
+
                 $order = OtpOrder::query()->find($orderId);
 
                 if (! $order) {
                     return;
                 }
 
-                if (in_array($order->status, ['completed', 'expired'], true)) {
-                    return;
+                if ($order->status === 'cancelled' && app(OtpOrderService::class)->isIgnoringProviderCancel((int) $order->id)) {
+                    continue;
                 }
 
-                if ($order->status === 'cancelled' && ! app(OtpOrderService::class)->isIgnoringProviderCancel((int) $order->id)) {
-                    return;
+                $target = $order;
+                if (! (in_array($order->status, ['completed', 'cancelled', 'expired'], true) || filled($order->otp_code))) {
+                    $target = app(OtpOrderService::class)->refreshOrder($order, notify: false);
                 }
 
-                $fresh = app(OtpOrderService::class)->refreshOrder($order, notify: false);
+                if (in_array($target->status, ['cancelled', 'expired', 'completed'], true) || filled($target->otp_code)) {
+                    if ($this->notifyWatchedOrder($target)) {
+                        $this->markBubbleDelivered($orderId);
 
-                if (in_array($fresh->status, ['cancelled', 'expired', 'completed'], true) || filled($fresh->otp_code)) {
-                    $this->notifyWatchedOrder($fresh);
-
-                    return;
+                        return;
+                    }
                 }
             } catch (\Throwable $e) {
                 Log::warning('OtpOrderWatcher tick failed: '.$e->getMessage());
@@ -142,7 +164,7 @@ class OtpOrderWatcher
         }
     }
 
-    protected function notifyWatchedOrder(OtpOrder $order): void
+    protected function notifyWatchedOrder(OtpOrder $order): bool
     {
         try {
             $order = $order->fresh(['otpService', 'botMember', 'telegramBot']) ?? $order;
@@ -151,48 +173,51 @@ class OtpOrderWatcher
             if (! $bot || ! $member) {
                 Log::warning('OtpOrderWatcher notify skipped: missing bot/member', ['order' => $order->id]);
 
-                return;
+                return false;
             }
 
             if ($order->status === 'completed' || filled($order->otp_code)) {
-                app(TelegramBotService::class)->notifyOrderCompleted($bot, $member, $order);
-
-                return;
+                return app(TelegramBotService::class)->notifyOrderCompleted($bot, $member, $order);
             }
 
             if (in_array($order->status, ['cancelled', 'expired'], true)) {
-                app(TelegramBotService::class)->notifyOrderCancelled($bot, $member, $order, $order->status);
+                return app(TelegramBotService::class)->notifyOrderCancelled($bot, $member, $order, $order->status);
             }
         } catch (\Throwable $e) {
             Log::warning('OtpOrderWatcher notify failed: '.$e->getMessage(), ['order' => $order->id]);
         }
+
+        return false;
+    }
+
+    protected function bubbleDelivered(int $orderId): bool
+    {
+        return Cache::has('otp_bubble_ok:'.$orderId);
+    }
+
+    protected function markBubbleDelivered(int $orderId): void
+    {
+        Cache::put('otp_bubble_ok:'.$orderId, 1, now()->addMinutes(20));
     }
 
     /**
-     * Always watch in this PHP request after the webhook replies.
-     * Detached curl/CLI is extra only — never skip the in-process fallback.
+     * Watch in this PHP request after the webhook replies.
+     * Do not spawn a second curl watcher — it races the in-process loop,
+     * sees status=completed, and skips the Telegram edit for later slots.
      */
     protected function spawn(array $orderIds): void
     {
         $this->fallbackTerminating($orderIds);
-
-        try {
-            if ($this->spawnCurl($orderIds)) {
-                Log::info('OtpOrderWatcher also spawned curl', ['ids' => $orderIds]);
-            }
-        } catch (\Throwable $e) {
-            Log::debug('OtpOrderWatcher extra spawn: '.$e->getMessage());
-        }
     }
 
     protected function fallbackTerminating(array $orderIds): void
     {
         ignore_user_abort(true);
-        @set_time_limit(180);
+        @set_time_limit(240);
 
         app()->terminating(function () use ($orderIds) {
             ignore_user_abort(true);
-            @set_time_limit(180);
+            @set_time_limit(240);
             if (count($orderIds) === 1) {
                 app(OtpOrderWatcher::class)->runWatchCycle($orderIds[0]);
             } else {

@@ -1393,13 +1393,11 @@ class TelegramBotService
                     }
                 }
 
-                try {
-                    app(OtpOrderWatcher::class)->startBatch(array_values($ordersBySlot));
-                } catch (\Throwable $watchErr) {
-                    Log::warning('Bulk OTP watcher failed to start: '.$watchErr->getMessage());
-                }
-
                 foreach ($ordersBySlot as $idx => $o) {
+                    if ($idx > 0) {
+                        usleep(350000);
+                    }
+
                     $slotNum = $idx + 1;
                     $orderText = $this->formatOrderCard(
                         $o,
@@ -1440,6 +1438,12 @@ class TelegramBotService
                         ],
                         false
                     );
+                }
+
+                try {
+                    app(OtpOrderWatcher::class)->startBatch(array_values($ordersBySlot));
+                } catch (\Throwable $watchErr) {
+                    Log::warning('Bulk OTP watcher failed to start: '.$watchErr->getMessage());
                 }
             } catch (ValidationException $e) {
                 // Tampilkan error di bubble pertama, hapus bubble loading extra
@@ -1924,7 +1928,7 @@ class TelegramBotService
         $this->rememberOrderMessage($order, $messageId);
     }
 
-    public function notifyOrderCompleted(TelegramBot $bot, $member, OtpOrder $order): void
+    public function notifyOrderCompleted(TelegramBot $bot, $member, OtpOrder $order): bool
     {
         $order = $order->fresh(['otpService', 'botMember']) ?? $order;
         $service = e($order->otpService?->name ?? 'Kopken');
@@ -1950,14 +1954,10 @@ class TelegramBotService
         ]);
 
         if ($order->status === 'pending') {
-            $this->pushOrderBubble($bot, $member, $order, $text, $this->orderActionKeyboard($order));
-
-            return;
+            return $this->pushOrderBubble($bot, $member, $order, $text, $this->orderActionKeyboard($order));
         }
 
-        $keyboard = $this->completedOrderKeyboard($order);
-
-        $this->pushOrderBubble($bot, $member, $order, $text, $keyboard);
+        return $this->pushOrderBubble($bot, $member, $order, $text, $this->completedOrderKeyboard($order));
     }
 
     /**
@@ -2015,7 +2015,7 @@ class TelegramBotService
         OtpOrder $order,
         string $reasonType = 'cancelled',
         ?string $customReason = null
-    ): void {
+    ): bool {
         $phone = $this->formatPhoneNumber($order->phone_number);
         $phoneFormatted = $phone !== '' ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : '';
         $service = e($order->otpService?->name ?? 'Kopken');
@@ -2041,30 +2041,43 @@ class TelegramBotService
             ],
         ];
 
-        $this->pushOrderBubble($bot, $member, $order, $text, $keyboard);
+        return $this->pushOrderBubble($bot, $member, $order, $text, $keyboard);
     }
 
-    protected function pushOrderBubble(TelegramBot $bot, $member, OtpOrder $order, string $text, ?array $keyboard = null): void
+    protected function pushOrderBubble(TelegramBot $bot, $member, OtpOrder $order, string $text, ?array $keyboard = null): bool
     {
         $messageId = $this->orderMessageId($order);
 
         if ($messageId) {
-            $edited = $this->editMessage(
-                $bot,
-                $member->telegram_chat_id,
-                $messageId,
-                $text,
-                $keyboard,
-                false
-            );
+            for ($attempt = 1; $attempt <= 2; $attempt++) {
+                $edited = $this->editMessage(
+                    $bot,
+                    $member->telegram_chat_id,
+                    $messageId,
+                    $text,
+                    $keyboard,
+                    false
+                );
 
-            if ($edited) {
-                return;
+                if ($edited) {
+                    return true;
+                }
+
+                usleep(500000 * $attempt);
             }
+
+            Log::warning('pushOrderBubble edit failed, will retry via watcher', [
+                'order' => $order->id,
+                'message_id' => $messageId,
+            ]);
+
+            return false;
         }
 
         $newMsgId = $this->sendMessage($bot, $member->telegram_chat_id, $text, null, $keyboard);
         $this->rememberOrderMessage($order, $newMsgId);
+
+        return (bool) $newMsgId;
     }
 
     protected function rememberOrderMessage(OtpOrder $order, ?int $messageId): void

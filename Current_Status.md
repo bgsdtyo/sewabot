@@ -1,5 +1,6 @@
 # Current Status — SewaBot MVP
 
+2026-08-19 — Bulk OTP #3: jangan drop slot sebelum edit Telegram sukses; no curl race; startBatch setelah kartu pending
 2026-08-19 — Bulk OTP: watcher selalu in-process setelah webhook (jangan andalkan curl spawn)
 2026-08-19 — Bulk OTP: slot sisa gagal jelas jika saldo provider habis (jangan stuck Memeriksa Nomor)
 2026-08-19 — Fix ganti nomor: jangan anggap cancel nomor lama sebagai order batal, OTP tetap edit bubble
