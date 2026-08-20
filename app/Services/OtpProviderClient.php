@@ -266,7 +266,7 @@ class OtpProviderClient
             stripos($message, 'insufficient') !== false ||
             stripos($message, 'not enough') !== false
         ) {
-            $message = 'Saldo server nomor tidak cukup. Slot ini dibatalkan, saldo Anda tidak dipotong.';
+            $message = 'Nomor untuk layanan ini sedang tidak tersedia saat ini. Slot dibatalkan, saldo Anda tidak dipotong. Segera hubungi admin untuk dibantu pengecekan.';
         }
 
         Log::warning('OTP provider error', [
