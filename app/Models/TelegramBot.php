@@ -222,10 +222,10 @@ class TelegramBot extends Model
 
         $parts = preg_split('/[\s,;]+/', $raw) ?: [];
 
-        return array_values(array_filter(array_map(
+        return array_values(array_unique(array_filter(array_map(
             static fn ($id) => preg_replace('/\D+/', '', (string) $id) ?: '',
             $parts
-        )));
+        ))));
     }
 
     public function isTelegramAdmin(int|string $telegramId): bool

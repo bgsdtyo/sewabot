@@ -2955,36 +2955,50 @@ class TelegramBotService
             $alertSent = false;
             $adminsNotified = [];
 
-            if ($threshold > 0 && $balance <= $threshold) {
-                // Throttling: send at most once every 60 minutes per bot
-                $lastAlert = $bot->provider_balance_last_alerted_at;
-                $canAlert = ! $lastAlert || $lastAlert->diffInMinutes(now()) >= 60;
-
-                if ($canAlert) {
-                    $adminIds = $bot->adminTelegramIdList();
-                    $formattedBalance = number_format($balance, 0, ',', '.');
-                    $formattedThreshold = number_format($threshold, 0, ',', '.');
-
-                    $alertText = "⚠️ <b>PERINGATAN: SALDO PUSAT DIBAWAH AMBANG!</b>\n\n"
-                        ."Saldo API provider bot <b>{$bot->name}</b> tersisa:\n"
-                        ."💰 <b>Rp{$formattedBalance}</b>\n\n"
-                        ."Batas Ambang Minimal: <b>Rp{$formattedThreshold}</b>\n\n"
-                        ."🔔 <i>Segera isi/topup saldo pusat provider Anda agar layanan bot dan transaksi OTP member tetap lancar!</i>";
-
-                    foreach ($adminIds as $adminId) {
-                        try {
-                            $res = $this->sendMessage($bot, $adminId, $alertText);
-                            if ($res !== null) {
-                                $adminsNotified[] = $adminId;
-                                $alertSent = true;
-                            }
-                        } catch (\Throwable $e) {
-                            Log::warning("Failed to send balance alert to admin {$adminId}: ".$e->getMessage());
-                        }
+            if ($threshold > 0) {
+                if ($balance > $threshold) {
+                    // Saldo sudah aman / di-topup: reset timer alert agar saat saldo turun lagi bisa langsung kirim notifikasi
+                    if ($bot->provider_balance_last_alerted_at !== null) {
+                        $bot->update(['provider_balance_last_alerted_at' => null]);
                     }
+                    Cache::forget("bot_balance_alert_lock:{$bot->id}");
+                } else {
+                    // Saldo di bawah ambang batas minimal: cegah spam dan double message
+                    $cooldownHours = 6;
+                    $lockKey = "bot_balance_alert_lock:{$bot->id}";
+                    $lastAlert = $bot->provider_balance_last_alerted_at;
+                    $canAlert = (! $lastAlert || $lastAlert->diffInHours(now()) >= $cooldownHours)
+                        && ! Cache::has($lockKey);
 
-                    if ($alertSent) {
+                    if ($canAlert) {
+                        // Atomic claim lock sebelum kirim pesan agar tidak balapan jika ada 2 cron request
+                        Cache::put($lockKey, 1, now()->addHours($cooldownHours));
                         $bot->update(['provider_balance_last_alerted_at' => now()]);
+
+                        $adminIds = array_values(array_unique($bot->adminTelegramIdList()));
+                        $formattedBalance = number_format($balance, 0, ',', '.');
+                        $formattedThreshold = number_format($threshold, 0, ',', '.');
+
+                        $alertText = "⚠️ <b>PERINGATAN: SALDO PUSAT DIBAWAH AMBANG!</b>\n\n"
+                            ."Saldo API provider bot <b>{$bot->name}</b> tersisa:\n"
+                            ."💰 <b>Rp{$formattedBalance}</b>\n\n"
+                            ."Batas Ambang Minimal: <b>Rp{$formattedThreshold}</b>\n\n"
+                            ."🔔 <i>Segera isi/topup saldo pusat provider Anda agar layanan bot dan transaksi OTP member tetap lancar!</i>";
+
+                        foreach ($adminIds as $adminId) {
+                            if (! filled($adminId)) {
+                                continue;
+                            }
+                            try {
+                                $res = $this->sendMessage($bot, $adminId, $alertText);
+                                if ($res !== null) {
+                                    $adminsNotified[] = $adminId;
+                                    $alertSent = true;
+                                }
+                            } catch (\Throwable $e) {
+                                Log::warning("Failed to send balance alert to admin {$adminId}: ".$e->getMessage());
+                            }
+                        }
                     }
                 }
             }
