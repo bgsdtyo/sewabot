@@ -46,9 +46,9 @@ class OtpOrderWatcher
     public function runWatchBatchCycle(array $orderIds): void
     {
         ignore_user_abort(true);
-        @set_time_limit(240);
+        @set_time_limit(360);
 
-        $deadline = time() + 180;
+        $deadline = time() + 300;
         $activeIds = array_values(array_unique($orderIds));
         $firstTick = true;
 
@@ -56,7 +56,7 @@ class OtpOrderWatcher
 
         while (time() < $deadline && $activeIds !== []) {
             if (! $firstTick) {
-                sleep(1);
+                sleep(2);
             }
             $firstTick = false;
 
@@ -118,16 +118,16 @@ class OtpOrderWatcher
     public function runWatchCycle(int $orderId): void
     {
         ignore_user_abort(true);
-        @set_time_limit(240);
+        @set_time_limit(360);
 
-        $deadline = time() + 180;
+        $deadline = time() + 300;
         $firstTick = true;
 
         Log::info('OtpOrderWatcher start', ['id' => $orderId, 'sapi' => PHP_SAPI]);
 
         while (time() < $deadline) {
             if (! $firstTick) {
-                sleep(1);
+                sleep(2);
             }
             $firstTick = false;
 
@@ -201,23 +201,39 @@ class OtpOrderWatcher
     }
 
     /**
-     * Watch in this PHP request after the webhook replies.
-     * Do not spawn a second curl watcher — it races the in-process loop,
-     * sees status=completed, and skips the Telegram edit for later slots.
+     * Start detached CLI / background curl watcher first so FPM process termination
+     * does not kill the watcher loop when later slots (#2, #3) are being inputted.
      */
     protected function spawn(array $orderIds): void
     {
+        $idStr = implode(',', $orderIds);
+
+        // 1. Coba spawn background CLI process via artisan
+        if ($this->spawnArtisan($idStr)) {
+            Log::info("OtpOrderWatcher spawned via Artisan for IDs: {$idStr}");
+
+            return;
+        }
+
+        // 2. Coba spawn via async background curl
+        if ($this->spawnCurl($orderIds)) {
+            Log::info("OtpOrderWatcher spawned via Curl for IDs: {$idStr}");
+
+            return;
+        }
+
+        // 3. Fallback in-process terminating
         $this->fallbackTerminating($orderIds);
     }
 
     protected function fallbackTerminating(array $orderIds): void
     {
         ignore_user_abort(true);
-        @set_time_limit(240);
+        @set_time_limit(360);
 
         app()->terminating(function () use ($orderIds) {
             ignore_user_abort(true);
-            @set_time_limit(240);
+            @set_time_limit(360);
             if (count($orderIds) === 1) {
                 app(OtpOrderWatcher::class)->runWatchCycle($orderIds[0]);
             } else {
