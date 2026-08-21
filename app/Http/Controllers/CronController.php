@@ -231,9 +231,8 @@ class CronController extends Controller
             $otp = app(OtpOrderService::class);
             $pending = OtpOrder::query()
                 ->where('status', 'pending')
-                ->whereNotNull('provider_order_id')
                 ->orderBy('id')
-                ->limit(10)
+                ->limit(25)
                 ->get();
 
             $results = [];

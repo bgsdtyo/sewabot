@@ -16,7 +16,6 @@ class PollOtpOrdersCommand extends Command
     {
         $pending = OtpOrder::query()
             ->where('status', 'pending')
-            ->whereNotNull('provider_order_id')
             ->orderBy('id')
             ->limit(50)
             ->get();

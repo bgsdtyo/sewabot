@@ -218,48 +218,6 @@ class OtpOrderService
                     $providerOrderId = $data['id'] ?? null;
                     $phone = $data['phone_number'] ?? null;
 
-                    // Single order: wait for provider health check. Bulk skips this so webhook
-                    // is not killed by 5s × N slots; watcher applies banned/OTP updates per bubble.
-                    $maxVerifyAttempts = $quantity > 1 ? 0 : 5;
-                    if ($providerOrderId && $maxVerifyAttempts > 0) {
-                        for ($attempt = 1; $attempt <= $maxVerifyAttempts; $attempt++) {
-                            try {
-                                usleep(1000000); // 1.0s per tick
-                                $check = $this->provider->forBot($bot)->getOrder($providerOrderId);
-                                if (! empty($check)) {
-                                    $data = array_merge($data, $check);
-                                    $checkStatus = strtolower((string) ($check['status'] ?? ''));
-                                    $checkReason = $check['cancel_reason'] ?? $check['reason'] ?? $check['message'] ?? null;
-
-                                    if (
-                                        in_array($checkStatus, ['cancelled', 'canceled', 'cancel', 'banned', 'blocked', 'rejected', 'failed', 'completed'], true)
-                                        || stripos((string) $checkReason, 'banned') !== false
-                                        || stripos((string) $checkReason, 'terblokir') !== false
-                                        || stripos((string) $checkReason, 'blocked') !== false
-                                        || stripos((string) $checkReason, 'cancel') !== false
-                                    ) {
-                                        break; // Definite status reached!
-                                    }
-                                }
-                            } catch (\Throwable $chkErr) {
-                                $errMsg = (string) $chkErr->getMessage();
-                                if (
-                                    stripos($errMsg, 'banned') !== false
-                                    || stripos($errMsg, 'terblokir') !== false
-                                    || stripos($errMsg, 'blocked') !== false
-                                    || stripos($errMsg, 'cancelled') !== false
-                                    || stripos($errMsg, 'canceled') !== false
-                                    || stripos($errMsg, 'dibatalkan') !== false
-                                    || stripos($errMsg, 'not found') !== false
-                                ) {
-                                    $data['status'] = 'cancelled';
-                                    $data['cancel_reason'] = $errMsg;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
                     $initStatus = strtolower((string) ($data['status'] ?? 'pending'));
                     $cancelReason = $data['cancel_reason'] ?? $data['reason'] ?? $data['message'] ?? null;
                     $phone = $data['phone_number'] ?? $phone;
@@ -330,7 +288,19 @@ class OtpOrderService
 
     public function refreshOrder(OtpOrder $order, bool $notify = true): OtpOrder
     {
+        // 1. Cek apakah waktu order sudah kedaluwarsa (> 20 menit)
+        $expiresAt = $order->otpWindowExpiresAt();
+        $isTimeExpired = ($expiresAt && $expiresAt->isPast())
+            || ($order->created_at && $order->created_at->lt(now()->subMinutes(20)));
+
+        if ($isTimeExpired && $order->status === 'pending') {
+            return $this->refundLocal($order, 'expired', 'Batas waktu pemesanan nomor (20 menit) telah habis.', $notify);
+        }
+
         if (! $order->provider_order_id) {
+            if ($isTimeExpired && $order->status === 'pending') {
+                return $this->refundLocal($order, 'expired', 'Order tanpa ID provider kedaluwarsa.', $notify);
+            }
             return $order;
         }
 
@@ -348,7 +318,23 @@ class OtpOrderService
             }
             $data = $this->provider->forBot($bot)->getOrder($order->provider_order_id);
         } catch (\Throwable $e) {
-            Log::warning('refreshOrder failed: '.$e->getMessage());
+            $errMessage = (string) $e->getMessage();
+            Log::warning('refreshOrder failed: '.$errMessage);
+
+            // Jika provider mengembalikan 404 / tidak ditemukan / order hilang dari provider,
+            // atau jika order sudah berumur > 3 menit, auto-expire agar tidak memblokir user selamanya.
+            $isNotFoundInProvider = stripos($errMessage, '404') !== false
+                || stripos($errMessage, 'not found') !== false
+                || stripos($errMessage, 'tidak ditemukan') !== false;
+
+            if (($isNotFoundInProvider || $isTimeExpired) && $order->status === 'pending') {
+                return $this->refundLocal(
+                    $order,
+                    'expired',
+                    'Pesanan sudah tidak aktif di server provider. Saldo telah dikembalikan.',
+                    $notify
+                );
+            }
 
             return $order;
         }
@@ -365,17 +351,17 @@ class OtpOrderService
         $order->update([
             'phone_number' => $data['phone_number'] ?? $order->phone_number,
             'otp_code' => $newOtp,
-            'full_text' => $data['full_text'] ?? $data['sms'] ?? $order->full_text,
+            'full_text' => $data['full_text'] ?? $data['sms'] ?? $data['sms_text'] ?? $order->full_text,
             'raw_payload' => $data,
             'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : $order->provider_expire_at,
         ]);
 
         $order = $order->fresh(['otpService', 'botMember', 'telegramBot']) ?? $order;
 
-        $providerSaysDone = in_array($status, ['completed', 'complete', 'success', 'succeed', 'received', 'delivered', 'ok', 'done'], true);
         $canComplete = $order->status === 'pending' || $this->isIgnoringProviderCancel((int) $order->id);
 
-        if ($canComplete && ($providerSaysDone || filled($newOtp))) {
+        // Hanya complete jika OTP BENAR-BENAR SUDAH DIDAPAT agar user tidak dirugikan / saldo terpotong tanpa OTP
+        if ($canComplete && filled($newOtp)) {
             return $this->completeOrder($order, $notify);
         }
 
@@ -676,7 +662,12 @@ class OtpOrderService
             if (is_array($value) || ! filled($value)) {
                 continue;
             }
-            $digits = preg_replace('/\D+/', '', (string) $value);
+            $cleanVal = trim((string) $value);
+            // Format 123-456 atau 123 456
+            if (preg_match('/^(\d{3})[- ](\d{3})$/', $cleanVal, $m)) {
+                return $m[1].$m[2];
+            }
+            $digits = preg_replace('/\D+/', '', $cleanVal);
             if (is_string($digits) && preg_match('/^\d{4,8}$/', $digits)) {
                 return $digits;
             }
@@ -687,10 +678,19 @@ class OtpOrderService
             if (preg_match('/\*(\d{4,8})\*/', $text, $match)) {
                 return $match[1];
             }
-            if (preg_match('/(?:otp|kode|code|pin)[^\d]{0,12}(\d{4,8})/i', $text, $match)) {
+            if (preg_match('/(?:otp|kode|code|pin|verifikasi)[^\d]{0,15}(\d{3}[- ]\d{3})/i', $text, $match)) {
+                return preg_replace('/\D+/', '', $match[1]);
+            }
+            if (preg_match('/(?:otp|kode|code|pin|verifikasi)[^\d]{0,15}(\d{4,8})/i', $text, $match)) {
                 return $match[1];
             }
+            if (preg_match('/\b(\d{3})[- ](\d{3})\b/', $text, $match)) {
+                return $match[1].$match[2];
+            }
             if (preg_match('/\b(\d{6,8})\b/', $text, $match)) {
+                return $match[1];
+            }
+            if (preg_match('/\b(\d{4,5})\b/', $text, $match)) {
                 return $match[1];
             }
         }

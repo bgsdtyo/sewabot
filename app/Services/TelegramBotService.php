@@ -1512,7 +1512,29 @@ class TelegramBotService
 
         try {
             $order = $otpOrderService->requestOtp($bot, $member, $service);
-            $this->rememberOrderMessage($order, $workingMessageId ?? $previewMessageId);
+            $msgIdToUse = $workingMessageId ?? $previewMessageId;
+            if ($msgIdToUse) {
+                $this->rememberOrderMessage($order, $msgIdToUse);
+            }
+
+            $svcName = e($service->name ?? 'Kopken');
+            $orderText = $this->formatOrderCard(
+                $order,
+                title: "Order {$svcName} — Memeriksa Nomor 📲",
+                footer: 'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.'
+            );
+
+            if ($msgIdToUse) {
+                $this->editMessage(
+                    $bot,
+                    $chatId,
+                    $msgIdToUse,
+                    $orderText,
+                    $this->orderActionKeyboard($order),
+                    false
+                );
+            }
+
             try {
                 app(OtpOrderWatcher::class)->start($order);
             } catch (\Throwable $watchErr) {
