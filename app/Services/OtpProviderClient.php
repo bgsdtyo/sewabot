@@ -217,8 +217,16 @@ class OtpProviderClient
             return is_array($json) ? $json : [];
         }
 
-        if (isset($data['data']) && is_array($data['data']) && ! isset($data['otp']) && ! isset($data['otp_code']) && ! isset($data['status'])) {
+        if (isset($data['data']) && is_array($data['data'])) {
             $data = array_merge($data, $data['data']);
+        }
+
+        if (isset($json['data']) && is_array($json['data'])) {
+            foreach ($json as $k => $v) {
+                if ($k !== 'data' && ! isset($data[$k])) {
+                    $data[$k] = $v;
+                }
+            }
         }
 
         return $data;

@@ -305,6 +305,7 @@ class OtpOrderService
         }
 
         $canPoll = $order->status === 'pending'
+            || ! filled($order->otp_code)
             || $this->isIgnoringProviderCancel((int) $order->id);
 
         if (! $canPoll) {
@@ -651,50 +652,91 @@ class OtpOrderService
 
     protected function findOtpIn(array $data, int $depth = 0): ?string
     {
-        if ($depth > 4) {
+        if ($depth > 5) {
             return null;
         }
 
-        $skipKeys = ['id', 'provider_order_id', 'service_id', 'phone_number', 'phone', 'price', 'expire_at', 'created_at', 'updated_at'];
+        $skipKeys = ['id', 'provider_order_id', 'service_id', 'phone_number', 'phone', 'price', 'expire_at', 'created_at', 'updated_at', 'balance', 'provider_price', 'sell_price'];
 
-        foreach (['otp', 'otp_code', 'code', 'sms_code', 'verification_code', 'pin', 'token'] as $key) {
-            $value = $data[$key] ?? null;
-            if (is_array($value) || ! filled($value)) {
+        // 1. Cek langsung key-key OTP / Code
+        foreach (['otp', 'otp_code', 'code', 'sms_code', 'verification_code', 'pin', 'token', 'passcode', 'kode', 'secret', 'val', 'auth_code'] as $key) {
+            if (! isset($data[$key])) {
                 continue;
             }
-            $cleanVal = trim((string) $value);
-            // Format 123-456 atau 123 456
-            if (preg_match('/^(\d{3})[- ](\d{3})$/', $cleanVal, $m)) {
-                return $m[1].$m[2];
-            }
-            $digits = preg_replace('/\D+/', '', $cleanVal);
-            if (is_string($digits) && preg_match('/^\d{4,8}$/', $digits)) {
-                return $digits;
+            $value = $data[$key];
+            if (is_string($value) || is_numeric($value)) {
+                $cleanVal = trim((string) $value);
+                if ($cleanVal === '') {
+                    continue;
+                }
+                // Format 123-456 atau 123 456
+                if (preg_match('/^(\d{3})[- ](\d{3})$/', $cleanVal, $m)) {
+                    return $m[1].$m[2];
+                }
+                $digits = preg_replace('/\D+/', '', $cleanVal);
+                if (is_string($digits) && preg_match('/^\d{4,8}$/', $digits)) {
+                    return $digits;
+                }
             }
         }
 
-        $text = (string) ($data['full_text'] ?? $data['sms'] ?? $data['sms_text'] ?? $data['full_sms'] ?? $data['content'] ?? $data['message'] ?? $data['text'] ?? '');
-        if ($text !== '') {
+        // 2. Kumpulkan semua text dari field text/sms/message/content (baik string maupun array)
+        $textCandidates = [];
+        foreach (['full_text', 'sms', 'sms_text', 'full_sms', 'content', 'message', 'text', 'body', 'last_sms', 'msg', 'messages'] as $tKey) {
+            if (! isset($data[$tKey])) {
+                continue;
+            }
+            $val = $data[$tKey];
+            if (is_string($val) && trim($val) !== '') {
+                $textCandidates[] = trim($val);
+            } elseif (is_array($val)) {
+                foreach (['text', 'content', 'message', 'body', 'sms', 'code', 'otp', 'val'] as $subKey) {
+                    if (isset($val[$subKey]) && is_scalar($val[$subKey])) {
+                        $textCandidates[] = trim((string) $val[$subKey]);
+                    }
+                }
+                // Jika array numerik dari object SMS
+                foreach ($val as $subItem) {
+                    if (is_array($subItem)) {
+                        foreach (['text', 'content', 'message', 'body', 'sms', 'code', 'otp'] as $subKey) {
+                            if (isset($subItem[$subKey]) && is_scalar($subItem[$subKey])) {
+                                $textCandidates[] = trim((string) $subItem[$subKey]);
+                            }
+                        }
+                    } elseif (is_string($subItem)) {
+                        $textCandidates[] = trim($subItem);
+                    }
+                }
+            }
+        }
+
+        foreach ($textCandidates as $text) {
+            if ($text === '' || $text === 'Array') {
+                continue;
+            }
             if (preg_match('/\*(\d{4,8})\*/', $text, $match)) {
                 return $match[1];
             }
-            if (preg_match('/(?:otp|kode|code|pin|verifikasi)[^\d]{0,15}(\d{3}[- ]\d{3})/i', $text, $match)) {
+            if (preg_match('/(?:otp|kode|code|pin|verifikasi|konfirmasi|whatsapp)[^\d]{0,20}(\d{3}[- ]\d{3})/i', $text, $match)) {
                 return preg_replace('/\D+/', '', $match[1]);
             }
-            if (preg_match('/(?:otp|kode|code|pin|verifikasi)[^\d]{0,15}(\d{4,8})/i', $text, $match)) {
+            if (preg_match('/(?:otp|kode|code|pin|verifikasi|konfirmasi|whatsapp)[^\d]{0,20}(\d{4,8})/i', $text, $match)) {
                 return $match[1];
             }
             if (preg_match('/\b(\d{3})[- ](\d{3})\b/', $text, $match)) {
                 return $match[1].$match[2];
             }
-            if (preg_match('/\b(\d{6,8})\b/', $text, $match)) {
+            // WhatsApp OTP 5-8 digit
+            if (preg_match('/\b(\d{5,8})\b/', $text, $match)) {
                 return $match[1];
             }
-            if (preg_match('/\b(\d{4,5})\b/', $text, $match)) {
+            // 4 digit
+            if (preg_match('/\b(\d{4})\b/', $text, $match)) {
                 return $match[1];
             }
         }
 
+        // 3. Recursive traversal untuk nested payload
         foreach ($data as $key => $value) {
             if (! is_array($value) || in_array((string) $key, $skipKeys, true)) {
                 continue;

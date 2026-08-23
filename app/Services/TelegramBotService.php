@@ -2490,8 +2490,14 @@ class TelegramBotService
         }
     }
 
-    protected function statusPending(TelegramBot $bot, $member, $chatId, ?int $orderId = null, ?int $editMessageId = null): void
-    {
+    protected function statusPending(
+        TelegramBot $bot,
+        $member,
+        $chatId,
+        ?int $orderId = null,
+        ?int $editMessageId = null,
+        ?string $callbackId = null
+    ): void {
         $otpService = app(OtpOrderService::class);
 
         $order = $orderId
@@ -2508,6 +2514,15 @@ class TelegramBotService
                 ->first();
 
         if (! $order) {
+            if ($callbackId) {
+                try {
+                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                        'callback_query_id' => $callbackId,
+                        'text' => 'Tidak ada order aktif.',
+                    ]);
+                } catch (\Throwable) {}
+            }
+
             $this->replyOrSend(
                 $bot,
                 $chatId,
@@ -2539,7 +2554,17 @@ class TelegramBotService
 
         $service = e($order->otpService?->name ?? 'Kopken');
 
-        if ($order->status === 'completed' && filled($order->otp_code)) {
+        if (filled($order->otp_code)) {
+            if ($callbackId) {
+                try {
+                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                        'callback_query_id' => $callbackId,
+                        'text' => "🎉 OTP Masuk: {$order->otp_code}",
+                        'show_alert' => true,
+                    ]);
+                } catch (\Throwable) {}
+            }
+
             $text = $this->formatOrderCard(
                 $order,
                 title: "Order {$service} — OTP MASUK 🎉",
@@ -2562,6 +2587,15 @@ class TelegramBotService
             }
 
             return;
+        }
+
+        if ($callbackId) {
+            try {
+                Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                    'callback_query_id' => $callbackId,
+                    'text' => '⏳ OTP belum masuk dari operator. Mohon tunggu...',
+                ]);
+            } catch (\Throwable) {}
         }
 
         $text = $this->formatOrderCard(
@@ -2592,7 +2626,7 @@ class TelegramBotService
         $fromId = (string) ($from['id'] ?? $chatId);
         $callbackId = $callback['id'] ?? null;
 
-        if ($callbackId && ! str_starts_with($data, 'otp_check_stock:')) {
+        if ($callbackId && ! str_starts_with($data, 'otp_check_stock:') && ! str_starts_with($data, 'otp_status:')) {
             try {
                 Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
                     'callback_query_id' => $callbackId,
@@ -2700,7 +2734,7 @@ class TelegramBotService
 
         if (str_starts_with($data, 'otp_status:')) {
             $orderId = (int) substr($data, strlen('otp_status:'));
-            $this->statusPending($bot, $member, $chatId, $orderId, $messageId ? (int) $messageId : null);
+            $this->statusPending($bot, $member, $chatId, $orderId, $messageId ? (int) $messageId : null, $callbackId);
 
             return;
         }
