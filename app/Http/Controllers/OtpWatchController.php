@@ -21,7 +21,7 @@ class OtpWatchController extends Controller
     protected function run(Request $request, OtpOrderWatcher $watcher): Response
     {
         ignore_user_abort(true);
-        @set_time_limit(180);
+        @set_time_limit(360);
 
         $ids = collect(explode(',', (string) $request->query('ids', '')))
             ->map(fn ($id) => (int) trim($id))
@@ -36,6 +36,11 @@ class OtpWatchController extends Controller
 
         if ($ids === []) {
             return response('empty', 200);
+        }
+
+        if (function_exists('fastcgi_finish_request')) {
+            response('watching', 200)->send();
+            fastcgi_finish_request();
         }
 
         if (count($ids) === 1) {

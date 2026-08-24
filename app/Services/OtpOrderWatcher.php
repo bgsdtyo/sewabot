@@ -199,9 +199,8 @@ class OtpOrderWatcher
     {
         Cache::put('otp_bubble_ok:'.$orderId, 1, now()->addMinutes(20));
     }
-
     /**
-     * Start detached CLI / background curl watcher first so FPM process termination
+     * Start detached CLI / background HTTP watcher first so FPM process termination
      * does not kill the watcher loop when later slots (#2, #3) are being inputted.
      */
     protected function spawn(array $orderIds): void
@@ -215,14 +214,21 @@ class OtpOrderWatcher
             return;
         }
 
-        // 2. Coba spawn via async background curl
+        // 2. Coba spawn via async fire-and-forget HTTP socket (terbaik untuk hosting tanpa shell exec)
+        if ($this->spawnHttpAsync($orderIds)) {
+            Log::info("OtpOrderWatcher spawned via HttpAsync for IDs: {$idStr}");
+
+            return;
+        }
+
+        // 3. Coba spawn via async background curl CLI
         if ($this->spawnCurl($orderIds)) {
             Log::info("OtpOrderWatcher spawned via Curl for IDs: {$idStr}");
 
             return;
         }
 
-        // 3. Fallback in-process terminating
+        // 4. Fallback in-process terminating
         $this->fallbackTerminating($orderIds);
     }
 
@@ -240,6 +246,66 @@ class OtpOrderWatcher
                 app(OtpOrderWatcher::class)->runWatchBatchCycle($orderIds);
             }
         });
+    }
+
+    protected function spawnHttpAsync(array $orderIds): bool
+    {
+        try {
+            $url = URL::temporarySignedRoute(
+                'otp.watch.batch',
+                now()->addMinutes(25),
+                ['ids' => implode(',', $orderIds)]
+            );
+
+            $parts = parse_url($url);
+            $host = $parts['host'] ?? '';
+            $isSsl = ($parts['scheme'] ?? '') === 'https';
+            $port = $parts['port'] ?? ($isSsl ? 443 : 80);
+            $path = ($parts['path'] ?? '/').(isset($parts['query']) ? '?'.$parts['query'] : '');
+            $protocol = $isSsl ? 'ssl://' : 'tcp://';
+
+            if ($host === '') {
+                return false;
+            }
+
+            $context = stream_context_create([
+                'ssl' => [
+                    'verify_peer' => false,
+                    'verify_peer_name' => false,
+                ],
+            ]);
+
+            $socket = @stream_socket_client(
+                $protocol.$host.':'.$port,
+                $errno,
+                $errstr,
+                2,
+                STREAM_CLIENT_ASYNC_CONNECT | STREAM_CLIENT_CONNECT,
+                $context
+            );
+
+            if (! $socket) {
+                $socket = @fsockopen($host, $port, $errno, $errstr, 2);
+            }
+
+            if ($socket) {
+                stream_set_timeout($socket, 2);
+                $req = "GET {$path} HTTP/1.1\r\n";
+                $req .= "Host: {$host}\r\n";
+                $req .= "User-Agent: OtpWatcher/1.0\r\n";
+                $req .= "Connection: Close\r\n\r\n";
+
+                fwrite($socket, $req);
+                usleep(50000); // 50ms untuk handoff
+                fclose($socket);
+
+                return true;
+            }
+        } catch (\Throwable $e) {
+            Log::warning('OtpOrderWatcher spawnHttpAsync failed: '.$e->getMessage());
+        }
+
+        return false;
     }
 
     protected function spawnArtisan(string $ids): bool
@@ -287,7 +353,7 @@ class OtpOrderWatcher
             return false;
         }
 
-        $inner = 'sleep 1; curl -s -m 170 '.escapeshellarg($url);
+        $inner = 'sleep 1; curl -s -m 300 '.escapeshellarg($url);
         $cmd = 'nohup sh -c '.escapeshellarg($inner).' >/dev/null 2>&1 &';
 
         return $this->runDetached($cmd);
@@ -330,16 +396,8 @@ class OtpOrderWatcher
         return in_array($name, $disabled, true);
     }
 
-    /**
-     * Skip CLI spawn on open_basedir hosts — probing /opt/alt/php... fatals.
-     */
     protected function phpCliPath(): ?string
     {
-        $basedir = (string) ini_get('open_basedir');
-        if ($basedir !== '') {
-            return null;
-        }
-
         $configured = (string) env('PHP_CLI_PATH', '');
         if ($configured !== '') {
             return $configured;
