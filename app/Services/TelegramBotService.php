@@ -1996,6 +1996,27 @@ class TelegramBotService
         return ['inline_keyboard' => [$buttons]];
     }
 
+    /**
+     * @return array{inline_keyboard: list<list<array{text: string, callback_data: string}>>}
+     */
+    protected function resendingOrderKeyboard(OtpOrder $order): array
+    {
+        $secondRow = [];
+        if ($order->canResendOtp()) {
+            $secondRow[] = ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id];
+        }
+        $secondRow[] = ['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)];
+
+        return [
+            'inline_keyboard' => [
+                [
+                    ['text' => '🔍 Cek OTP', 'callback_data' => 'otp_status:'.$order->id],
+                ],
+                $secondRow,
+            ],
+        ];
+    }
+
     public function stripExpiredResendButtons(): int
     {
         $orders = OtpOrder::query()
@@ -2413,18 +2434,44 @@ class TelegramBotService
         }
     }
 
-    protected function resendPending(TelegramBot $bot, $member, $chatId, ?int $orderId = null, ?int $editMessageId = null): void
-    {
+    protected function resendPending(
+        TelegramBot $bot,
+        $member,
+        $chatId,
+        ?int $orderId = null,
+        ?int $editMessageId = null,
+        ?string $callbackId = null
+    ): void {
         $order = OtpOrder::query()
             ->where('bot_member_id', $member->id)
-            ->whereIn('status', ['pending', 'completed'])
-            ->with('otpService')
             ->when($orderId, fn ($q) => $q->whereKey($orderId))
+            ->with(['otpService', 'botMember', 'telegramBot'])
             ->latest()
             ->first();
 
-        if (! $order || ! $order->canResendOtp()) {
-            if ($order && $order->status === 'completed') {
+        if (! $order) {
+            if ($callbackId) {
+                try {
+                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                        'callback_query_id' => $callbackId,
+                        'text' => 'Order tidak ditemukan.',
+                    ]);
+                } catch (\Throwable) {}
+            }
+
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $editMessageId,
+                "Order tidak ditemukan.\n\nPilih <b>Order OTP</b> untuk memulai.",
+                removeInlineKeyboard: true
+            );
+
+            return;
+        }
+
+        if (! $order->canResendOtp()) {
+            if ($order->status === 'completed') {
                 $this->notifyOrderCompleted($bot, $member, $order);
 
                 return;
@@ -2435,9 +2482,7 @@ class TelegramBotService
                 $chatId,
                 $editMessageId,
                 'Waktu minta ulang OTP dari provider sudah habis.',
-                inlineKeyboard: $order
-                    ? $this->completedOrderKeyboard($order)
-                    : ['inline_keyboard' => [[['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:0']]]]
+                inlineKeyboard: $this->completedOrderKeyboard($order)
             );
 
             return;
@@ -2454,10 +2499,22 @@ class TelegramBotService
                 'full_text' => null,
             ]);
 
+            // Hapus cache delivered agar background watcher memantau order ini kembali
+            app(OtpOrderWatcher::class)->forgetBubbleDelivered((int) $order->id);
+
             try {
                 app(OtpOrderWatcher::class)->start($order);
             } catch (\Throwable $watchErr) {
                 Log::warning('OTP watcher failed to start: '.$watchErr->getMessage());
+            }
+
+            if ($callbackId) {
+                try {
+                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                        'callback_query_id' => $callbackId,
+                        'text' => '🔄 Permintaan ulang OTP terkirim! Menunggu SMS masuk...',
+                    ]);
+                } catch (\Throwable) {}
             }
 
             $service = e($order->otpService?->name ?? 'Kopken');
@@ -2473,13 +2530,23 @@ class TelegramBotService
                 $chatId,
                 $messageId,
                 $text,
-                inlineKeyboard: $this->completedOrderKeyboard($order)
+                inlineKeyboard: $this->resendingOrderKeyboard($order)
             );
 
             if ($newId) {
                 $this->rememberOrderMessage($order, $newId);
             }
         } catch (\Throwable $e) {
+            if ($callbackId) {
+                try {
+                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                        'callback_query_id' => $callbackId,
+                        'text' => 'Gagal meminta ulang: '.$e->getMessage(),
+                        'show_alert' => true,
+                    ]);
+                } catch (\Throwable) {}
+            }
+
             $this->replyOrSend(
                 $bot,
                 $chatId,
@@ -2626,7 +2693,7 @@ class TelegramBotService
         $fromId = (string) ($from['id'] ?? $chatId);
         $callbackId = $callback['id'] ?? null;
 
-        if ($callbackId && ! str_starts_with($data, 'otp_check_stock:') && ! str_starts_with($data, 'otp_status:')) {
+        if ($callbackId && ! str_starts_with($data, 'otp_check_stock:') && ! str_starts_with($data, 'otp_status:') && ! str_starts_with($data, 'otp_resend:')) {
             try {
                 Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
                     'callback_query_id' => $callbackId,
@@ -2748,7 +2815,7 @@ class TelegramBotService
 
         if (str_starts_with($data, 'otp_resend:')) {
             $orderId = (int) substr($data, strlen('otp_resend:'));
-            $this->resendPending($bot, $member, $chatId, $orderId, $messageId ? (int) $messageId : null);
+            $this->resendPending($bot, $member, $chatId, $orderId, $messageId ? (int) $messageId : null, $callbackId);
 
             return;
         }

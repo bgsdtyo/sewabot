@@ -80,14 +80,22 @@ class OtpOrderWatcher
                         continue;
                     }
 
-                    if (in_array($order->status, ['completed', 'cancelled', 'expired'], true) || filled($order->otp_code)) {
+                    $isDone = ($order->status === 'completed' && filled($order->otp_code))
+                        || in_array($order->status, ['cancelled', 'expired'], true)
+                        || filled($order->otp_code);
+
+                    if ($isDone) {
                         $toNotify[] = $order;
                         continue;
                     }
 
                     $fresh = app(OtpOrderService::class)->refreshOrder($order, notify: false);
 
-                    if (in_array($fresh->status, ['completed', 'cancelled', 'expired'], true) || filled($fresh->otp_code)) {
+                    $isFreshDone = ($fresh->status === 'completed' && filled($fresh->otp_code))
+                        || in_array($fresh->status, ['cancelled', 'expired'], true)
+                        || filled($fresh->otp_code);
+
+                    if ($isFreshDone) {
                         $toNotify[] = $fresh;
                     }
                 } catch (\Throwable $e) {
@@ -146,12 +154,20 @@ class OtpOrderWatcher
                     continue;
                 }
 
+                $isDone = ($order->status === 'completed' && filled($order->otp_code))
+                    || in_array($order->status, ['cancelled', 'expired'], true)
+                    || filled($order->otp_code);
+
                 $target = $order;
-                if (! (in_array($order->status, ['completed', 'cancelled', 'expired'], true) || filled($order->otp_code))) {
+                if (! $isDone) {
                     $target = app(OtpOrderService::class)->refreshOrder($order, notify: false);
                 }
 
-                if (in_array($target->status, ['cancelled', 'expired', 'completed'], true) || filled($target->otp_code)) {
+                $isTargetDone = ($target->status === 'completed' && filled($target->otp_code))
+                    || in_array($target->status, ['cancelled', 'expired'], true)
+                    || filled($target->otp_code);
+
+                if ($isTargetDone) {
                     if ($this->notifyWatchedOrder($target)) {
                         $this->markBubbleDelivered($orderId);
 
@@ -190,14 +206,19 @@ class OtpOrderWatcher
         return false;
     }
 
-    protected function bubbleDelivered(int $orderId): bool
+    public function bubbleDelivered(int $orderId): bool
     {
         return Cache::has('otp_bubble_ok:'.$orderId);
     }
 
-    protected function markBubbleDelivered(int $orderId): void
+    public function markBubbleDelivered(int $orderId): void
     {
         Cache::put('otp_bubble_ok:'.$orderId, 1, now()->addMinutes(20));
+    }
+
+    public function forgetBubbleDelivered(int $orderId): void
+    {
+        Cache::forget('otp_bubble_ok:'.$orderId);
     }
     /**
      * Start detached CLI / background HTTP watcher first so FPM process termination
