@@ -56,7 +56,7 @@ class OtpOrderWatcher
 
         while (time() < $deadline && $activeIds !== []) {
             if (! $firstTick) {
-                sleep(2);
+                sleep(1);
             }
             $firstTick = false;
 

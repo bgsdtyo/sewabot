@@ -229,25 +229,46 @@ class CronController extends Controller
     {
         try {
             $otp = app(OtpOrderService::class);
-            $pending = OtpOrder::query()
-                ->where('status', 'pending')
-                ->orderBy('id')
-                ->limit(25)
-                ->get();
-
+            $deadline = time() + 25;
             $results = [];
-            foreach ($pending as $order) {
-                try {
-                    $fresh = $otp->refreshOrder($order);
-                    $results[] = [
-                        'id' => (int) $order->id,
-                        'status' => (string) $fresh->status,
-                    ];
-                } catch (\Throwable $e) {
-                    $results[] = [
-                        'id' => (int) $order->id,
-                        'status' => 'error',
-                    ];
+            $firstLoop = true;
+
+            while (time() < $deadline) {
+                if (! $firstLoop) {
+                    sleep(2);
+                }
+                $firstLoop = false;
+
+                $pending = OtpOrder::query()
+                    ->where(function ($q) {
+                        $q->where('status', 'pending')
+                            ->orWhere(function ($q2) {
+                                $q2->where('status', 'completed')
+                                    ->whereNull('otp_code')
+                                    ->where('created_at', '>=', now()->subMinutes(20));
+                            });
+                    })
+                    ->orderBy('id')
+                    ->limit(25)
+                    ->get();
+
+                if ($pending->isEmpty()) {
+                    break;
+                }
+
+                foreach ($pending as $order) {
+                    try {
+                        $fresh = $otp->refreshOrder($order, notify: true);
+                        $results[] = [
+                            'id' => (int) $order->id,
+                            'status' => (string) $fresh->status,
+                        ];
+                    } catch (\Throwable $e) {
+                        $results[] = [
+                            'id' => (int) $order->id,
+                            'status' => 'error',
+                        ];
+                    }
                 }
             }
 
