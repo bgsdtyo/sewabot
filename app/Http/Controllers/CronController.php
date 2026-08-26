@@ -89,8 +89,18 @@ class CronController extends Controller
         }
 
         $bots = TelegramBot::query()
-            ->whereNotNull('otp_api_key')
-            ->where('otp_api_key', '!=', '')
+            ->where(function ($q) {
+                $q->where(function ($q1) {
+                    $q1->where('otp_provider', 'kopken')->whereNotNull('otp_api_key')->where('otp_api_key', '!=', '');
+                })->orWhere(function ($q2) {
+                    $q2->where('otp_provider', 'wahub')->where(function ($q3) {
+                        $q3->whereNotNull('otp_wahub_api_key')->where('otp_wahub_api_key', '!=', '')
+                            ->orWhere(function ($q4) {
+                                $q4->whereNotNull('otp_api_key')->where('otp_api_key', '!=', '');
+                            });
+                    });
+                });
+            })
             ->get();
 
         $checked = 0;
@@ -121,7 +131,7 @@ class CronController extends Controller
      */
     public function syncStock(
         Request $request,
-        \App\Services\OtpProviderClient $providerClient
+        \App\Services\OtpOrderService $otpOrderService
     ): JsonResponse {
         $this->pollPendingOtpQuietly();
         try {
@@ -129,75 +139,45 @@ class CronController extends Controller
         } catch (\Throwable) {
         }
 
-        $activeBot = TelegramBot::query()
+        $activeKopkenBot = TelegramBot::query()
             ->where('status', 'active')
+            ->where('otp_provider', 'kopken')
             ->whereNotNull('otp_api_key')
             ->first();
 
+        $activeWahubBot = TelegramBot::query()
+            ->where('status', 'active')
+            ->where('otp_provider', 'wahub')
+            ->where(function ($q) {
+                $q->whereNotNull('otp_wahub_api_key')->where('otp_wahub_api_key', '!=', '')
+                    ->orWhere(function ($q2) {
+                        $q2->whereNotNull('otp_api_key')->where('otp_api_key', '!=', '');
+                    });
+            })
+            ->first();
+
+        $countKopken = 0;
+        $countWahub = 0;
+
         try {
-            $client = $activeBot ? $providerClient->forBot($activeBot) : $providerClient;
-            $items = $client->getServices(timeout: 10);
-            $synced = [];
-
-            foreach ($items as $item) {
-                $name = (string) ($item['name'] ?? '');
-                $slug = (string) ($item['slug'] ?? \Illuminate\Support\Str::slug($name));
-
-                // Filter layanan Kopken dan WhatsApp OTP
-                $isTarget = strcasecmp($name, 'Kopken') === 0 ||
-                    strcasecmp($slug, 'kopken') === 0 ||
-                    stripos($name, 'kopken') !== false ||
-                    stripos($name, 'whatsapp') !== false ||
-                    stripos($slug, 'whatsapp') !== false;
-
-                if (! $isTarget) {
-                    continue;
-                }
-
-                $providerPrice = (int) ($item['price'] ?? 0);
-                $stock = (int) ($item['stock'] ?? $item['count'] ?? $item['available'] ?? 0);
-                $sellPrice = $activeBot ? $activeBot->sellPriceFor($providerPrice) : $providerPrice;
-
-                $existing = \App\Models\OtpService::where('provider_service_id', (int) $item['id'])->first();
-
-                $svc = \App\Models\OtpService::updateOrCreate(
-                    ['provider_service_id' => (int) $item['id']],
-                    [
-                        'name' => $name,
-                        'slug' => $slug,
-                        'provider_price' => $providerPrice,
-                        'sell_price' => $sellPrice,
-                        'duration_seconds' => (int) ($item['duration_seconds'] ?? 1200),
-                        'stock' => $stock,
-                        'is_active' => true,
-                        'is_enabled' => $existing ? $existing->is_enabled : true, // Auto-enable jika baru
-                    ]
-                );
-
-                $synced[] = [
-                    'id' => $svc->id,
-                    'name' => $svc->name,
-                    'stock' => $stock,
-                    'provider_price' => $providerPrice,
-                    'sell_price' => $sellPrice,
-                    'is_enabled' => (bool) $svc->is_enabled,
-                ];
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Sync layanan & stok berhasil disinkronkan.',
-                'total_services' => count($synced),
-                'services' => $synced,
-                'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
-            ]);
+            $countKopken = $otpOrderService->syncServices(['KOPKEN', 'WHATSAPP'], $activeKopkenBot, 'kopken');
         } catch (\Throwable $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Gagal sinkronisasi stok: '.$e->getMessage(),
-                'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
-            ], 500);
+            \Illuminate\Support\Facades\Log::warning('Cron syncStock Kopken warning: '.$e->getMessage());
         }
+
+        try {
+            $countWahub = $otpOrderService->syncServices(['KOPKEN', 'WHATSAPP', 'WA'], $activeWahubBot, 'wahub');
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Cron syncStock WAHub warning: '.$e->getMessage());
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Sync layanan & stok KOPKEN berhasil disinkronkan.',
+            'synced_kopken' => $countKopken,
+            'synced_wahub' => $countWahub,
+            'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
+        ]);
     }
 
     public function pollOtp(): JsonResponse

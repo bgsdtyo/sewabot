@@ -47,4 +47,17 @@ class Setting extends Model
             'api_key' => (string) static::get('otp_api_key', env('OTP_API_KEY', '')),
         ];
     }
+
+    public static function wahubProvider(): array
+    {
+        return [
+            'api_base_url' => rtrim((string) static::get('wahub_api_base_url', env('WAHUB_API_BASE_URL', 'https://dehuyzotp.shop')), '/'),
+            'api_key' => (string) static::get('wahub_api_key', env('WAHUB_API_KEY', '')),
+        ];
+    }
+
+    public static function activeOtpProvider(): string
+    {
+        return (string) static::get('active_otp_provider', 'kopken');
+    }
 }

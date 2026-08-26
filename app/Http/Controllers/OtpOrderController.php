@@ -129,16 +129,16 @@ class OtpOrderController extends Controller
             'full_text' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $member = BotMember::where('id', $data['bot_member_id'])
-            ->where('telegram_bot_id', $data['telegram_bot_id'])
-            ->firstOrFail();
-
-        $service = OtpService::query()->kopken()->firstOrFail();
+        $bot = TelegramBot::where('id', $data['telegram_bot_id'])->firstOrFail();
+        $service = OtpService::query()->kopken($bot->activeOtpProvider())->first()
+            ?? OtpService::query()->kopken()->first()
+            ?? OtpService::query()->firstOrFail();
 
         $order = OtpOrder::create([
-            'telegram_bot_id' => $data['telegram_bot_id'],
+            'telegram_bot_id' => $bot->id,
             'bot_member_id' => $member->id,
             'otp_service_id' => $service->id,
+            'provider' => $bot->activeOtpProvider(),
             'idempotency_key' => (string) Str::uuid(),
             'phone_number' => $data['phone_number'],
             'otp_code' => $data['otp_code'] ?: null,

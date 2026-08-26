@@ -1,5 +1,6 @@
 @php
-    $kopken = $services->first(fn ($s) => strtoupper($s->name) === 'KOPKEN') ?? $services->first();
+    $activeProvider = $telegramBot->activeOtpProvider();
+    $kopken = $services->first(fn ($s) => in_array(strtoupper($s->name), ['KOPKEN', 'WHATSAPP'])) ?? $services->first();
 @endphp
 
 <x-app-layout>
@@ -27,12 +28,17 @@
     <div class="mx-auto max-w-3xl space-y-10 px-4 py-10 sm:px-6 lg:px-8">
         <section class="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div class="flex flex-col rounded-2xl border border-brand-200 bg-white px-4 py-5">
-                <p class="text-xs text-brand-500">API Key</p>
-                <p class="mt-2 text-base font-extrabold {{ filled($telegramBot->otp_api_key) ? 'text-emerald-700' : 'text-amber-700' }}">
-                    {{ filled($telegramBot->otp_api_key) ? 'Siap' : 'Kosong' }}
+                <div class="flex items-center justify-between">
+                    <p class="text-xs text-brand-500">Provider Aktif</p>
+                    <span class="rounded-md {{ $activeProvider === 'wahub' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700' }} px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                        {{ $activeProvider === 'wahub' ? 'WAHub' : 'EngineUnicorn' }}
+                    </span>
+                </div>
+                <p class="mt-2 text-base font-extrabold {{ $telegramBot->hasOtpConfigured() ? 'text-emerald-700' : 'text-amber-700' }}">
+                    {{ $telegramBot->hasOtpConfigured() ? 'Siap' : 'Kosong' }}
                 </p>
-                <p class="mt-1 text-xs text-brand-500">
-                    {{ filled($telegramBot->otp_api_key) ? 'Provider connected' : 'Belum diisi' }}
+                <p class="mt-1 text-xs text-brand-500 truncate">
+                    {{ $telegramBot->hasOtpConfigured() ? 'API Key terhubung' : 'API Key belum diisi' }}
                 </p>
             </div>
             <div class="flex flex-col rounded-2xl border border-brand-200 bg-white px-4 py-5">
@@ -48,9 +54,9 @@
                     <form method="POST" action="{{ route('bots.provider-balance', $telegramBot) }}">
                         @csrf
                         <button type="submit"
-                                title="Refresh saldo pusat"
+                                title="Refresh saldo pusat provider aktif"
                                 class="rounded-lg p-1 text-brand-500 hover:bg-brand-50 hover:text-brand-900 disabled:cursor-not-allowed disabled:opacity-40"
-                                @disabled(! filled($telegramBot->otp_api_key))>
+                                @disabled(! $telegramBot->hasOtpConfigured())>
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
                                 <path fill-rule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H4.39a.75.75 0 0 0-.75.75v3.842a.75.75 0 0 0 1.5 0v-2.16l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm-10.624-2.85a5.5 5.5 0 0 1 9.201-2.466l.312.312H11.77a.75.75 0 0 0 0 1.5h3.842a.75.75 0 0 0 .75-.75V3.328a.75.75 0 1 0-1.5 0V5.49l-.31-.31A7 7 0 0 0 3.04 8.316a.75.75 0 1 0 1.45.39Z" clip-rule="evenodd" />
                             </svg>
@@ -91,21 +97,71 @@
 
         <section>
             <h2 class="text-lg font-extrabold text-brand-900">Pengaturan</h2>
-            <p class="mt-1 text-sm text-brand-500">API key dan markup bot ini. Member & riwayat OTP ada di Dashboard.</p>
+            <p class="mt-1 text-sm text-brand-500">Pilih provider aktif, API key, dan markup bot ini.</p>
 
             <form method="POST" action="{{ route('bots.settings', $telegramBot) }}"
+                  x-data="{
+                      activeProvider: '{{ old('otp_provider', $activeProvider) }}'
+                  }"
                   class="mt-6 space-y-8 rounded-2xl border border-brand-200 bg-white p-5 sm:p-8">
                 @csrf
                 @method('PUT')
 
+                {{-- Provider Selector (ON / OFF Switch) --}}
                 <div>
-                    <label class="mb-2 block text-sm font-semibold text-brand-900">API Key provider</label>
+                    <label class="mb-2 block text-sm font-semibold text-brand-900">Pilih Provider OTP Aktif</label>
+                    <p class="mb-4 text-xs text-brand-500">Tentukan provider mana yang sedang ON digunakan untuk seluruh transaksi OTP bot ini.</p>
+
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <label class="relative flex cursor-pointer flex-col rounded-2xl border p-4 transition-all"
+                               :class="activeProvider === 'kopken' ? 'border-brand-900 bg-brand-50/70 ring-2 ring-brand-900' : 'border-brand-200 hover:border-brand-300 bg-white'">
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm font-extrabold text-brand-900">Provider 1 (EngineUnicorn)</span>
+                                <input type="radio" name="otp_provider" value="kopken" class="sr-only" x-model="activeProvider">
+                                <span class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-brand-300"
+                                      :class="activeProvider === 'kopken' ? 'border-brand-900 bg-brand-900 text-white' : 'bg-white'">
+                                    <span class="h-2 w-2 rounded-full bg-white" x-show="activeProvider === 'kopken'"></span>
+                                </span>
+                            </div>
+                            <p class="mt-2 text-xs text-brand-600">Layanan engineunicorn.cloud</p>
+                            <span class="mt-3 inline-flex items-center text-[11px] font-bold {{ filled($telegramBot->otp_api_key) ? 'text-emerald-700' : 'text-amber-600' }}">
+                                {{ filled($telegramBot->otp_api_key) ? '✓ API Key Tersedia' : '⚠ API Key Belum Diisi' }}
+                            </span>
+                        </label>
+
+                        <label class="relative flex cursor-pointer flex-col rounded-2xl border p-4 transition-all"
+                               :class="activeProvider === 'wahub' ? 'border-brand-900 bg-brand-50/70 ring-2 ring-brand-900' : 'border-brand-200 hover:border-brand-300 bg-white'">
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm font-extrabold text-brand-900">Provider 2 (WAHub)</span>
+                                <input type="radio" name="otp_provider" value="wahub" class="sr-only" x-model="activeProvider">
+                                <span class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-brand-300"
+                                      :class="activeProvider === 'wahub' ? 'border-brand-900 bg-brand-900 text-white' : 'bg-white'">
+                                    <span class="h-2 w-2 rounded-full bg-white" x-show="activeProvider === 'wahub'"></span>
+                                </span>
+                            </div>
+                            <p class="mt-2 text-xs text-brand-600">Layanan dehuyzotp.shop (Pay-per-success & Re-OTP).</p>
+                            <span class="mt-3 inline-flex items-center text-[11px] font-bold {{ filled($telegramBot->otp_wahub_api_key) ? 'text-emerald-700' : 'text-amber-600' }}">
+                                {{ filled($telegramBot->otp_wahub_api_key) ? '✓ API Key Tersedia' : '⚠ API Key Belum Diisi' }}
+                            </span>
+                        </label>
+                    </div>
+                    @error('otp_provider')
+                        <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
+                    @enderror
+                </div>
+
+                {{-- API Key Provider 1 (EngineUnicorn) --}}
+                <div class="border-t border-brand-100 pt-6" x-show="activeProvider === 'kopken'" x-transition>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="block text-sm font-semibold text-brand-900">API Key Provider 1 (EngineUnicorn / engineunicorn.cloud)</label>
+                        <span class="text-xs text-brand-500">Dipakai saat Provider 1 ON</span>
+                    </div>
 
                     @if (filled($telegramBot->otp_api_key))
                         <div x-data="{ editing: false }">
                             <div x-show="!editing" class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <p class="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm font-medium text-emerald-700 sm:flex-1">
-                                    API key tersimpan
+                                    API key EngineUnicorn tersimpan
                                 </p>
                                 <button type="button" @click="editing = true"
                                         class="rounded-xl border border-brand-200 px-4 py-3 text-sm font-semibold text-brand-900 hover:bg-brand-50">
@@ -115,7 +171,7 @@
 
                             <div x-show="editing" style="display: none;" class="space-y-3">
                                 <input type="password" name="otp_api_key" autocomplete="off"
-                                       placeholder="Tempel API key baru"
+                                       placeholder="Tempel API key EngineUnicorn baru"
                                        class="w-full rounded-xl border-brand-200 focus:border-brand-900 focus:ring-brand-900">
                                 <div class="flex flex-wrap items-center gap-3">
                                     <button type="button" @click="editing = false"
@@ -130,11 +186,56 @@
                             </div>
                         </div>
                     @else
-                        <input type="password" name="otp_api_key" autocomplete="off" required
-                               placeholder="Tempel API key"
+                        <input type="password" name="otp_api_key" autocomplete="off"
+                               placeholder="Tempel API key Kopken"
                                class="w-full rounded-xl border-brand-200 focus:border-brand-900 focus:ring-brand-900">
                     @endif
                     @error('otp_api_key')
+                        <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
+                    @enderror
+                </div>
+
+                {{-- API Key Provider 2 (WAHub) --}}
+                <div class="border-t border-brand-100 pt-6" x-show="activeProvider === 'wahub'" x-transition>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="block text-sm font-semibold text-brand-900">API Key Provider 2 (WAHub / DehuyzOTP)</label>
+                        <span class="text-xs text-brand-500">Format: wh_live_...</span>
+                    </div>
+
+                    @if (filled($telegramBot->otp_wahub_api_key))
+                        <div x-data="{ editing: false }">
+                            <div x-show="!editing" class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <p class="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm font-medium text-emerald-700 sm:flex-1">
+                                    API key WAHub tersimpan
+                                </p>
+                                <button type="button" @click="editing = true"
+                                        class="rounded-xl border border-brand-200 px-4 py-3 text-sm font-semibold text-brand-900 hover:bg-brand-50">
+                                    Ganti
+                                </button>
+                            </div>
+
+                            <div x-show="editing" style="display: none;" class="space-y-3">
+                                <input type="password" name="otp_wahub_api_key" autocomplete="off"
+                                       placeholder="wh_live_xxxxxxxxxxxxxxxxxxxxxxxx"
+                                       class="w-full rounded-xl border-brand-200 focus:border-brand-900 focus:ring-brand-900">
+                                <div class="flex flex-wrap items-center gap-3">
+                                    <button type="button" @click="editing = false"
+                                            class="rounded-xl border border-brand-200 px-4 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50">
+                                        Batal
+                                    </button>
+                                    <label class="flex items-center gap-2 text-sm text-brand-500">
+                                        <input type="checkbox" name="clear_wahub_api_key" value="1" class="rounded border-brand-300 text-brand-900 focus:ring-brand-900">
+                                        Hapus key
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    @else
+                        <input type="password" name="otp_wahub_api_key" autocomplete="off"
+                               placeholder="wh_live_xxxxxxxxxxxxxxxxxxxxxxxx"
+                               class="w-full rounded-xl border-brand-200 focus:border-brand-900 focus:ring-brand-900">
+                    @endif
+                    @error('otp_wahub_api_key')
                         <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
                     @enderror
                 </div>
@@ -335,8 +436,8 @@
                 @csrf
                 <button type="submit"
                         class="w-full rounded-xl border border-brand-200 bg-white px-5 py-3 text-sm font-semibold text-brand-900 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-                        @disabled(! filled($telegramBot->otp_api_key))>
-                    Sync layanan KOPKEN
+                        @disabled(! $telegramBot->hasOtpConfigured())>
+                    Sync layanan KOPKEN ({{ $telegramBot->otpProviderName() }})
                 </button>
             </form>
         </section>

@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 class OtpService extends Model
 {
     protected $fillable = [
+        'provider',
         'provider_service_id',
         'name',
         'slug',
@@ -36,6 +37,9 @@ class OtpService extends Model
     protected static function booted(): void
     {
         static::creating(function (OtpService $service) {
+            if (empty($service->provider)) {
+                $service->provider = 'kopken';
+            }
             if (empty($service->slug)) {
                 $service->slug = Str::slug($service->name);
             }
@@ -62,10 +66,28 @@ class OtpService extends Model
         return $query->where('is_active', true)->where('is_enabled', true);
     }
 
-    public function scopeKopken($query)
+    public function scopeForProvider($query, ?string $provider = null)
     {
-        return $query->where(function ($q) {
-            $q->where('slug', 'kopken')->orWhereRaw('UPPER(name) = ?', ['KOPKEN']);
+        $pv = strtolower(trim((string) ($provider ?: 'kopken')));
+
+        return $query->where('provider', $pv);
+    }
+
+    public function scopeKopken($query, ?string $provider = null)
+    {
+        $q = $query->where(function ($sub) {
+            $sub->where('slug', 'kopken')
+                ->orWhere('slug', 'whatsapp')
+                ->orWhereRaw('UPPER(name) = ?', ['KOPKEN'])
+                ->orWhereRaw('UPPER(name) = ?', ['WHATSAPP'])
+                ->orWhereRaw('UPPER(name) LIKE ?', ['%KOPKEN%'])
+                ->orWhereRaw('UPPER(name) LIKE ?', ['%WHATSAPP%']);
         });
+
+        if ($provider) {
+            $q->where('provider', strtolower(trim($provider)));
+        }
+
+        return $q;
     }
 }

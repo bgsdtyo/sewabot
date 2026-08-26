@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\BotMember;
 use App\Models\OtpOrder;
 use App\Models\OtpService;
+use App\Models\Setting;
 use App\Models\TelegramBot;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -16,30 +17,56 @@ use RuntimeException;
 class OtpOrderService
 {
     public function __construct(
-        protected OtpProviderClient $provider,
+        protected OtpProviderManager $providerManager,
         protected WalletService $wallet,
         protected TelegramBotService $telegram
     ) {}
 
-    public function syncServices(?array $onlyNames = ['KOPKEN'], ?TelegramBot $usingBot = null): int
+    /**
+     * Sync services specifically for KOPKEN / WhatsApp from the active provider.
+     */
+    public function syncServices(?array $onlyNames = ['KOPKEN', 'WHATSAPP'], ?TelegramBot $usingBot = null, ?string $providerName = null): int
     {
+        $targetProvider = $usingBot
+            ? $usingBot->activeOtpProvider()
+            : ($providerName ?: Setting::activeOtpProvider());
+
         $client = $usingBot
-            ? $this->provider->forBot($usingBot)
-            : $this->provider;
+            ? $this->providerManager->forBot($usingBot)
+            : $this->providerManager->driver($targetProvider);
 
         $items = $client->getServices();
         $count = 0;
 
         foreach ($items as $item) {
             $name = (string) ($item['name'] ?? '');
-            if ($onlyNames && ! in_array(strtoupper($name), array_map('strtoupper', $onlyNames), true)) {
+            $nameUpper = strtoupper($name);
+
+            // Filter khusus layanan KOPKEN / WhatsApp
+            $isKopkenOrWa = false;
+            if ($onlyNames && ! empty($onlyNames)) {
+                foreach ($onlyNames as $pattern) {
+                    $pUpper = strtoupper($pattern);
+                    if ($nameUpper === $pUpper || str_contains($nameUpper, $pUpper)) {
+                        $isKopkenOrWa = true;
+                        break;
+                    }
+                }
+            } else {
+                $isKopkenOrWa = true;
+            }
+
+            if (! $isKopkenOrWa) {
                 continue;
             }
 
             $providerPrice = (int) ($item['price'] ?? 0);
 
             OtpService::updateOrCreate(
-                ['provider_service_id' => (int) $item['id']],
+                [
+                    'provider' => $targetProvider,
+                    'provider_service_id' => (int) $item['id'],
+                ],
                 [
                     'name' => $name,
                     'slug' => Str::slug($name),
@@ -48,6 +75,7 @@ class OtpOrderService
                     'duration_seconds' => (int) ($item['duration_seconds'] ?? 1200),
                     'stock' => (int) ($item['stock'] ?? 0),
                     'is_active' => true,
+                    'is_enabled' => true,
                 ]
             );
 
@@ -59,23 +87,23 @@ class OtpOrderService
 
     public function getServiceStock(OtpService $service, ?TelegramBot $bot = null, bool $forceFresh = false): int
     {
-        // When not explicitly forced by user (e.g. standard Order OTP / Pesan Lagi),
-        // use local database stock immediately for instant sub-millisecond response.
         if (! $forceFresh) {
             return (int) ($service->stock ?? 0);
         }
 
-        if (! $bot || ! filled($bot->otp_api_key)) {
+        if (! $bot || ! $bot->hasOtpConfigured()) {
             return (int) ($service->stock ?? 0);
         }
 
-        $cacheKey = "bot_{$bot->id}_svc_{$service->provider_service_id}_stock";
+        $providerName = $service->provider ?: $bot->activeOtpProvider();
+        $cacheKey = "bot_{$bot->id}_svc_{$providerName}_{$service->provider_service_id}_stock";
 
         try {
-            $services = $this->provider->forBot($bot)->getServices(timeout: 5);
+            $client = $this->providerManager->forBot($bot);
+            $services = $client->getServices(timeout: 5);
             foreach ($services as $item) {
                 if ((int) ($item['id'] ?? 0) === (int) $service->provider_service_id) {
-                    $stock = (int) ($item['stock'] ?? $item['count'] ?? $item['available'] ?? 0);
+                    $stock = (int) ($item['stock'] ?? 0);
                     $service->update(['stock' => $stock]);
                     cache()->put($cacheKey, $stock, now()->addSeconds(60));
 
@@ -177,6 +205,7 @@ class OtpOrderService
         $failed = [];
         $stopRemaining = false;
         $stopReason = null;
+        $activeProvider = $bot->activeOtpProvider();
 
         for ($i = 0; $i < $quantity; $i++) {
             $slot = $i + 1;
@@ -187,12 +216,13 @@ class OtpOrderService
             }
 
             try {
-                $order = DB::transaction(function () use ($bot, $member, $service, $sellPrice, $batchId, $quantity) {
+                $order = DB::transaction(function () use ($bot, $member, $service, $sellPrice, $batchId, $activeProvider) {
                     $item = OtpOrder::create([
                         'batch_id' => $batchId,
                         'telegram_bot_id' => $bot->id,
                         'bot_member_id' => $member->id,
                         'otp_service_id' => $service->id,
+                        'provider' => $activeProvider,
                         'idempotency_key' => (string) Str::uuid(),
                         'provider_price' => $service->provider_price,
                         'sell_price' => $sellPrice,
@@ -204,7 +234,8 @@ class OtpOrderService
                     $item->update(['wallet_status' => 'held']);
 
                     try {
-                        $data = $this->provider->forBot($bot)->createOrder($service->provider_service_id, $item->idempotency_key);
+                        $client = $this->providerManager->forBot($bot);
+                        $data = $client->createOrder($service->provider_service_id, $item->idempotency_key);
                     } catch (\Throwable $e) {
                         $this->wallet->releaseHold($member->fresh(), $sellPrice, OtpOrder::class, $item->id, 'Refund: gagal order provider');
                         $item->update([
@@ -215,12 +246,12 @@ class OtpOrderService
                         throw $e;
                     }
 
-                    $providerOrderId = $data['id'] ?? null;
+                    $providerOrderId = (string) ($data['id'] ?? '');
+                    $providerToken = $data['token'] ?? null;
                     $phone = $data['phone_number'] ?? null;
 
                     $initStatus = strtolower((string) ($data['status'] ?? 'pending'));
                     $cancelReason = $data['cancel_reason'] ?? $data['reason'] ?? $data['message'] ?? null;
-                    $phone = $data['phone_number'] ?? $phone;
                     $phoneFormatted = $phone ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : '';
 
                     $isInitCancelled = in_array($initStatus, ['cancelled', 'canceled', 'cancel', 'banned', 'blocked', 'rejected', 'failed', 'expired', 'refunded'], true)
@@ -234,11 +265,12 @@ class OtpOrderService
                         $this->wallet->releaseHold($member->fresh(), $sellPrice, OtpOrder::class, $item->id, 'Refund: nomor dibatalkan/banned');
                         $item->update([
                             'provider_order_id' => $providerOrderId,
+                            'provider_token' => $providerToken,
                             'phone_number' => $phone,
                             'status' => 'cancelled',
                             'wallet_status' => 'refunded',
                             'cancelled_at' => now(),
-                            'raw_payload' => $data,
+                            'raw_payload' => $data['raw'] ?? $data,
                         ]);
 
                         $targetPhone = $phoneFormatted !== '' ? " {$phoneFormatted}" : '';
@@ -247,9 +279,10 @@ class OtpOrderService
 
                     $item->update([
                         'provider_order_id' => $providerOrderId,
+                        'provider_token' => $providerToken,
                         'phone_number' => $phone,
                         'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : null,
-                        'raw_payload' => $data,
+                        'raw_payload' => $data['raw'] ?? $data,
                     ]);
 
                     return $item->fresh(['otpService', 'botMember']);
@@ -297,7 +330,7 @@ class OtpOrderService
             return $this->refundLocal($order, 'expired', 'Batas waktu pemesanan nomor (20 menit) telah habis.', $notify);
         }
 
-        if (! $order->provider_order_id) {
+        if (! $order->provider_order_id && ! $order->provider_token) {
             if ($isTimeExpired && $order->status === 'pending') {
                 return $this->refundLocal($order, 'expired', 'Order tanpa ID provider kedaluwarsa.', $notify);
             }
@@ -317,13 +350,13 @@ class OtpOrderService
             if (! $bot) {
                 return $order;
             }
-            $data = $this->provider->forBot($bot)->getOrder($order->provider_order_id);
+
+            $client = $this->providerManager->forOrder($order);
+            $data = $client->getOrder((string) $order->provider_order_id, $order->provider_token);
         } catch (\Throwable $e) {
             $errMessage = (string) $e->getMessage();
             Log::warning('refreshOrder failed: '.$errMessage);
 
-            // Jika provider mengembalikan 404 / tidak ditemukan / order hilang dari provider,
-            // atau jika order sudah berumur > 3 menit, auto-expire agar tidak memblokir user selamanya.
             $isNotFoundInProvider = stripos($errMessage, '404') !== false
                 || stripos($errMessage, 'not found') !== false
                 || stripos($errMessage, 'tidak ditemukan') !== false;
@@ -353,7 +386,7 @@ class OtpOrderService
             'phone_number' => $data['phone_number'] ?? $order->phone_number,
             'otp_code' => $newOtp,
             'full_text' => $data['full_text'] ?? $data['sms'] ?? $data['sms_text'] ?? $order->full_text,
-            'raw_payload' => $data,
+            'raw_payload' => $data['raw'] ?? $data,
             'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : $order->provider_expire_at,
         ]);
 
@@ -361,7 +394,6 @@ class OtpOrderService
 
         $canComplete = $order->status === 'pending' || $this->isIgnoringProviderCancel((int) $order->id);
 
-        // Hanya complete jika OTP BENAR-BENAR SUDAH DIDAPAT agar user tidak dirugikan / saldo terpotong tanpa OTP
         if ($canComplete && filled($newOtp)) {
             return $this->completeOrder($order, $notify);
         }
@@ -427,6 +459,13 @@ class OtpOrderService
             return $order->fresh(['otpService', 'botMember', 'telegramBot']);
         });
 
+        // Acknowledge done on provider if supported (e.g. WAHub)
+        try {
+            $this->providerManager->forOrder($completed)->doneOrder((string) $completed->provider_order_id, $completed->provider_token);
+        } catch (\Throwable $e) {
+            Log::debug('Provider doneOrder notice: '.$e->getMessage());
+        }
+
         if ($notify) {
             $member = $completed->botMember;
             $bot = $completed->telegramBot;
@@ -444,9 +483,9 @@ class OtpOrderService
             throw ValidationException::withMessages(['order' => 'Pesanan tidak bisa dibatalkan.']);
         }
 
-        if ($order->provider_order_id) {
+        if ($order->provider_order_id || $order->provider_token) {
             try {
-                $this->provider->forBot($order->telegramBot)->cancelOrder($order->provider_order_id);
+                $this->providerManager->forOrder($order)->cancelOrder((string) $order->provider_order_id, $order->provider_token);
             } catch (\Throwable $e) {
                 Log::warning('provider cancel failed: '.$e->getMessage());
             }
@@ -491,7 +530,7 @@ class OtpOrderService
 
     public function changeNumber(OtpOrder $order): OtpOrder
     {
-        if ($order->status !== 'pending' || ! $order->provider_order_id) {
+        if ($order->status !== 'pending' || (! $order->provider_order_id && ! $order->provider_token)) {
             throw ValidationException::withMessages(['order' => 'Tidak bisa ganti nomor pada pesanan ini.']);
         }
 
@@ -502,33 +541,34 @@ class OtpOrderService
 
         $this->markIgnoringProviderCancel((int) $order->id);
         $oldProviderId = (string) $order->provider_order_id;
+        $service = $order->otpService;
 
         try {
-            $data = $this->provider->forBot($bot)->changeNumber($order->provider_order_id);
+            $client = $this->providerManager->forOrder($order);
+            $data = $client->changeNumber((string) $order->provider_order_id, $order->provider_token, $service?->provider_service_id);
         } catch (\Throwable $e) {
             Log::warning('changeNumber API call failed, trying cancel + recreate fallback: '.$e->getMessage());
 
             try {
-                $this->provider->forBot($bot)->cancelOrder($order->provider_order_id);
+                $this->providerManager->forOrder($order)->cancelOrder((string) $order->provider_order_id, $order->provider_token);
             } catch (\Throwable $cancelErr) {
                 Log::warning('Fallback provider cancel failed: '.$cancelErr->getMessage());
             }
 
-            $service = $order->otpService;
             if (! $service) {
                 throw $e;
             }
 
             $newKey = (string) Str::uuid();
-            $data = $this->provider->forBot($bot)->createOrder($service->provider_service_id, $newKey);
+            $data = $this->providerManager->forBot($bot)->createOrder($service->provider_service_id, $newKey);
         }
 
-        $newOrderId = $data['id'] ?? $order->provider_order_id;
+        $newOrderId = (string) ($data['id'] ?? $order->provider_order_id);
+        $newToken = $data['token'] ?? $order->provider_token;
         $phone = $data['phone_number'] ?? null;
 
         $initStatus = strtolower((string) ($data['status'] ?? 'pending'));
         $cancelReason = $data['cancel_reason'] ?? $data['reason'] ?? $data['message'] ?? null;
-        $phone = $data['phone_number'] ?? $phone;
         $phoneFormatted = $phone ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : '';
 
         $hardFail = in_array($initStatus, ['banned', 'blocked', 'failed', 'expired', 'refunded'], true)
@@ -560,10 +600,11 @@ class OtpOrderService
 
         $order->update([
             'provider_order_id' => $newOrderId,
+            'provider_token' => $newToken,
             'phone_number' => $phone,
             'otp_code' => null,
             'full_text' => null,
-            'raw_payload' => $data,
+            'raw_payload' => $data['raw'] ?? $data,
             'status' => 'pending',
             'cancelled_at' => null,
             'wallet_status' => $walletStatus,
@@ -619,7 +660,7 @@ class OtpOrderService
         $isPending = $order->status === 'pending';
         $isCompletedAndActive = $order->status === 'completed' && $order->canResendOtp();
 
-        if ((! $isPending && ! $isCompletedAndActive) || ! $order->provider_order_id) {
+        if ((! $isPending && ! $isCompletedAndActive) || (! $order->provider_order_id && ! $order->provider_token)) {
             throw ValidationException::withMessages(['order' => 'Order sudah kedaluwarsa atau tidak bisa minta ulang OTP.']);
         }
 
@@ -628,14 +669,14 @@ class OtpOrderService
             throw ValidationException::withMessages(['order' => 'Bot tidak ditemukan.']);
         }
 
-        $this->provider->forBot($bot)->resendOtp($order->provider_order_id);
+        $this->providerManager->forOrder($order)->resendOtp((string) $order->provider_order_id, $order->provider_token);
     }
 
     public function ensureBotApiKey(TelegramBot $bot): void
     {
-        if (! filled($bot->otp_api_key)) {
+        if (! $bot->hasOtpConfigured()) {
             throw ValidationException::withMessages([
-                'otp_api_key' => 'Isi API Key provider dulu di Konfigurasi Bot.',
+                'otp_api_key' => 'Isi API Key '.$bot->otpProviderName().' dulu di Konfigurasi Bot.',
             ]);
         }
     }
@@ -666,7 +707,7 @@ class OtpOrderService
             $value = $data[$key];
             if (is_string($value) || is_numeric($value)) {
                 $cleanVal = trim((string) $value);
-                if ($cleanVal === '') {
+                if ($cleanVal === '' || str_starts_with($cleanVal, 'wh_rnt_')) {
                     continue;
                 }
                 // Format 123-456 atau 123 456
@@ -680,7 +721,7 @@ class OtpOrderService
             }
         }
 
-        // 2. Kumpulkan semua text dari field text/sms/message/content (baik string maupun array)
+        // 2. Kumpulkan semua text dari field text/sms/message/content
         $textCandidates = [];
         foreach (['full_text', 'sms', 'sms_text', 'full_sms', 'content', 'message', 'text', 'body', 'last_sms', 'msg', 'messages'] as $tKey) {
             if (! isset($data[$tKey])) {
@@ -695,7 +736,6 @@ class OtpOrderService
                         $textCandidates[] = trim((string) $val[$subKey]);
                     }
                 }
-                // Jika array numerik dari object SMS
                 foreach ($val as $subItem) {
                     if (is_array($subItem)) {
                         foreach (['text', 'content', 'message', 'body', 'sms', 'code', 'otp'] as $subKey) {
@@ -726,11 +766,9 @@ class OtpOrderService
             if (preg_match('/\b(\d{3})[- ](\d{3})\b/', $text, $match)) {
                 return $match[1].$match[2];
             }
-            // WhatsApp OTP 5-8 digit
             if (preg_match('/\b(\d{5,8})\b/', $text, $match)) {
                 return $match[1];
             }
-            // 4 digit
             if (preg_match('/\b(\d{4})\b/', $text, $match)) {
                 return $match[1];
             }

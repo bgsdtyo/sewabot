@@ -6,7 +6,7 @@ use App\Models\BotMember;
 use App\Models\OtpService;
 use App\Models\TelegramBot;
 use App\Services\OtpOrderService;
-use App\Services\OtpProviderClient;
+use App\Services\OtpProviderManager;
 use App\Services\WalletService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,7 +19,10 @@ class BotDetailController extends Controller
         $this->authorizeOwner($telegramBot);
 
         $telegramBot->load('product');
-        $services = OtpService::sellable()->orderBy('name')->get();
+        $services = OtpService::sellable()
+            ->forProvider($telegramBot->activeOtpProvider())
+            ->orderBy('name')
+            ->get();
 
         return view('bots.show', compact('telegramBot', 'services'));
     }
@@ -29,7 +32,9 @@ class BotDetailController extends Controller
         $this->authorizeOwner($telegramBot);
 
         $data = $request->validate([
+            'otp_provider' => ['nullable', 'string', 'in:kopken,wahub'],
             'otp_api_key' => ['nullable', 'string', 'max:500'],
+            'otp_wahub_api_key' => ['nullable', 'string', 'max:500'],
             'otp_markup_type' => ['required', 'in:percent,flat'],
             'otp_markup_percent' => ['required', 'integer', 'min:0', 'max:1000000'],
             'min_provider_balance_alert' => ['nullable', 'integer', 'min:0', 'max:100000000'],
@@ -59,6 +64,7 @@ class BotDetailController extends Controller
             : null;
 
         $updates = [
+            'otp_provider' => $data['otp_provider'] ?? $telegramBot->activeOtpProvider(),
             'otp_markup_type' => $data['otp_markup_type'],
             'otp_markup_percent' => (int) $data['otp_markup_percent'],
             'min_provider_balance_alert' => $minAlert && $minAlert > 0 ? $minAlert : null,
@@ -77,6 +83,12 @@ class BotDetailController extends Controller
             $updates['otp_api_key'] = trim($data['otp_api_key']);
         }
 
+        if ($request->boolean('clear_wahub_api_key')) {
+            $updates['otp_wahub_api_key'] = null;
+        } elseif (filled($data['otp_wahub_api_key'] ?? null)) {
+            $updates['otp_wahub_api_key'] = trim($data['otp_wahub_api_key']);
+        }
+
         try {
             $telegramBot->update($updates);
         } catch (\Throwable $e) {
@@ -85,7 +97,7 @@ class BotDetailController extends Controller
             return back()
                 ->withInput()
                 ->withErrors([
-                    'admin_telegram_ids' => 'Gagal menyimpan. Pastikan sudah jalankan: php artisan migrate --force (kolom admin/deposit). Detail: '.$e->getMessage(),
+                    'admin_telegram_ids' => 'Gagal menyimpan konfigurasi. Detail: '.$e->getMessage(),
                 ]);
         }
 
@@ -99,21 +111,22 @@ class BotDetailController extends Controller
         $this->authorizeOwner($telegramBot);
 
         try {
-            $count = $otp->syncServices(['KOPKEN'], $telegramBot);
+            $count = $otp->syncServices(['KOPKEN', 'WHATSAPP'], $telegramBot);
+            $providerName = $telegramBot->otpProviderName();
 
-            return back()->with('success', "Sync KOPKEN berhasil ({$count} layanan) memakai API key bot ini.");
+            return back()->with('success', "Sync KOPKEN berhasil ({$count} layanan) untuk {$providerName}.");
         } catch (\Throwable $e) {
             return back()->withErrors(['otp_api_key' => $e->getMessage()]);
         }
     }
 
-    public function checkProviderBalance(TelegramBot $telegramBot, OtpProviderClient $client): RedirectResponse
+    public function checkProviderBalance(TelegramBot $telegramBot, OtpProviderManager $manager): RedirectResponse
     {
         $this->authorizeOwner($telegramBot);
 
         try {
-            $data = $client->forBot($telegramBot)->getBalance();
-            $balance = (int) ($data['balance'] ?? 0);
+            $data = $manager->forBot($telegramBot)->getBalance();
+            $balance = (int) ($data['balance'] ?? $data['available'] ?? 0);
             $currency = (string) ($data['currency'] ?? 'IDR');
 
             $telegramBot->update([
@@ -124,7 +137,7 @@ class BotDetailController extends Controller
 
             return redirect()
                 ->route('bots.show', $telegramBot)
-                ->with('success', 'Saldo pusat diperbarui: Rp'.number_format($balance, 0, ',', '.'));
+                ->with('success', 'Saldo pusat ('.$telegramBot->otpProviderName().') diperbarui: Rp'.number_format($balance, 0, ',', '.'));
         } catch (\Throwable $e) {
             return redirect()
                 ->route('bots.show', $telegramBot)

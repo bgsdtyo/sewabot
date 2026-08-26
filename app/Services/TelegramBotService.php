@@ -783,7 +783,7 @@ class TelegramBotService
 
     protected function welcomeText(TelegramBot $bot, $member): string
     {
-        $service = $this->kopkenService();
+        $service = $this->kopkenService($bot);
         $price = $service ? $bot->formattedSellPriceFor($service->provider_price) : '-';
         $name = e($bot->name);
 
@@ -796,7 +796,7 @@ class TelegramBotService
 
     protected function helpText(TelegramBot $bot, $member): string
     {
-        $service = $this->kopkenService();
+        $service = $this->kopkenService($bot);
         $price = $service ? $bot->formattedSellPriceFor($service->provider_price) : '-';
 
         return "<b>Panduan Penggunaan</b>\n\n"
@@ -804,22 +804,27 @@ class TelegramBotService
             ."Tarif KOPKEN: <b>{$price}</b>\n\n"
             ."<b>Menu Utama</b>\n"
             ."• 📱 Order OTP — Pesan nomor baru\n"
-            ."• 💰 Saldo — Cek saldo & hold\n"
-            ."• ➕ Deposit — Informasi rekening & deposit\n"
-            ."• 👤 Akun — Data profil & total order\n"
+            ."• 💰 Saldo — Cek sisa saldo akun Anda\n"
+            ."• 💳 Top Up — Isi ulang saldo instan via QRIS / Bank\n"
             ."• 📋 Riwayat — 5 transaksi terakhir\n"
             ."• 📡 Ping — Cek kecepatan server bot & provider OTP\n"
             ."• ❓ Bantuan — Panduan penggunaan ini\n\n"
             ."<i>Aksi pesanan (Ganti Nomor, Ulang OTP, Batalkan) dapat langsung dilakukan melalui tombol pada bubble transaksi masing-masing.</i>";
     }
 
-    protected function kopkenService(): ?OtpService
+    protected function kopkenService(?TelegramBot $bot = null): ?OtpService
     {
-        return OtpService::sellable()
-            ->where(function ($q) {
-                $q->where('slug', 'kopken')->orWhereRaw('UPPER(name) = ?', ['KOPKEN']);
-            })
-            ->first();
+        $provider = $bot ? $bot->activeOtpProvider() : null;
+
+        $service = OtpService::sellable()->kopken($provider)->first();
+        if (! $service && $provider) {
+            $service = OtpService::sellable()->forProvider($provider)->first();
+        }
+        if (! $service) {
+            $service = OtpService::sellable()->kopken()->first() ?? OtpService::sellable()->first();
+        }
+
+        return $service;
     }
 
     protected function sendPingReport(TelegramBot $bot, $member, int|string $chatId, ?int $editMessageId = null): void
@@ -837,10 +842,10 @@ class TelegramBotService
             }
         });
 
-        $provider = ['ok' => false, 'ms' => null, 'error' => 'API Key belum diisi'];
-        if (filled($bot->otp_api_key)) {
+        $provider = ['ok' => false, 'ms' => null, 'error' => 'API Key '.$bot->otpProviderName().' belum diisi'];
+        if ($bot->hasOtpConfigured()) {
             try {
-                $provider = app(OtpProviderClient::class)->forBot($bot)->pingLatency();
+                $provider = app(OtpProviderManager::class)->forBot($bot)->pingLatency();
             } catch (\Throwable $e) {
                 $provider = ['ok' => false, 'ms' => null, 'error' => $e->getMessage()];
             }
@@ -1079,7 +1084,7 @@ class TelegramBotService
         int $quantity = 1
     ): void {
         $quantity = max(1, min(5, $quantity));
-        $service = ($serviceId ? OtpService::sellable()->whereKey($serviceId)->first() : null) ?? $this->kopkenService();
+        $service = ($serviceId ? OtpService::sellable()->whereKey($serviceId)->first() : null) ?? $this->kopkenService($bot);
 
         if (! $service) {
             $this->replyOrSend(
@@ -1294,7 +1299,7 @@ class TelegramBotService
         ?int $previewMessageId = null
     ): void {
         $quantity = max(1, min(5, $quantity));
-        $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService();
+        $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService($bot);
 
         if (! $service) {
             $this->replyOrSend(
@@ -3030,20 +3035,18 @@ class TelegramBotService
 
     public function checkAndAlertProviderBalance(TelegramBot $bot, ?OtpProviderClient $client = null): array
     {
-        if (! $bot->token || ! filled($bot->otp_api_key)) {
+        if (! $bot->token || ! $bot->hasOtpConfigured()) {
             return [
                 'bot_id' => $bot->id,
                 'name' => $bot->name,
                 'status' => 'skipped',
-                'reason' => 'Token atau OTP API Key belum diisi',
+                'reason' => 'Token atau API Key '.$bot->otpProviderName().' belum diisi',
             ];
         }
 
-        $client = $client ?: app(OtpProviderClient::class);
-
         try {
-            $data = $client->forBot($bot)->getBalance();
-            $balance = (int) ($data['balance'] ?? 0);
+            $data = app(OtpProviderManager::class)->forBot($bot)->getBalance();
+            $balance = (int) ($data['balance'] ?? $data['available'] ?? 0);
             $currency = (string) ($data['currency'] ?? 'IDR');
 
             $bot->update([

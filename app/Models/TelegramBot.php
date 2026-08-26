@@ -14,7 +14,9 @@ class TelegramBot extends Model
         'name',
         'username',
         'token',
+        'otp_provider',
         'otp_api_key',
+        'otp_wahub_api_key',
         'provider_balance',
         'provider_balance_currency',
         'provider_balance_checked_at',
@@ -47,7 +49,32 @@ class TelegramBot extends Model
     protected $hidden = [
         'token',
         'otp_api_key',
+        'otp_wahub_api_key',
     ];
+
+    public function activeOtpProvider(): string
+    {
+        $provider = strtolower(trim((string) ($this->otp_provider ?: 'kopken')));
+
+        return in_array($provider, ['kopken', 'wahub'], true) ? $provider : 'kopken';
+    }
+
+    public function otpProviderName(): string
+    {
+        return $this->activeOtpProvider() === 'wahub' ? 'WAHub (dehuyzotp.shop)' : 'EngineUnicorn (engineunicorn.cloud)';
+    }
+
+    public function activeOtpApiKey(): ?string
+    {
+        return $this->activeOtpProvider() === 'wahub'
+            ? ($this->otp_wahub_api_key ?: $this->otp_api_key)
+            : $this->otp_api_key;
+    }
+
+    public function hasOtpConfigured(): bool
+    {
+        return filled($this->activeOtpApiKey());
+    }
 
     public function user(): BelongsTo
     {
