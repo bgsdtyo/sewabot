@@ -10,6 +10,7 @@ use App\Services\OtpProviderManager;
 use App\Services\WalletService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 class BotDetailController extends Controller
@@ -134,7 +135,7 @@ class BotDetailController extends Controller
             $count = $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $telegramBot);
             $providerName = $telegramBot->otpProviderName();
 
-            return back()->with('success', "Sync KOPKEN berhasil ({$count} layanan) untuk {$providerName}.");
+            return back()->with('success', "Sync layanan OTP berhasil ({$count} layanan) untuk {$providerName}.");
         } catch (\Throwable $e) {
             return back()->withErrors(['otp_api_key' => $e->getMessage()]);
         }

@@ -37,30 +37,36 @@ class OtpOrderService
 
         $items = $client->getServices();
         Log::info("Syncing services for provider [{$targetProvider}] - items count: ".count($items), ['items' => $items]);
+        // Cek apakah provider memiliki layanan spesifik 'KOPKEN' / 'KOPI KENANGAN'
+        $hasKopkenSpecific = collect($items)->contains(function ($item) {
+            $n = strtoupper(trim((string) ($item['name'] ?? '')));
+            return str_contains($n, 'KOPKEN') || str_contains($n, 'KOPI KENANGAN') || str_contains($n, 'KOPIKENANGAN');
+        });
+
         $count = 0;
-
-        $targetPatterns = $onlyNames && ! empty($onlyNames)
-            ? array_map('strtoupper', (array) $onlyNames)
-            : ['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'];
-
         foreach ($items as $item) {
             $name = (string) ($item['name'] ?? '');
             $nameUpper = strtoupper(trim($name));
 
             $isMatched = false;
-            foreach ($targetPatterns as $pattern) {
-                if ($nameUpper === $pattern || str_contains($nameUpper, $pattern)) {
+            if ($hasKopkenSpecific) {
+                // Hanya ambil layanan KOPKEN
+                if (str_contains($nameUpper, 'KOPKEN') || str_contains($nameUpper, 'KOPI KENANGAN') || str_contains($nameUpper, 'KOPIKENANGAN')) {
                     $isMatched = true;
-                    break;
+                }
+            } else {
+                // Fallback jika provider menamai layanannya WhatsApp
+                if ($nameUpper === 'WHATSAPP' || str_starts_with($nameUpper, 'WHATSAPP') || in_array($nameUpper, ['WA', 'WHATSAPP'], true) || count($items) === 1) {
+                    $isMatched = true;
                 }
             }
 
-            // Jika hanya ada 1 item dari provider (misal WAHub khusus WA), ambil item tersebut
-            if (! $isMatched && count($items) === 1) {
-                $isMatched = true;
-            }
-
             if (! $isMatched) {
+                // Nonaktifkan service lain jika sempat tersimpan
+                OtpService::where('provider', $targetProvider)
+                    ->where('provider_service_id', (int) $item['id'])
+                    ->update(['is_active' => false, 'is_enabled' => false]);
+
                 continue;
             }
 
