@@ -26,66 +26,86 @@
     </x-slot>
 
     <div class="mx-auto max-w-3xl space-y-10 px-4 py-10 sm:px-6 lg:px-8">
-        <section class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <div class="flex flex-col rounded-2xl border border-brand-200 bg-white px-4 py-5">
-                <div class="flex items-center justify-between">
-                    <p class="text-xs text-brand-500">Provider Aktif</p>
-                    <span class="rounded-md {{ $activeProvider === 'wahub' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700' }} px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-                        {{ $activeProvider === 'wahub' ? 'WAHub' : 'EngineUnicorn' }}
+        <section class="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+            {{-- Card 1: Provider OTP --}}
+            <div class="flex flex-col justify-between rounded-2xl border border-brand-200 bg-white p-4 shadow-xs transition hover:border-brand-300">
+                <div class="flex items-center justify-between gap-1">
+                    <p class="text-[11px] font-semibold uppercase tracking-wider text-brand-500">Provider OTP</p>
+                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold {{ $telegramBot->hasOtpConfigured() ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700' }}">
+                        <span class="h-1.5 w-1.5 rounded-full {{ $telegramBot->hasOtpConfigured() ? 'bg-emerald-500' : 'bg-amber-500' }}"></span>
+                        {{ $telegramBot->hasOtpConfigured() ? 'Siap' : 'Kosong' }}
                     </span>
                 </div>
-                <p class="mt-2 text-base font-extrabold {{ $telegramBot->hasOtpConfigured() ? 'text-emerald-700' : 'text-amber-700' }}">
-                    {{ $telegramBot->hasOtpConfigured() ? 'Siap' : 'Kosong' }}
-                </p>
-                <p class="mt-1 text-xs text-brand-500 truncate">
-                    {{ $telegramBot->hasOtpConfigured() ? 'API Key terhubung' : 'API Key belum diisi' }}
-                </p>
+                <div class="mt-2.5">
+                    <p class="truncate text-base font-extrabold text-brand-900 sm:text-lg" title="{{ $activeProvider === 'wahub' ? 'WAHub' : 'EngineUnicorn' }}">
+                        {{ $activeProvider === 'wahub' ? 'WAHub' : 'EngineUnicorn' }}
+                    </p>
+                    <p class="mt-0.5 truncate text-[11px] text-brand-500">
+                        {{ $telegramBot->hasOtpConfigured() ? 'Provider aktif' : 'API Key belum diisi' }}
+                    </p>
+                </div>
             </div>
-            <div class="flex flex-col rounded-2xl border border-brand-200 bg-white px-4 py-5">
-                <p class="text-xs text-brand-500">Harga KOPKEN</p>
-                <p class="mt-2 text-base font-extrabold text-brand-900">
-                    {{ $kopken ? $telegramBot->formattedSellPriceFor($kopken->provider_price) : '-' }}
-                </p>
-                <p class="mt-1 text-xs text-brand-500">Markup {{ $telegramBot->markupLabel() }}</p>
+
+            {{-- Card 2: Harga KOPKEN --}}
+            <div class="flex flex-col justify-between rounded-2xl border border-brand-200 bg-white p-4 shadow-xs transition hover:border-brand-300">
+                <p class="text-[11px] font-semibold uppercase tracking-wider text-brand-500">Harga KOPKEN</p>
+                <div class="mt-2.5">
+                    <p class="text-base font-extrabold text-brand-900 sm:text-lg">
+                        {{ $kopken ? $telegramBot->formattedSellPriceFor($kopken->provider_price) : '-' }}
+                    </p>
+                    <p class="mt-0.5 text-[11px] text-brand-500">
+                        Markup {{ $telegramBot->markupLabel() }}
+                    </p>
+                </div>
             </div>
-            <div class="flex flex-col rounded-2xl border border-brand-200 bg-white px-4 py-5">
-                <div class="flex items-start justify-between gap-2">
-                    <p class="text-xs text-brand-500">Saldo Pusat API</p>
+
+            {{-- Card 3: Saldo Pusat API --}}
+            <div class="flex flex-col justify-between rounded-2xl border border-brand-200 bg-white p-4 shadow-xs transition hover:border-brand-300">
+                <div class="flex items-center justify-between gap-1">
+                    <p class="text-[11px] font-semibold uppercase tracking-wider text-brand-500">Saldo Pusat API</p>
                     <form method="POST" action="{{ route('bots.provider-balance', $telegramBot) }}">
                         @csrf
                         <button type="submit"
                                 title="Refresh saldo pusat provider aktif"
                                 class="rounded-lg p-1 text-brand-500 hover:bg-brand-50 hover:text-brand-900 disabled:cursor-not-allowed disabled:opacity-40"
                                 @disabled(! $telegramBot->hasOtpConfigured())>
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5">
                                 <path fill-rule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H4.39a.75.75 0 0 0-.75.75v3.842a.75.75 0 0 0 1.5 0v-2.16l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm-10.624-2.85a5.5 5.5 0 0 1 9.201-2.466l.312.312H11.77a.75.75 0 0 0 0 1.5h3.842a.75.75 0 0 0 .75-.75V3.328a.75.75 0 1 0-1.5 0V5.49l-.31-.31A7 7 0 0 0 3.04 8.316a.75.75 0 1 0 1.45.39Z" clip-rule="evenodd" />
                             </svg>
                         </button>
                     </form>
                 </div>
-                @if ($telegramBot->provider_balance !== null)
-                    <div class="mt-2 flex items-baseline gap-2">
-                        <p class="text-base font-extrabold {{ $telegramBot->isProviderBalanceLow() ? 'text-rose-600' : 'text-emerald-700' }}">
-                            {{ $telegramBot->formattedProviderBalance() }}
+                <div class="mt-2.5">
+                    @if ($telegramBot->provider_balance !== null)
+                        <div class="flex flex-wrap items-baseline gap-1.5">
+                            <p class="text-base font-extrabold sm:text-lg {{ $telegramBot->isProviderBalanceLow() ? 'text-rose-600' : 'text-emerald-700' }}">
+                                {{ $telegramBot->formattedProviderBalance() }}
+                            </p>
+                            @if ($telegramBot->isProviderBalanceLow())
+                                <span class="rounded bg-rose-100 px-1 py-0.2 text-[9px] font-bold text-rose-700">Rendah</span>
+                            @endif
+                        </div>
+                        <p class="mt-0.5 truncate text-[11px] text-brand-500">
+                            {{ $telegramBot->provider_balance_checked_at?->timezone(config('app.timezone'))->format('d M Y H:i') ?? '-' }}
                         </p>
-                        @if ($telegramBot->isProviderBalanceLow())
-                            <span class="rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">Rendah</span>
-                        @endif
-                    </div>
-                    <p class="mt-1 text-xs text-brand-500">
-                        {{ $telegramBot->provider_balance_checked_at?->timezone(config('app.timezone'))->format('d M Y H:i') ?? '-' }}
-                    </p>
-                @else
-                    <p class="mt-2 text-base font-extrabold text-brand-500">—</p>
-                    <p class="mt-1 text-xs text-brand-500">Belum dicek</p>
-                @endif
+                    @else
+                        <p class="text-base font-extrabold text-brand-400 sm:text-lg">—</p>
+                        <p class="mt-0.5 text-[11px] text-brand-500">Belum dicek</p>
+                    @endif
+                </div>
             </div>
-            <div class="flex flex-col rounded-2xl border border-brand-200 bg-white px-4 py-5">
-                <p class="text-xs text-brand-500">Admin Bot</p>
-                <p class="mt-2 text-base font-extrabold {{ count($telegramBot->adminTelegramIdList()) ? 'text-emerald-700' : 'text-amber-700' }}">
-                    {{ count($telegramBot->adminTelegramIdList()) ?: 0 }} ID
-                </p>
-                <p class="mt-1 text-xs text-brand-500">Akses /admin</p>
+
+            {{-- Card 4: Admin Bot --}}
+            <div class="flex flex-col justify-between rounded-2xl border border-brand-200 bg-white p-4 shadow-xs transition hover:border-brand-300">
+                <p class="text-[11px] font-semibold uppercase tracking-wider text-brand-500">Admin Bot</p>
+                <div class="mt-2.5">
+                    <p class="text-base font-extrabold text-brand-900 sm:text-lg">
+                        {{ count($telegramBot->adminTelegramIdList()) ?: 0 }} <span class="text-xs font-semibold text-brand-500">ID</span>
+                    </p>
+                    <p class="mt-0.5 text-[11px] text-brand-500">
+                        Akses perintah /admin
+                    </p>
+                </div>
             </div>
         </section>
 
