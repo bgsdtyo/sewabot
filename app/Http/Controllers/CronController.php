@@ -173,7 +173,7 @@ class CronController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Sync layanan & stok KOPKEN berhasil disinkronkan.',
+            'message' => 'Sync layanan & stok OTP provider berhasil disinkronkan.',
             'synced_kopken' => $countKopken,
             'synced_wahub' => $countWahub,
             'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
