@@ -42,10 +42,10 @@
         @enderror
 
         {{-- 2-Column Grid Layout: Kiri (Input & Form) | Kanan (Data & Status) --}}
-        <div class="grid grid-cols-1 gap-8 lg:grid-cols-12">
+        <div class="grid grid-cols-1 gap-6 md:grid-cols-12 md:gap-6 lg:gap-8 items-start">
 
             {{-- ==================== KOLOM KIRI (INPUT & FORM) ==================== --}}
-            <div class="space-y-6 lg:col-span-7 xl:col-span-7">
+            <div class="space-y-6 md:col-span-7">
                 <div class="flex items-center justify-between">
                     <div>
                         <h2 class="text-lg font-extrabold text-brand-900">Pengaturan & Input</h2>
@@ -342,7 +342,7 @@
             </div>
 
             {{-- ==================== KOLOM KANAN (DISPLAY DATA & STATUS) ==================== --}}
-            <div class="space-y-5 lg:col-span-5 xl:col-span-5">
+            <div class="space-y-5 md:col-span-5">
                 <div class="sticky top-6 space-y-5">
                     <div>
                         <h2 class="text-lg font-extrabold text-brand-900">Informasi & Status</h2>
