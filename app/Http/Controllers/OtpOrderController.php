@@ -30,6 +30,11 @@ class OtpOrderController extends Controller
             $query->where('telegram_bot_id', $request->integer('bot_id'));
         }
 
+        // Filter by Provider (kopken / wahub)
+        if ($request->filled('provider')) {
+            $query->where('provider', $request->string('provider'));
+        }
+
         // Filter by Bot Member / User
         if ($request->filled('member_id')) {
             $query->where('bot_member_id', $request->integer('member_id'));
@@ -38,11 +43,6 @@ class OtpOrderController extends Controller
         // Filter by Status
         if ($request->filled('status')) {
             $query->where('status', $request->string('status'));
-        }
-
-        $kopkenService = OtpService::query()->kopken()->first();
-        if ($kopkenService) {
-            $query->where('otp_service_id', $kopkenService->id);
         }
 
         // Filter by Date range
@@ -60,6 +60,7 @@ class OtpOrderController extends Controller
                 $q->where('phone_number', 'like', "%{$search}%")
                     ->orWhere('otp_code', 'like', "%{$search}%")
                     ->orWhere('provider_order_id', 'like', "%{$search}%")
+                    ->orWhere('provider_token', 'like', "%{$search}%")
                     ->orWhere('full_text', 'like', "%{$search}%")
                     ->orWhereHas('botMember', function ($mq) use ($search) {
                         $mq->where('telegram_username', 'like', "%{$search}%")
@@ -71,14 +72,20 @@ class OtpOrderController extends Controller
 
         // Summary metrics
         $statsBase = OtpOrder::query()->whereIn('telegram_bot_id', $botIds);
-        if ($kopkenService) {
-            $statsBase->where('otp_service_id', $kopkenService->id);
+        if ($request->filled('provider')) {
+            $statsBase->where('provider', $request->string('provider'));
         }
         if ($request->filled('bot_id')) {
             $statsBase->where('telegram_bot_id', $request->integer('bot_id'));
         }
         if ($request->filled('member_id')) {
             $statsBase->where('bot_member_id', $request->integer('member_id'));
+        }
+        if ($request->filled('date_from')) {
+            $statsBase->whereDate('created_at', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $statsBase->whereDate('created_at', '<=', $request->date_to);
         }
 
         $totalOrders = (clone $statsBase)->count();
@@ -98,11 +105,15 @@ class OtpOrderController extends Controller
             ->orderBy('telegram_name')
             ->get();
 
+        $kopkenService = OtpService::query()->kopken('kopken')->first() ?? OtpService::query()->forProvider('kopken')->first();
+        $wahubService = OtpService::query()->forProvider('wahub')->first() ?? OtpService::query()->kopken('wahub')->first();
+
         return view('otp-orders.index', compact(
             'orders',
             'bots',
             'members',
             'kopkenService',
+            'wahubService',
             'totalOrders',
             'completedCount',
             'pendingCount',
@@ -120,6 +131,7 @@ class OtpOrderController extends Controller
         $data = $request->validate([
             'telegram_bot_id' => ['required', 'integer', 'in:'.implode(',', $botIds)],
             'bot_member_id' => ['required', 'integer'],
+            'provider' => ['nullable', 'string', 'in:kopken,wahub'],
             'phone_number' => ['required', 'string', 'max:30'],
             'otp_code' => ['nullable', 'string', 'max:20'],
             'sell_price' => ['required', 'integer', 'min:0'],
@@ -130,20 +142,22 @@ class OtpOrderController extends Controller
         ]);
 
         $bot = TelegramBot::where('id', $data['telegram_bot_id'])->firstOrFail();
-        $service = OtpService::query()->kopken($bot->activeOtpProvider())->first()
-            ?? OtpService::query()->kopken()->first()
-            ?? OtpService::query()->firstOrFail();
+        $member = BotMember::where('id', $data['bot_member_id'])->where('telegram_bot_id', $bot->id)->firstOrFail();
+        $provider = $data['provider'] ?? $bot->activeOtpProvider();
+        $service = OtpService::query()->kopken($provider)->first()
+            ?? OtpService::query()->forProvider($provider)->first()
+            ?? OtpService::query()->first();
 
         $order = OtpOrder::create([
             'telegram_bot_id' => $bot->id,
             'bot_member_id' => $member->id,
-            'otp_service_id' => $service->id,
-            'provider' => $bot->activeOtpProvider(),
+            'otp_service_id' => $service?->id,
+            'provider' => $provider,
             'idempotency_key' => (string) Str::uuid(),
             'phone_number' => $data['phone_number'],
             'otp_code' => $data['otp_code'] ?: null,
             'sell_price' => $data['sell_price'],
-            'provider_price' => $data['provider_price'] ?? $service->provider_price,
+            'provider_price' => $data['provider_price'] ?? ($service?->provider_price ?? 0),
             'status' => $data['status'],
             'wallet_status' => $data['wallet_status'],
             'full_text' => $data['full_text'] ?: null,
@@ -152,7 +166,7 @@ class OtpOrderController extends Controller
         ]);
 
         return redirect()->route('otp-orders.index')
-            ->with('success', 'Riwayat OTP #'.$order->id.' berhasil ditambahkan.');
+            ->with('success', 'Riwayat OTP #'.$order->id.' ('.strtoupper($provider).') berhasil ditambahkan.');
     }
 
     public function update(Request $request, OtpOrder $otpOrder): RedirectResponse
@@ -206,7 +220,7 @@ class OtpOrderController extends Controller
     {
         $this->authorizeOrderOwner($otpOrder);
 
-        if (! $otpOrder->provider_order_id) {
+        if (! $otpOrder->provider_order_id && ! $otpOrder->provider_token) {
             return back()->withErrors(['error' => 'Order ini tidak memiliki ID Provider untuk dicek statusnya.']);
         }
 

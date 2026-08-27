@@ -377,7 +377,7 @@
                   class="otp-filter-form space-y-4">
                 <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     {{-- Search Input --}}
-                    <div class="lg:col-span-2">
+                    <div>
                         <label for="filter-search" class="block text-xs font-bold uppercase tracking-wider text-brand-600 mb-1.5">
                             Pencarian
                         </label>
@@ -388,9 +388,22 @@
                                 </svg>
                             </span>
                             <input type="text" id="filter-search" name="search" value="{{ request('search') }}"
-                                   placeholder="Cari nomor HP, kode OTP, ID order, username, chat ID..."
+                                   placeholder="Cari nomor, OTP, ID, user..."
                                    class="w-full rounded-xl border-brand-200 pl-10 pr-4 py-2.5 text-sm text-brand-900 placeholder:text-brand-300 focus:border-brand-900 focus:ring-brand-900">
                         </div>
+                    </div>
+
+                    {{-- Filter by Provider --}}
+                    <div>
+                        <label for="filter-provider" class="block text-xs font-bold uppercase tracking-wider text-brand-600 mb-1.5">
+                            Provider OTP
+                        </label>
+                        <select id="filter-provider" name="provider"
+                                class="w-full rounded-xl border-brand-200 py-2.5 px-3 text-sm text-brand-900 focus:border-brand-900 focus:ring-brand-900">
+                            <option value="">Semua Provider (2 Provider)</option>
+                            <option value="kopken" @selected(request('provider') === 'kopken')>🟣 EngineUnicorn (Kopken)</option>
+                            <option value="wahub" @selected(request('provider') === 'wahub')>🔵 WAHub (dehuyzotp.shop)</option>
+                        </select>
                     </div>
 
                     {{-- Filter by User / Member --}}
@@ -669,11 +682,22 @@
                                     </div>
                                 </td>
 
-                                {{-- Layanan --}}
+                                {{-- Layanan & Provider --}}
                                 <td class="px-5 py-4 whitespace-nowrap">
-                                    <span class="font-bold text-brand-900 text-xs">{{ $order->otpService?->name ?? 'Kopken' }}</span>
-                                    @if ($order->provider_order_id)
-                                        <div class="text-[10px] text-brand-400 font-mono">{{ Str::before($order->provider_order_id, '-') }}</div>
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="font-bold text-brand-900 text-xs">{{ $order->otpService?->name ?? 'WhatsApp' }}</span>
+                                        @if ($order->provider === 'wahub')
+                                            <span class="inline-flex items-center rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200" title="Provider 2: WAHub">
+                                                WAHub
+                                            </span>
+                                        @else
+                                            <span class="inline-flex items-center rounded-md bg-purple-50 px-1.5 py-0.5 text-[10px] font-bold text-purple-700 border border-purple-200" title="Provider 1: EngineUnicorn">
+                                                EngineUnicorn
+                                            </span>
+                                        @endif
+                                    </div>
+                                    @if ($order->provider_order_id || $order->provider_token)
+                                        <div class="text-[10px] text-brand-400 font-mono mt-0.5">{{ Str::before($order->provider_order_id ?: $order->provider_token, '-') }}</div>
                                     @endif
                                 </td>
 
@@ -753,8 +777,10 @@
                                                 @click="openDetail({{ json_encode([
                                                     'id' => $order->id,
                                                     'batch_id' => $order->batch_id,
-                                                    'provider_order_id' => $order->provider_order_id,
-                                                    'service_name' => $order->otpService?->name ?? 'Kopken',
+                                                    'provider' => $order->provider ?? 'kopken',
+                                                    'provider_label' => ($order->provider === 'wahub') ? 'WAHub (dehuyzotp.shop)' : 'EngineUnicorn (engineunicorn.cloud)',
+                                                    'provider_order_id' => $order->provider_order_id ?: $order->provider_token,
+                                                    'service_name' => $order->otpService?->name ?? 'WhatsApp',
                                                     'member_name' => $order->botMember?->displayName() ?? 'Member',
                                                     'member_chat_id' => $order->botMember?->telegram_chat_id ?? '-',
                                                     'phone_number' => $order->phone_number,
@@ -778,7 +804,7 @@
                                         </button>
 
                                         {{-- Live Refresh Button (if pending) --}}
-                                        @if ($order->status === 'pending' && $order->provider_order_id)
+                                        @if ($order->status === 'pending' && ($order->provider_order_id || $order->provider_token))
                                             <form method="POST" action="{{ route('otp-orders.refresh', $order) }}" class="inline">
                                                 @csrf
                                                 <button type="submit" class="rounded-lg border border-amber-200 bg-amber-50 p-1.5 text-amber-700 hover:bg-amber-100 transition" title="Cek Status Live ke Provider">
@@ -864,10 +890,15 @@
                  @click.stop>
                 <div class="otp-detail-head">
                     <div class="min-w-0">
-                        <h3 class="text-base font-extrabold text-brand-900">
-                            Detail OTP <span class="font-mono text-brand-500" x-text="selectedOrder ? '#' + selectedOrder.id : ''"></span>
-                        </h3>
-                        <p class="mt-0.5 text-[11px] text-brand-500">KOPKEN</p>
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-base font-extrabold text-brand-900">
+                                Detail OTP <span class="font-mono text-brand-500" x-text="selectedOrder ? '#' + selectedOrder.id : ''"></span>
+                            </h3>
+                            <span class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-extrabold"
+                                  :class="selectedOrder?.provider === 'wahub' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-purple-50 text-purple-700 border border-purple-200'"
+                                  x-text="selectedOrder?.provider === 'wahub' ? 'WAHub' : 'EngineUnicorn'"></span>
+                        </div>
+                        <p class="mt-0.5 text-[11px] text-brand-500" x-text="(selectedOrder?.service_name || 'WhatsApp') + ' • ' + (selectedOrder?.provider_label || 'EngineUnicorn')"></p>
                     </div>
                     <button type="button" @click="detailModal = false" class="shrink-0 rounded-xl p-1.5 text-brand-400">
                         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -891,6 +922,16 @@
                     </div>
 
                     <div class="otp-detail-list">
+                        <div class="otp-detail-row">
+                            <span class="lbl">Provider</span>
+                            <span class="val font-semibold"
+                                  :class="selectedOrder.provider === 'wahub' ? 'text-blue-700' : 'text-purple-700'"
+                                  x-text="selectedOrder.provider_label || (selectedOrder.provider === 'wahub' ? 'WAHub' : 'EngineUnicorn')"></span>
+                        </div>
+                        <div class="otp-detail-row">
+                            <span class="lbl">Layanan</span>
+                            <span class="val" x-text="selectedOrder.service_name || 'WhatsApp'"></span>
+                        </div>
                         <div class="otp-detail-row">
                             <span class="lbl">Member</span>
                             <span class="val" x-text="selectedOrder.member_name"></span>
@@ -988,7 +1029,7 @@
                             <select id="create-bot" name="telegram_bot_id" required
                                     class="w-full rounded-xl border-brand-200 py-2.5 px-3 text-sm text-brand-900 focus:border-brand-900 focus:ring-brand-900">
                                 @foreach ($bots as $b)
-                                    <option value="{{ $b->id }}">{{ $b->name }} ({{ $b->displayUsername() }})</option>
+                                    <option value="{{ $b->id }}">{{ $b->name }} ({{ $b->displayUsername() }}) - Default: {{ strtoupper($b->activeOtpProvider()) }}</option>
                                 @endforeach
                             </select>
                         </div>
@@ -996,18 +1037,30 @@
                         <input type="hidden" name="telegram_bot_id" value="{{ $bots->first()?->id }}">
                     @endif
 
-                    <div>
-                        <label for="create-member" class="block text-xs font-bold uppercase tracking-wider text-brand-600 mb-1.5">
-                            Member <span class="text-rose-500">*</span>
-                        </label>
-                        <select id="create-member" name="bot_member_id" required
-                                class="w-full rounded-xl border-brand-200 py-2.5 px-3 text-sm text-brand-900 focus:border-brand-900 focus:ring-brand-900">
-                            <option value="">-- Pilih Member --</option>
-                            @foreach ($members as $m)
-                                <option value="{{ $m->id }}">{{ $m->displayName() }} (ID: {{ $m->telegram_chat_id }})</option>
-                            @endforeach
-                        </select>
-                        <p class="mt-1.5 text-[11px] font-semibold text-brand-500">Layanan: KOPKEN</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label for="create-member" class="block text-xs font-bold uppercase tracking-wider text-brand-600 mb-1.5">
+                                Member <span class="text-rose-500">*</span>
+                            </label>
+                            <select id="create-member" name="bot_member_id" required
+                                    class="w-full rounded-xl border-brand-200 py-2.5 px-3 text-sm text-brand-900 focus:border-brand-900 focus:ring-brand-900">
+                                <option value="">-- Pilih Member --</option>
+                                @foreach ($members as $m)
+                                    <option value="{{ $m->id }}">{{ $m->displayName() }} (ID: {{ $m->telegram_chat_id }})</option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        <div>
+                            <label for="create-provider" class="block text-xs font-bold uppercase tracking-wider text-brand-600 mb-1.5">
+                                Provider Layanan OTP <span class="text-rose-500">*</span>
+                            </label>
+                            <select id="create-provider" name="provider" required
+                                    class="w-full rounded-xl border-brand-200 py-2.5 px-3 text-sm text-brand-900 focus:border-brand-900 focus:ring-brand-900">
+                                <option value="kopken">🟣 EngineUnicorn (Kopken)</option>
+                                <option value="wahub">🔵 WAHub (dehuyzotp.shop)</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
