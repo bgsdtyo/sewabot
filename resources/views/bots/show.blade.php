@@ -317,16 +317,6 @@
                         </button>
                     </div>
                 </form>
-
-                {{-- Sync Layanan Button Form --}}
-                <form method="POST" action="{{ route('bots.sync-services', $telegramBot) }}">
-                    @csrf
-                    <button type="submit"
-                            class="w-full rounded-2xl border border-brand-200 bg-white px-5 py-3 text-sm font-bold text-brand-900 shadow-xs hover:bg-brand-50 transition disabled:cursor-not-allowed disabled:opacity-50"
-                            @disabled(! $telegramBot->hasOtpConfigured())>
-                        🔄 Sync Layanan KOPKEN ({{ $telegramBot->otpProviderName() }})
-                    </button>
-                </form>
             </div>
 
             {{-- ==================== KOLOM KANAN (DISPLAY DATA & STATUS LIVE) ==================== --}}
@@ -401,9 +391,23 @@
                     </div>
                 </div>
 
-                {{-- Card C: Ringkasan Harga Layanan KOPKEN --}}
+                {{-- Card C: Ringkasan Harga Layanan --}}
                 <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-xs">
-                    <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Layanan & Harga KOPKEN</span>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Layanan & Harga OTP</span>
+                        <form method="POST" action="{{ route('bots.sync-services', $telegramBot) }}">
+                            @csrf
+                            <button type="submit"
+                                    title="Sync harga & layanan live provider sekarang"
+                                    class="inline-flex items-center gap-1 rounded-lg border border-brand-200 bg-brand-50 px-2 py-1 text-xs font-bold text-brand-900 hover:bg-brand-100 disabled:opacity-40"
+                                    @disabled(! $telegramBot->hasOtpConfigured())>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5">
+                                    <path fill-rule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H4.39a.75.75 0 0 0-.75.75v3.842a.75.75 0 0 0 1.5 0v-2.16l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm-10.624-2.85a5.5 5.5 0 0 1 9.201-2.466l.312.312H11.77a.75.75 0 0 0 0 1.5h3.842a.75.75 0 0 0 .75-.75V3.328a.75.75 0 1 0-1.5 0V5.49l-.31-.31A7 7 0 0 0 3.04 8.316a.75.75 0 1 0 1.45.39Z" clip-rule="evenodd" />
+                                </svg>
+                                Sync Layanan
+                            </button>
+                        </form>
+                    </div>
 
                     <div class="mt-3 space-y-2 text-sm">
                         <div class="flex items-center justify-between border-b border-brand-100 pb-2">
