@@ -41,11 +41,11 @@
             </div>
         @enderror
 
-        {{-- 2-Column Grid Layout: Kiri (Input & Form) | Kanan (Data & Status) --}}
-        <div class="grid grid-cols-1 gap-6 md:grid-cols-12 md:gap-6 lg:gap-8 items-start">
+        {{-- 2-Column Responsive Layout: Kiri (Input & Form) | Kanan (Data & Status Live) --}}
+        <div class="flex flex-col lg:flex-row gap-8 items-start">
 
-            {{-- ==================== KOLOM KIRI (INPUT & FORM) ==================== --}}
-            <div class="space-y-6 md:col-span-7">
+            {{-- ==================== KOLOM KIRI (INPUT & FORMULIR) ==================== --}}
+            <div class="w-full lg:w-7/12 space-y-6">
                 <div class="flex items-center justify-between">
                     <div>
                         <h2 class="text-lg font-extrabold text-brand-900">Pengaturan & Input</h2>
@@ -341,128 +341,126 @@
                 </form>
             </div>
 
-            {{-- ==================== KOLOM KANAN (DISPLAY DATA & STATUS) ==================== --}}
-            <div class="space-y-5 md:col-span-5">
-                <div class="sticky top-6 space-y-5">
-                    <div>
-                        <h2 class="text-lg font-extrabold text-brand-900">Informasi & Status</h2>
-                        <p class="text-xs text-brand-500">Data live provider, saldo, dan tarif bot.</p>
+            {{-- ==================== KOLOM KANAN (DISPLAY DATA & STATUS LIVE) ==================== --}}
+            <div class="w-full lg:w-5/12 space-y-5 lg:sticky lg:top-6">
+                <div>
+                    <h2 class="text-lg font-extrabold text-brand-900">Informasi & Status</h2>
+                    <p class="text-xs text-brand-500">Data live provider, saldo, dan tarif bot.</p>
+                </div>
+
+                {{-- Card A: Status Provider Aktif --}}
+                <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-xs">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Provider Aktif</span>
+                        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-extrabold {{ $telegramBot->hasOtpConfigured() ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700' }}">
+                            <span class="h-2 w-2 rounded-full {{ $telegramBot->hasOtpConfigured() ? 'bg-emerald-500' : 'bg-amber-500' }}"></span>
+                            {{ $telegramBot->hasOtpConfigured() ? 'Terhubung' : 'Belum Terhubung' }}
+                        </span>
                     </div>
 
-                    {{-- Card A: Status Provider Aktif --}}
-                    <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-xs">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Provider Aktif</span>
-                            <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-extrabold {{ $telegramBot->hasOtpConfigured() ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700' }}">
-                                <span class="h-2 w-2 rounded-full {{ $telegramBot->hasOtpConfigured() ? 'bg-emerald-500' : 'bg-amber-500' }}"></span>
-                                {{ $telegramBot->hasOtpConfigured() ? 'Terhubung' : 'Belum Terhubung' }}
-                            </span>
+                    <div class="mt-3 flex items-center gap-3">
+                        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl {{ $activeProvider === 'wahub' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700' }}">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
                         </div>
+                        <div>
+                            <p class="text-base font-extrabold text-brand-900">
+                                {{ $activeProvider === 'wahub' ? 'WAHub' : 'EngineUnicorn' }}
+                            </p>
+                            <p class="text-xs text-brand-500">
+                                {{ $activeProvider === 'wahub' ? 'dehuyzotp.shop' : 'engineunicorn.cloud' }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
 
-                        <div class="mt-3 flex items-center gap-3">
-                            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl {{ $activeProvider === 'wahub' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700' }}">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                {{-- Card B: Saldo Pusat API --}}
+                <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-xs">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Saldo Pusat API</span>
+                        <form method="POST" action="{{ route('bots.provider-balance', $telegramBot) }}">
+                            @csrf
+                            <button type="submit"
+                                    title="Cek saldo live provider sekarang"
+                                    class="inline-flex items-center gap-1 rounded-lg border border-brand-200 bg-brand-50 px-2 py-1 text-xs font-bold text-brand-900 hover:bg-brand-100 disabled:opacity-40"
+                                    @disabled(! $telegramBot->hasOtpConfigured())>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5">
+                                    <path fill-rule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H4.39a.75.75 0 0 0-.75.75v3.842a.75.75 0 0 0 1.5 0v-2.16l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm-10.624-2.85a5.5 5.5 0 0 1 9.201-2.466l.312.312H11.77a.75.75 0 0 0 0 1.5h3.842a.75.75 0 0 0 .75-.75V3.328a.75.75 0 1 0-1.5 0V5.49l-.31-.31A7 7 0 0 0 3.04 8.316a.75.75 0 1 0 1.45.39Z" clip-rule="evenodd" />
                                 </svg>
-                            </div>
-                            <div>
-                                <p class="text-base font-extrabold text-brand-900">
-                                    {{ $activeProvider === 'wahub' ? 'WAHub' : 'EngineUnicorn' }}
+                                Refresh
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="mt-3">
+                        @if ($telegramBot->provider_balance !== null)
+                            <div class="flex items-baseline gap-2">
+                                <p class="text-2xl font-black {{ $telegramBot->isProviderBalanceLow() ? 'text-rose-600' : 'text-emerald-700' }}">
+                                    {{ $telegramBot->formattedProviderBalance() }}
                                 </p>
-                                <p class="text-xs text-brand-500">
-                                    {{ $activeProvider === 'wahub' ? 'dehuyzotp.shop' : 'engineunicorn.cloud' }}
-                                </p>
+                                @if ($telegramBot->isProviderBalanceLow())
+                                    <span class="rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">Rendah</span>
+                                @endif
                             </div>
+                            <p class="mt-1 text-xs text-brand-500">
+                                Dicek: {{ $telegramBot->provider_balance_checked_at?->timezone(config('app.timezone'))->format('d M Y H:i') ?? '-' }}
+                            </p>
+                        @else
+                            <p class="text-2xl font-black text-brand-400">—</p>
+                            <p class="mt-1 text-xs text-brand-500">Tekan tombol Refresh di atas untuk mengecek saldo.</p>
+                        @endif
+                    </div>
+                </div>
+
+                {{-- Card C: Ringkasan Harga Layanan KOPKEN --}}
+                <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-xs">
+                    <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Layanan & Harga KOPKEN</span>
+
+                    <div class="mt-3 space-y-2 text-sm">
+                        <div class="flex items-center justify-between border-b border-brand-100 pb-2">
+                            <span class="text-brand-600">Modal Provider:</span>
+                            <span class="font-bold text-brand-900">{{ $kopken ? $kopken->formattedProviderPrice() : '-' }}</span>
+                        </div>
+                        <div class="flex items-center justify-between border-b border-brand-100 pb-2">
+                            <span class="text-brand-600">Markup Anda:</span>
+                            <span class="font-bold text-brand-900">{{ $telegramBot->markupLabel() }}</span>
+                        </div>
+                        <div class="flex items-center justify-between pt-1">
+                            <span class="font-bold text-brand-900">Harga Jual Bot:</span>
+                            <span class="text-base font-extrabold text-emerald-700">{{ $kopken ? $telegramBot->formattedSellPriceFor($kopken->provider_price) : '-' }}</span>
                         </div>
                     </div>
+                </div>
 
-                    {{-- Card B: Saldo Pusat API --}}
-                    <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-xs">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Saldo Pusat API</span>
-                            <form method="POST" action="{{ route('bots.provider-balance', $telegramBot) }}">
-                                @csrf
-                                <button type="submit"
-                                        title="Cek saldo live provider sekarang"
-                                        class="inline-flex items-center gap-1 rounded-lg border border-brand-200 bg-brand-50 px-2 py-1 text-xs font-bold text-brand-900 hover:bg-brand-100 disabled:opacity-40"
-                                        @disabled(! $telegramBot->hasOtpConfigured())>
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5">
-                                        <path fill-rule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H4.39a.75.75 0 0 0-.75.75v3.842a.75.75 0 0 0 1.5 0v-2.16l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm-10.624-2.85a5.5 5.5 0 0 1 9.201-2.466l.312.312H11.77a.75.75 0 0 0 0 1.5h3.842a.75.75 0 0 0 .75-.75V3.328a.75.75 0 1 0-1.5 0V5.49l-.31-.31A7 7 0 0 0 3.04 8.316a.75.75 0 1 0 1.45.39Z" clip-rule="evenodd" />
-                                    </svg>
-                                    Refresh
-                                </button>
-                            </form>
-                        </div>
-
-                        <div class="mt-3">
-                            @if ($telegramBot->provider_balance !== null)
-                                <div class="flex items-baseline gap-2">
-                                    <p class="text-2xl font-black {{ $telegramBot->isProviderBalanceLow() ? 'text-rose-600' : 'text-emerald-700' }}">
-                                        {{ $telegramBot->formattedProviderBalance() }}
-                                    </p>
-                                    @if ($telegramBot->isProviderBalanceLow())
-                                        <span class="rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">Rendah</span>
-                                    @endif
-                                </div>
-                                <p class="mt-1 text-xs text-brand-500">
-                                    Dicek: {{ $telegramBot->provider_balance_checked_at?->timezone(config('app.timezone'))->format('d M Y H:i') ?? '-' }}
-                                </p>
-                            @else
-                                <p class="text-2xl font-black text-brand-400">—</p>
-                                <p class="mt-1 text-xs text-brand-500">Tekan tombol Refresh di atas untuk mengecek saldo.</p>
-                            @endif
-                        </div>
+                {{-- Card D: Daftar Admin Bot --}}
+                <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-xs">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Admin Terdaftar</span>
+                        <span class="rounded-md bg-brand-50 px-2 py-0.5 text-xs font-bold text-brand-900">
+                            {{ count($telegramBot->adminTelegramIdList()) }} ID
+                        </span>
                     </div>
 
-                    {{-- Card C: Ringkasan Harga Layanan KOPKEN --}}
-                    <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-xs">
-                        <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Layanan & Harga KOPKEN</span>
-
-                        <div class="mt-3 space-y-2 text-sm">
-                            <div class="flex items-center justify-between border-b border-brand-100 pb-2">
-                                <span class="text-brand-600">Modal Provider:</span>
-                                <span class="font-bold text-brand-900">{{ $kopken ? $kopken->formattedProviderPrice() : '-' }}</span>
+                    <div class="mt-3">
+                        @if ($telegramBot->adminTelegramIdList() !== [])
+                            <div class="flex flex-wrap gap-1.5">
+                                @foreach ($telegramBot->adminTelegramIdList() as $adminId)
+                                    <span class="rounded-lg bg-brand-50 border border-brand-100 px-2 py-1 font-mono text-xs font-bold text-brand-900">{{ $adminId }}</span>
+                                @endforeach
                             </div>
-                            <div class="flex items-center justify-between border-b border-brand-100 pb-2">
-                                <span class="text-brand-600">Markup Anda:</span>
-                                <span class="font-bold text-brand-900">{{ $telegramBot->markupLabel() }}</span>
-                            </div>
-                            <div class="flex items-center justify-between pt-1">
-                                <span class="font-bold text-brand-900">Harga Jual Bot:</span>
-                                <span class="text-base font-extrabold text-emerald-700">{{ $kopken ? $telegramBot->formattedSellPriceFor($kopken->provider_price) : '-' }}</span>
-                            </div>
-                        </div>
+                        @else
+                            <p class="text-xs text-amber-700">Belum ada admin terdaftar. Isi Telegram ID di formulir sebelah kiri.</p>
+                        @endif
                     </div>
+                </div>
 
-                    {{-- Card D: Daftar Admin Bot --}}
-                    <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-xs">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Admin Terdaftar</span>
-                            <span class="rounded-md bg-brand-50 px-2 py-0.5 text-xs font-bold text-brand-900">
-                                {{ count($telegramBot->adminTelegramIdList()) }} ID
-                            </span>
-                        </div>
-
-                        <div class="mt-3">
-                            @if ($telegramBot->adminTelegramIdList() !== [])
-                                <div class="flex flex-wrap gap-1.5">
-                                    @foreach ($telegramBot->adminTelegramIdList() as $adminId)
-                                        <span class="rounded-lg bg-brand-50 border border-brand-100 px-2 py-1 font-mono text-xs font-bold text-brand-900">{{ $adminId }}</span>
-                                    @endforeach
-                                </div>
-                            @else
-                                <p class="text-xs text-amber-700">Belum ada admin terdaftar. Isi Telegram ID di formulir sebelah kiri.</p>
-                            @endif
-                        </div>
-                    </div>
-
-                    {{-- Card E: Info Webhook & Bot Telegram --}}
-                    <div class="rounded-2xl border border-brand-200 bg-brand-50/50 p-4 text-xs text-brand-600">
-                        <p class="font-bold text-brand-900">💡 Tips Penggunaan</p>
-                        <p class="mt-1">
-                            Setiap pergantian provider aktif atau perubahan API key akan langsung diterapkan secara instan ke bot Telegram Anda.
-                        </p>
-                    </div>
+                {{-- Card E: Info Webhook & Bot Telegram --}}
+                <div class="rounded-2xl border border-brand-200 bg-brand-50/50 p-4 text-xs text-brand-600">
+                    <p class="font-bold text-brand-900">💡 Tips Penggunaan</p>
+                    <p class="mt-1">
+                        Setiap pergantian provider aktif atau perubahan API key akan langsung diterapkan secara instan ke bot Telegram Anda.
+                    </p>
                 </div>
             </div>
 
