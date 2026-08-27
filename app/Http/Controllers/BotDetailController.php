@@ -14,7 +14,7 @@ use Illuminate\View\View;
 
 class BotDetailController extends Controller
 {
-    public function show(TelegramBot $telegramBot): View
+    public function show(TelegramBot $telegramBot, OtpOrderService $otp): View
     {
         $this->authorizeOwner($telegramBot);
 
@@ -24,10 +24,22 @@ class BotDetailController extends Controller
             ->orderBy('name')
             ->get();
 
+        if ($services->isEmpty() && $telegramBot->hasOtpConfigured()) {
+            try {
+                $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $telegramBot);
+                $services = OtpService::sellable()
+                    ->forProvider($telegramBot->activeOtpProvider())
+                    ->orderBy('name')
+                    ->get();
+            } catch (\Throwable $e) {
+                Log::warning('Auto-sync services on bot detail show: '.$e->getMessage());
+            }
+        }
+
         return view('bots.show', compact('telegramBot', 'services'));
     }
 
-    public function updateSettings(Request $request, TelegramBot $telegramBot): RedirectResponse
+    public function updateSettings(Request $request, TelegramBot $telegramBot, OtpOrderService $otp): RedirectResponse
     {
         $this->authorizeOwner($telegramBot);
 
@@ -91,6 +103,14 @@ class BotDetailController extends Controller
 
         try {
             $telegramBot->update($updates);
+
+            if ($telegramBot->hasOtpConfigured()) {
+                try {
+                    $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $telegramBot);
+                } catch (\Throwable $e) {
+                    Log::warning('Auto-sync services after update settings: '.$e->getMessage());
+                }
+            }
         } catch (\Throwable $e) {
             report($e);
 
@@ -111,7 +131,7 @@ class BotDetailController extends Controller
         $this->authorizeOwner($telegramBot);
 
         try {
-            $count = $otp->syncServices(['KOPKEN', 'WHATSAPP'], $telegramBot);
+            $count = $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $telegramBot);
             $providerName = $telegramBot->otpProviderName();
 
             return back()->with('success', "Sync KOPKEN berhasil ({$count} layanan) untuk {$providerName}.");

@@ -36,27 +36,31 @@ class OtpOrderService
             : $this->providerManager->driver($targetProvider);
 
         $items = $client->getServices();
+        Log::info("Syncing services for provider [{$targetProvider}] - items count: ".count($items), ['items' => $items]);
         $count = 0;
+
+        $targetPatterns = $onlyNames && ! empty($onlyNames)
+            ? array_map('strtoupper', (array) $onlyNames)
+            : ['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'];
 
         foreach ($items as $item) {
             $name = (string) ($item['name'] ?? '');
-            $nameUpper = strtoupper($name);
+            $nameUpper = strtoupper(trim($name));
 
-            // Filter khusus layanan KOPKEN / WhatsApp
-            $isKopkenOrWa = false;
-            if ($onlyNames && ! empty($onlyNames)) {
-                foreach ($onlyNames as $pattern) {
-                    $pUpper = strtoupper($pattern);
-                    if ($nameUpper === $pUpper || str_contains($nameUpper, $pUpper)) {
-                        $isKopkenOrWa = true;
-                        break;
-                    }
+            $isMatched = false;
+            foreach ($targetPatterns as $pattern) {
+                if ($nameUpper === $pattern || str_contains($nameUpper, $pattern)) {
+                    $isMatched = true;
+                    break;
                 }
-            } else {
-                $isKopkenOrWa = true;
             }
 
-            if (! $isKopkenOrWa) {
+            // Jika hanya ada 1 item dari provider (misal WAHub khusus WA), ambil item tersebut
+            if (! $isMatched && count($items) === 1) {
+                $isMatched = true;
+            }
+
+            if (! $isMatched) {
                 continue;
             }
 
