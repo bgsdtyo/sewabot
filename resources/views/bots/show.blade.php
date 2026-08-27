@@ -415,6 +415,18 @@
                             <span class="font-bold text-brand-900">{{ $kopken ? $kopken->formattedProviderPrice() : '-' }}</span>
                         </div>
                         <div class="flex items-center justify-between border-b border-brand-100 pb-2">
+                            <span class="text-brand-600">Stok Pusat:</span>
+                            @if ($kopken)
+                                @php $stock = (int) ($kopken->stock ?? 0); @endphp
+                                <span class="inline-flex items-center gap-1.5 font-bold {{ $stock > 0 ? 'text-emerald-700' : 'text-rose-600' }}">
+                                    <span class="h-2 w-2 rounded-full {{ $stock > 0 ? 'bg-emerald-500' : 'bg-rose-500' }}"></span>
+                                    {{ $stock > 0 ? number_format($stock, 0, ',', '.').' nomor' : 'Habis (0)' }}
+                                </span>
+                            @else
+                                <span class="font-bold text-brand-900">-</span>
+                            @endif
+                        </div>
+                        <div class="flex items-center justify-between border-b border-brand-100 pb-2">
                             <span class="text-brand-600">Markup Anda:</span>
                             <span class="font-bold text-brand-900">{{ $telegramBot->markupLabel() }}</span>
                         </div>
@@ -423,6 +435,22 @@
                             <span class="text-base font-extrabold text-emerald-700">{{ $kopken ? $telegramBot->formattedSellPriceFor($kopken->provider_price) : '-' }}</span>
                         </div>
                     </div>
+
+                    @if ($services->count() > 1)
+                        <div class="mt-3 border-t border-brand-100 pt-2.5">
+                            <p class="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-brand-400">Varian Layanan ({{ $services->count() }})</p>
+                            <div class="space-y-1">
+                                @foreach ($services as $svc)
+                                    <div class="flex items-center justify-between rounded-lg bg-brand-50/70 px-2 py-1 text-xs">
+                                        <span class="mr-2 truncate font-medium text-brand-800">{{ $svc->name }}</span>
+                                        <span class="shrink-0 font-bold {{ $svc->stock > 0 ? 'text-emerald-700' : 'text-rose-600' }}">
+                                            {{ $svc->stock > 0 ? number_format($svc->stock, 0, ',', '.').' stok' : 'Habis' }}
+                                        </span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
                 </div>
 
                 {{-- Card D: Daftar Admin Bot --}}
