@@ -238,19 +238,8 @@ class WahubProvider implements OtpProviderInterface
 
     public function doneOrder(string $providerOrderId, ?string $token = null): array
     {
-        $identifier = filled($providerOrderId) ? $providerOrderId : $token;
-
-        try {
-            $response = $this->client()->post('/api/order/'.$identifier, [
-                'action' => 'done',
-            ]);
-
-            return $response->json() ?? ['ok' => true];
-        } catch (\Throwable $e) {
-            Log::warning('WAHub doneOrder warning: '.$e->getMessage());
-
-            return ['ok' => false, 'error' => $e->getMessage()];
-        }
+        // Catatan: Tidak memanggil action: done ke server WAHub agar sewa tetap aktif untuk permintaan Re-OTP berikutnya hingga batas sewa berakhir.
+        return ['ok' => true];
     }
 
     public function getBalance(): array
@@ -339,21 +328,24 @@ class WahubProvider implements OtpProviderInterface
         $body = $response->json();
         $rawMessage = $body['message'] ?? $body['error'] ?? $body['errors'] ?? null;
 
+        $hasServerMessage = false;
         if (is_array($rawMessage)) {
             $message = implode(', ', array_filter(array_map('strval', $rawMessage)));
+            $hasServerMessage = trim($message) !== '';
         } elseif (is_string($rawMessage) && trim($rawMessage) !== '') {
             $message = trim($rawMessage);
+            $hasServerMessage = true;
         } else {
             $message = $fallback." (HTTP {$status})";
         }
 
         if ($status === 503 || stripos($message, 'stok') !== false || stripos($message, 'stock') !== false) {
             $message = 'Stok nomor WAHub untuk layanan ini sedang habis. Silakan coba beberapa saat lagi.';
-        } elseif ($status === 409) {
+        } elseif ($status === 409 && ! $hasServerMessage) {
             $message = 'Sewa nomor WAHub telah kedaluwarsa atau batas permintaan ulang tercapai.';
-        } elseif ($status === 429) {
+        } elseif ($status === 429 && ! $hasServerMessage) {
             $message = 'Batas maksimum sewa bersamaan WAHub tercapai. Silakan selesaikan sewa lama terlebih dahulu.';
-        } elseif ($status === 401) {
+        } elseif ($status === 401 && ! $hasServerMessage) {
             $message = 'API Key WAHub tidak valid atau kedaluwarsa. Periksa kembali di Pengaturan Bot.';
         }
 

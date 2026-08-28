@@ -469,12 +469,7 @@ class OtpOrderService
             return $order->fresh(['otpService', 'botMember', 'telegramBot']);
         });
 
-        // Acknowledge done on provider if supported (e.g. WAHub)
-        try {
-            $this->providerManager->forOrder($completed)->doneOrder((string) $completed->provider_order_id, $completed->provider_token);
-        } catch (\Throwable $e) {
-            Log::debug('Provider doneOrder notice: '.$e->getMessage());
-        }
+        // Catatan: Jangan panggil doneOrder saat OTP pertama masuk agar sewa tetap aktif untuk fitur Re-OTP (minta ulang OTP hingga 5x)
 
         if ($notify) {
             $member = $completed->botMember;
