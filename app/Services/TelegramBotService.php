@@ -1614,26 +1614,46 @@ class TelegramBotService
         ?string $statusOverride = null
     ): string {
         $id = $order->provider_order_id ? substr((string) $order->provider_order_id, 0, 8) : (string) $order->id;
-        $tz = config('app.timezone', 'Asia/Jakarta');
-        $when = $order->created_at?->timezone($tz)->format('d-m-Y H:i') ?? '-';
         $svc = e($order->otpService?->name ?? 'Kopken');
         $phone = $this->formatPhoneNumber($order->phone_number);
         $phoneStr = $phone !== '' ? '<code>'.e($phone).'</code>' : '-';
         $otp = filled($order->otp_code) ? '<code>'.e((string) $order->otp_code).'</code>' : '-';
-        $price = 'Rp '.number_format($order->sell_price, 0, ',', '.');
 
-        $status = $statusOverride ?? match (strtolower((string) $order->status)) {
-            'completed' => 'Berhasil',
-            'pending' => 'Pending',
-            'cancelled', 'canceled' => 'Dibatalkan',
-            'expired' => 'Kedaluwarsa',
-            default => ucfirst((string) $order->status),
-        };
+        $isCompleted = ($order->status === 'completed' || $statusOverride === 'Berhasil' || filled($order->otp_code));
 
         $lines = [];
         if ($title) {
             $lines[] = "<b>{$title}</b>\n\n";
         }
+
+        if ($isCompleted) {
+            $serviceModel = $order->otpService?->fresh() ?? $order->otpService;
+            $stock = $serviceModel ? (int) ($serviceModel->stock ?? 0) : 0;
+            $stockFormatted = $stock > 0 ? number_format($stock, 0, ',', '.') : '0';
+
+            $member = $order->botMember?->fresh() ?? $order->botMember;
+            $sisaSaldo = $member ? $member->formattedAvailable() : '-';
+
+            $lines[] = "❏ ID: <code>{$id}</code>\n"
+                ."├  Layanan: {$svc}\n"
+                ."├  Sisa Stok: {$stockFormatted}\n"
+                ."├  Sisa Saldo: {$sisaSaldo}\n"
+                ."├  Nomor: {$phoneStr}\n"
+                ."└  OTP: {$otp}";
+
+            return implode('', $lines);
+        }
+
+        $tz = config('app.timezone', 'Asia/Jakarta');
+        $when = $order->created_at?->timezone($tz)->format('d-m-Y H:i') ?? '-';
+        $price = 'Rp '.number_format($order->sell_price, 0, ',', '.');
+
+        $status = $statusOverride ?? match (strtolower((string) $order->status)) {
+            'pending' => 'Pending',
+            'cancelled', 'canceled' => 'Dibatalkan',
+            'expired' => 'Kedaluwarsa',
+            default => ucfirst((string) $order->status),
+        };
 
         $lines[] = "❏ ID: <code>{$id}</code>\n"
             ."├  Tanggal: {$when}\n"
