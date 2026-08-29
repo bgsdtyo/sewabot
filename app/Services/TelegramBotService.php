@@ -366,7 +366,8 @@ class TelegramBotService
                 [['text' => '⬅️ Menu User']],
             ],
             'resize_keyboard' => true,
-            'is_persistent' => true,
+            'is_persistent' => false,
+            'one_time_keyboard' => true,
         ];
     }
 
@@ -693,7 +694,8 @@ class TelegramBotService
         return [
             'keyboard' => $rows,
             'resize_keyboard' => true,
-            'is_persistent' => true,
+            'is_persistent' => false,
+            'one_time_keyboard' => true,
         ];
     }
 
