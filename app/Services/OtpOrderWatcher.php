@@ -56,7 +56,7 @@ class OtpOrderWatcher
 
         while (time() < $deadline && $activeIds !== []) {
             if (! $firstTick) {
-                sleep(1);
+                usleep(800000); // 800ms ultra-fast polling
             }
             $firstTick = false;
 
@@ -135,7 +135,7 @@ class OtpOrderWatcher
 
         while (time() < $deadline) {
             if (! $firstTick) {
-                sleep(2);
+                usleep(800000); // 800ms ultra-fast polling
             }
             $firstTick = false;
 

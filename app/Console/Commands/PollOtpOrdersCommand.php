@@ -24,7 +24,7 @@ class PollOtpOrdersCommand extends Command
 
         while (time() < $deadline) {
             if (! $firstLoop) {
-                sleep(2);
+                usleep(800000); // 800ms ultra-fast polling
             }
             $firstLoop = false;
 
