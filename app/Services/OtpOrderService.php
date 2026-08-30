@@ -336,12 +336,12 @@ class OtpOrderService
         $isTimeExpired = ($expiresAt && $expiresAt->isPast())
             || ($order->created_at && $order->created_at->lt(now()->subMinutes(20)));
 
-        if ($isTimeExpired && $order->status === 'pending') {
+        if ($isTimeExpired && ($order->status === 'pending' || ($order->status === 'completed' && ! filled($order->otp_code)))) {
             return $this->refundLocal($order, 'expired', 'Batas waktu pemesanan nomor (20 menit) telah habis.', $notify);
         }
 
         if (! $order->provider_order_id && ! $order->provider_token) {
-            if ($isTimeExpired && $order->status === 'pending') {
+            if ($isTimeExpired && ($order->status === 'pending' || ($order->status === 'completed' && ! filled($order->otp_code)))) {
                 return $this->refundLocal($order, 'expired', 'Order tanpa ID provider kedaluwarsa.', $notify);
             }
             return $order;
@@ -423,7 +423,7 @@ class OtpOrderService
             || stripos((string) $cancelReason, 'terblokir') !== false
             || stripos((string) $cancelReason, 'blocked') !== false;
 
-        if ($isCancelledOrBanned && $order->status === 'pending') {
+        if ($isCancelledOrBanned && ($order->status === 'pending' || ($order->status === 'completed' && ! filled($order->otp_code)))) {
             if ($this->isIgnoringProviderCancel((int) $order->id)) {
                 return $order->fresh(['otpService', 'botMember', 'telegramBot']) ?? $order;
             }
@@ -511,6 +511,15 @@ class OtpOrderService
                     OtpOrder::class,
                     $order->id,
                     'Refund OTP '.$status
+                );
+                $order->wallet_status = 'refunded';
+            } elseif ($order->wallet_status === 'charged') {
+                $this->wallet->credit(
+                    $order->botMember,
+                    $order->sell_price,
+                    OtpOrder::class,
+                    $order->id,
+                    'Refund OTP '.$status.' (koreksi status)'
                 );
                 $order->wallet_status = 'refunded';
             }
@@ -702,10 +711,10 @@ class OtpOrderService
             return null;
         }
 
-        $skipKeys = ['id', 'provider_order_id', 'service_id', 'phone_number', 'phone', 'price', 'expire_at', 'created_at', 'updated_at', 'balance', 'provider_price', 'sell_price'];
+        $skipKeys = ['id', 'provider_order_id', 'service_id', 'phone_number', 'phone', 'price', 'expire_at', 'created_at', 'updated_at', 'balance', 'provider_price', 'sell_price', 'token'];
 
         // 1. Cek langsung key-key OTP / Code
-        foreach (['otp', 'otp_code', 'code', 'sms_code', 'verification_code', 'pin', 'token', 'passcode', 'kode', 'secret', 'val', 'auth_code'] as $key) {
+        foreach (['otp', 'otp_code', 'sms_code', 'verification_code', 'pin', 'passcode', 'kode', 'auth_code'] as $key) {
             if (! isset($data[$key])) {
                 continue;
             }

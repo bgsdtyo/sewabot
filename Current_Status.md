@@ -1,5 +1,6 @@
 # Current Status — SewaBot MVP
 
+2026-08-30 — Fix WAHub expired status: perbaiki mapping status di WahubProvider (jangan tandai completed tanpa kode OTP), tangani refund order expired/cancelled jika terlanjur completed tanpa OTP, dan exclude 'token' dari deteksi OTP
 2026-08-30 — Fix bulk OTP: perbaiki nomor slot (#3) saat klik Cek OTP & cegah penimpaan bubble pending pada order yang sudah masuk OTP; tambahkan auto-delivery retry di PollOtpOrdersCommand
 2026-08-27 — `/otp-orders`: dukung 2 provider (EngineUnicorn/Kopken & WAHub), hapus filter hardcode Kopken, tambah filter provider & badge provider di tabel/detail/create modal
 2026-08-19 — Bulk OTP #3: jangan drop slot sebelum edit Telegram sukses; no curl race; startBatch setelah kartu pending

@@ -135,10 +135,9 @@ class WahubProvider implements OtpProviderInterface
         $response = $this->client(timeout: 10)->get('/api/order/'.$identifier);
 
         if ($response->successful()) {
-            $data = $response->json() ?? [];
-            if (isset($data['data']) && is_array($data['data'])) {
-                $data = array_merge($data, $data['data']);
-            }
+            $json = $response->json() ?? [];
+            $data = (isset($json['data']) && is_array($json['data'])) ? $json['data'] : $json;
+            $data['raw'] = $json;
 
             return $this->normalizeOrderPayload($data, $providerOrderId, $token);
         }
@@ -149,15 +148,16 @@ class WahubProvider implements OtpProviderInterface
             if ($smsRes->successful()) {
                 $smsData = $smsRes->json() ?? [];
                 $state = strtolower((string) ($smsData['state'] ?? ''));
+                $rawOtp = (string) ($smsData['otp'] ?? '');
 
-                if ($state === 'success') {
+                if ($state === 'success' && filled($rawOtp)) {
                     return [
                         'id' => $providerOrderId,
                         'token' => $token,
                         'phone_number' => null,
                         'status' => 'completed',
-                        'otp_code' => (string) ($smsData['otp'] ?? ''),
-                        'full_text' => (string) ($smsData['otp'] ?? ''),
+                        'otp_code' => $rawOtp,
+                        'full_text' => $rawOtp,
                         'expire_at' => null,
                         'cancel_reason' => null,
                         'raw' => $smsData,
@@ -295,15 +295,19 @@ class WahubProvider implements OtpProviderInterface
 
     protected function normalizeOrderPayload(array $data, string $fallbackId, ?string $fallbackToken): array
     {
-        $state = strtolower((string) ($data['state'] ?? $data['status'] ?? 'pending'));
+        $rawState = strtolower((string) ($data['state'] ?? $data['status'] ?? $data['order_status'] ?? 'pending'));
+        $otp = $data['otp'] ?? $data['otp_code'] ?? null;
+        $hasOtp = filled($otp);
 
         $status = 'pending';
-        if ($state === 'success' || filled($data['otp'] ?? null)) {
+        if ($hasOtp) {
             $status = 'completed';
-        } elseif (in_array($state, ['cancelled', 'canceled', 'cancel', 'refunded'], true)) {
-            $status = 'cancelled';
-        } elseif (in_array($state, ['expired', 'timeout', 'gone'], true)) {
+        } elseif (in_array($rawState, ['expired', 'timeout', 'gone', 'expire'], true)) {
             $status = 'expired';
+        } elseif (in_array($rawState, ['cancelled', 'canceled', 'cancel', 'refunded', 'rejected', 'banned', 'blocked', 'failed'], true)) {
+            $status = 'cancelled';
+        } elseif (in_array($rawState, ['success', 'completed', 'done'], true)) {
+            $status = $hasOtp ? 'completed' : 'pending';
         }
 
         $phone = (string) ($data['phone'] ?? $data['phone_number'] ?? '');
@@ -314,8 +318,8 @@ class WahubProvider implements OtpProviderInterface
             'token' => (string) ($data['token'] ?? $fallbackToken),
             'phone_number' => $phoneFormatted,
             'status' => $status,
-            'otp_code' => (string) ($data['otp'] ?? $data['otp_code'] ?? $data['code'] ?? ''),
-            'full_text' => (string) ($data['otp'] ?? $data['sms'] ?? ''),
+            'otp_code' => $hasOtp ? (string) $otp : null,
+            'full_text' => (string) ($data['sms'] ?? $data['sms_text'] ?? $data['full_text'] ?? $otp ?? ''),
             'expire_at' => isset($data['expires_at']) ? (int) $data['expires_at'] : null,
             'cancel_reason' => $data['cancel_reason'] ?? $data['reason'] ?? null,
             'raw' => $data,
