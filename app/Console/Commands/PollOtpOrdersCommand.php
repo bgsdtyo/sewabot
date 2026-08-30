@@ -35,6 +35,11 @@ class PollOtpOrdersCommand extends Command
                             $q2->where('status', 'completed')
                                 ->whereNull('otp_code')
                                 ->where('created_at', '>=', now()->subMinutes(20));
+                        })
+                        ->orWhere(function ($q3) {
+                            $q3->where('status', 'completed')
+                                ->whereNotNull('otp_code')
+                                ->where('created_at', '>=', now()->subMinutes(20));
                         });
                 })
                 ->orderBy('id')
@@ -51,6 +56,19 @@ class PollOtpOrdersCommand extends Command
 
             foreach ($pending as $order) {
                 try {
+                    if ($order->status === 'completed' && filled($order->otp_code)) {
+                        if (! app(\App\Services\OtpOrderWatcher::class)->bubbleDelivered((int) $order->id)) {
+                            $bot = $order->telegramBot;
+                            $member = $order->botMember;
+                            if ($bot && $member) {
+                                app(\App\Services\TelegramBotService::class)->notifyOrderCompleted($bot, $member, $order);
+                                $totalPolled++;
+                                $this->line("#{$order->id} => bubble updated (OTP: {$order->otp_code})");
+                            }
+                        }
+                        continue;
+                    }
+
                     $fresh = $otp->refreshOrder($order, notify: true);
                     $totalPolled++;
                     $this->line("#{$order->id} => {$fresh->status} (OTP: ".($fresh->otp_code ?: '-').')');

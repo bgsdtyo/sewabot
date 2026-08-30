@@ -1,5 +1,6 @@
 # Current Status — SewaBot MVP
 
+2026-08-30 — Fix bulk OTP: perbaiki nomor slot (#3) saat klik Cek OTP & cegah penimpaan bubble pending pada order yang sudah masuk OTP; tambahkan auto-delivery retry di PollOtpOrdersCommand
 2026-08-27 — `/otp-orders`: dukung 2 provider (EngineUnicorn/Kopken & WAHub), hapus filter hardcode Kopken, tambah filter provider & badge provider di tabel/detail/create modal
 2026-08-19 — Bulk OTP #3: jangan drop slot sebelum edit Telegram sukses; no curl race; startBatch setelah kartu pending
 2026-08-19 — Bulk OTP: watcher selalu in-process setelah webhook (jangan andalkan curl spawn)

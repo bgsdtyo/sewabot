@@ -1042,24 +1042,34 @@ class TelegramBotService
         }
 
         $service = e($order->otpService?->name ?? 'Kopken');
+        $slot = $order->isPartOfBatch() ? $order->batchSlotNumber() : null;
 
         if ($order->status === 'completed') {
+            $title = $slot
+                ? "Order {$service} #{$slot} — OTP MASUK 🎉"
+                : "Order {$service} — OTP MASUK 🎉";
+
             $text = $this->formatOrderCard(
                 $order,
-                title: "Order {$service} — OTP MASUK 🎉",
+                title: $title,
                 footer: 'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>',
                 statusOverride: 'Berhasil'
             );
             $keyboard = $this->completedOrderKeyboard($order);
         } elseif ($order->status === 'pending') {
+            $title = $slot
+                ? "Order {$service} #{$slot} 📲"
+                : "Order {$service} 📲";
+
             $text = $this->formatOrderCard(
                 $order,
-                title: "Order {$service} 📲",
+                title: $title,
                 footer: 'OTP akan masuk otomatis ke bubble pemesanan.'
             );
             $keyboard = $this->orderActionKeyboard($order);
         } else {
-            $text = $this->formatOrderCard($order, title: "Order {$service}");
+            $title = $slot ? "Order {$service} #{$slot}" : "Order {$service}";
+            $text = $this->formatOrderCard($order, title: $title);
             $keyboard = [
                 'inline_keyboard' => [
                     [['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)]],
@@ -1401,19 +1411,35 @@ class TelegramBotService
                 }
 
                 foreach ($ordersBySlot as $idx => $o) {
+                    $freshO = $o->fresh(['otpService', 'botMember']);
+                    if (! $freshO) {
+                        continue;
+                    }
+
+                    // Jika order sudah selesai / ada OTP sebelum bubble loading selesai diedit, jangan timpa jadi pending!
+                    if (filled($freshO->otp_code) || $freshO->status === 'completed') {
+                        $this->notifyOrderCompleted($bot, $member, $freshO);
+                        continue;
+                    }
+
+                    if (in_array(strtolower((string) $freshO->status), ['cancelled', 'canceled', 'expired', 'banned', 'failed'], true)) {
+                        $this->notifyOrderCancelled($bot, $member, $freshO, $freshO->status);
+                        continue;
+                    }
+
                     if ($idx > 0) {
                         usleep(350000);
                     }
 
                     $slotNum = $idx + 1;
                     $orderText = $this->formatOrderCard(
-                        $o,
-                        title: "Order {$svcName} #{$slotNum} — Memeriksa Nomor 📲",
+                        $freshO,
+                        title: "Order {$svcName} #{$slotNum} 📲",
                         footer: 'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.'
                     );
-                    $loadMsgId = $this->orderMessageId($o);
+                    $loadMsgId = $this->orderMessageId($freshO);
                     if ($loadMsgId) {
-                        $this->editMessage($bot, $chatId, $loadMsgId, $orderText, $this->orderActionKeyboard($o), false);
+                        $this->editMessage($bot, $chatId, $loadMsgId, $orderText, $this->orderActionKeyboard($freshO), false);
                     }
                 }
 
@@ -1813,7 +1839,7 @@ class TelegramBotService
             if ($status === 'completed') {
                 $text = $this->formatOrderCard(
                     $order,
-                    title: "Order {$service} — OTP MASUK 🎉",
+                    title: "Order {$service} #{$slotNum} — OTP MASUK 🎉",
                     footer: 'Saldo tersedia: <b>'.$memberFresh->formattedAvailable().'</b>',
                     statusOverride: 'Berhasil'
                 );
@@ -1843,7 +1869,7 @@ class TelegramBotService
                 // Pending / masih diproses
                 $text = $this->formatOrderCard(
                     $order,
-                    title: "Order {$service} #{$slotNum} Sedang Diproses 📲",
+                    title: "Order {$service} #{$slotNum} 📲",
                     footer: 'Saldo ditahan. OTP masuk otomatis — bubble ini akan diupdate.'
                 );
                 $keyboard = $this->orderActionKeyboard($order);
@@ -2130,6 +2156,7 @@ class TelegramBotService
                 );
 
                 if ($edited) {
+                    Cache::put('otp_bubble_ok:'.$order->id, 1, now()->addMinutes(20));
                     return true;
                 }
 
@@ -2427,9 +2454,14 @@ class TelegramBotService
             }
 
             $service = e($order->otpService?->name ?? 'Kopken');
+            $slot = $order->isPartOfBatch() ? $order->batchSlotNumber() : null;
+            $title = $slot
+                ? "Order {$service} #{$slot} — Nomor Diganti 🔀"
+                : "Order {$service} — Nomor Diganti 🔀";
+
             $text = $this->formatOrderCard(
                 $order,
-                title: "Order {$service} — Nomor Diganti 🔀",
+                title: $title,
                 footer: 'Nomor baru aktif. OTP masuk otomatis — bubble ini akan diupdate.',
                 statusOverride: 'Pending'
             );
@@ -2545,9 +2577,14 @@ class TelegramBotService
             }
 
             $service = e($order->otpService?->name ?? 'Kopken');
+            $slot = $order->isPartOfBatch() ? $order->batchSlotNumber() : null;
+            $title = $slot
+                ? "Order {$service} #{$slot} — Ulang OTP 🔄"
+                : "Order {$service} — Ulang OTP 🔄";
+
             $text = $this->formatOrderCard(
                 $order,
-                title: "Order {$service} — Ulang OTP 🔄",
+                title: $title,
                 footer: 'Permintaan ulang OTP dikirim (gratis). Menunggu OTP masuk otomatis…',
                 statusOverride: 'Menunggu OTP Baru'
             );
@@ -2647,6 +2684,7 @@ class TelegramBotService
         $order = $otpService->refreshOrder($order);
 
         $service = e($order->otpService?->name ?? 'Kopken');
+        $slot = $order->isPartOfBatch() ? $order->batchSlotNumber() : null;
 
         if (filled($order->otp_code)) {
             if ($callbackId) {
@@ -2659,9 +2697,13 @@ class TelegramBotService
                 } catch (\Throwable) {}
             }
 
+            $title = $slot
+                ? "Order {$service} #{$slot} — OTP MASUK 🎉"
+                : "Order {$service} — OTP MASUK 🎉";
+
             $text = $this->formatOrderCard(
                 $order,
-                title: "Order {$service} — OTP MASUK 🎉",
+                title: $title,
                 footer: 'Saldo tersedia: <b>'.$member->fresh()->formattedAvailable().'</b>',
                 statusOverride: 'Berhasil'
             );
@@ -2678,6 +2720,7 @@ class TelegramBotService
 
             if ($newId) {
                 $this->rememberOrderMessage($order, $newId);
+                Cache::put('otp_bubble_ok:'.$order->id, 1, now()->addMinutes(20));
             }
 
             return;
@@ -2692,9 +2735,13 @@ class TelegramBotService
             } catch (\Throwable) {}
         }
 
+        $title = $slot
+            ? "Order {$service} #{$slot} 📲"
+            : "Order {$service} 📲";
+
         $text = $this->formatOrderCard(
             $order,
-            title: "Order {$service} 📲",
+            title: $title,
             footer: 'OTP akan masuk otomatis ke bubble ini.'
         );
 
