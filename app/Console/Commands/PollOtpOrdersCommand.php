@@ -8,7 +8,7 @@ use Illuminate\Console\Command;
 
 class PollOtpOrdersCommand extends Command
 {
-    protected $signature = 'otp:poll {--once : Run once without continuous loop}';
+    protected $signature = 'otp:poll {--once : Run once without continuous loop} {--order= : Specific internal order ID or provider order ID to refresh}';
 
     protected $description = 'Poll pending OTP orders continuously from provider and settle wallet';
 
@@ -16,6 +16,32 @@ class PollOtpOrdersCommand extends Command
     {
         ignore_user_abort(true);
         @set_time_limit(120);
+
+        $specificOrder = $this->option('order');
+        if ($specificOrder) {
+            $order = OtpOrder::query()
+                ->where('provider_order_id', $specificOrder)
+                ->orWhere('id', (int) $specificOrder)
+                ->first();
+
+            if (! $order) {
+                $this->error("Order '{$specificOrder}' tidak ditemukan.");
+
+                return self::FAILURE;
+            }
+
+            $this->info("Refreshing Order #{$order->id} (Provider ID: {$order->provider_order_id})...");
+            try {
+                $fresh = $otp->refreshOrder($order, notify: true);
+                $this->info("Order #{$order->id} => Status: {$fresh->status}, Wallet: {$fresh->wallet_status}, OTP: " . ($fresh->otp_code ?: '-'));
+            } catch (\Throwable $e) {
+                $this->error("Gagal refresh: " . $e->getMessage());
+
+                return self::FAILURE;
+            }
+
+            return self::SUCCESS;
+        }
 
         $isOnce = (bool) $this->option('once');
         $deadline = $isOnce ? time() + 1 : time() + 55;
@@ -34,7 +60,7 @@ class PollOtpOrdersCommand extends Command
                         ->orWhere(function ($q2) {
                             $q2->where('status', 'completed')
                                 ->whereNull('otp_code')
-                                ->where('created_at', '>=', now()->subMinutes(20));
+                                ->where('created_at', '>=', now()->subMinutes(60));
                         })
                         ->orWhere(function ($q3) {
                             $q3->where('status', 'completed')
