@@ -514,7 +514,7 @@ class OtpOrderService
                 );
                 $order->wallet_status = 'refunded';
             } elseif ($order->wallet_status === 'charged') {
-                $this->wallet->credit(
+                $this->wallet->refundCharged(
                     $order->botMember,
                     $order->sell_price,
                     OtpOrder::class,

@@ -108,4 +108,27 @@ class WalletService
             return $member->fresh();
         });
     }
+
+    public function refundCharged(BotMember $member, int $amount, string $referenceType, int $referenceId, ?string $note = null): BotMember
+    {
+        return DB::transaction(function () use ($member, $amount, $referenceType, $referenceId, $note) {
+            $member = BotMember::query()->whereKey($member->id)->lockForUpdate()->firstOrFail();
+
+            $member->balance += $amount;
+            $member->save();
+
+            WalletTransaction::create([
+                'bot_member_id' => $member->id,
+                'telegram_bot_id' => $member->telegram_bot_id,
+                'type' => 'refund',
+                'amount' => $amount,
+                'balance_after' => $member->balance,
+                'reference_type' => $referenceType,
+                'reference_id' => $referenceId,
+                'note' => $note ?? 'Refund saldo OTP (koreksi status)',
+            ]);
+
+            return $member->fresh();
+        });
+    }
 }
