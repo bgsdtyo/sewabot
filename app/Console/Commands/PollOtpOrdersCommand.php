@@ -8,14 +8,45 @@ use Illuminate\Console\Command;
 
 class PollOtpOrdersCommand extends Command
 {
-    protected $signature = 'otp:poll {--once : Run once without continuous loop} {--order= : Specific internal order ID or provider order ID to refresh}';
+    protected $signature = 'otp:poll {--once : Run once without continuous loop} {--order= : Specific internal order ID or provider order ID to refresh} {--fix-empty-otp : Scan and refund/correct all completed orders without OTP}';
 
     protected $description = 'Poll pending OTP orders continuously from provider and settle wallet';
 
     public function handle(OtpOrderService $otp): int
     {
         ignore_user_abort(true);
-        @set_time_limit(120);
+        @set_time_limit(300);
+
+        if ($this->option('fix-empty-otp')) {
+            $this->info('Scanning all completed orders without OTP across database...');
+            $stale = OtpOrder::query()
+                ->where('status', 'completed')
+                ->where(function ($q) {
+                    $q->whereNull('otp_code')->orWhere('otp_code', '');
+                })
+                ->orderBy('id', 'desc')
+                ->get();
+
+            if ($stale->isEmpty()) {
+                $this->info('Tidak ada order completed yang tanpa kode OTP.');
+
+                return self::SUCCESS;
+            }
+
+            $this->info("Ditemukan {$stale->count()} order. Memproses koreksi dan refund...");
+            foreach ($stale as $o) {
+                try {
+                    $fresh = $otp->refreshOrder($o, notify: false);
+                    $this->line("#{$o->id} (PID: {$o->provider_order_id}) => Status: {$fresh->status}, Wallet: {$fresh->wallet_status}, OTP: " . ($fresh->otp_code ?: '-'));
+                } catch (\Throwable $e) {
+                    $this->error("#{$o->id} gagal: " . $e->getMessage());
+                }
+            }
+
+            $this->info('Selesai.');
+
+            return self::SUCCESS;
+        }
 
         $specificOrder = $this->option('order');
         if ($specificOrder) {
@@ -59,12 +90,15 @@ class PollOtpOrdersCommand extends Command
                     $q->where('status', 'pending')
                         ->orWhere(function ($q2) {
                             $q2->where('status', 'completed')
-                                ->whereNull('otp_code')
-                                ->where('created_at', '>=', now()->subMinutes(60));
+                                ->where(function ($emptyQ) {
+                                    $emptyQ->whereNull('otp_code')->orWhere('otp_code', '');
+                                })
+                                ->where('created_at', '>=', now()->subHours(24));
                         })
                         ->orWhere(function ($q3) {
                             $q3->where('status', 'completed')
                                 ->whereNotNull('otp_code')
+                                ->where('otp_code', '!=', '')
                                 ->where('created_at', '>=', now()->subMinutes(20));
                         });
                 })

@@ -371,7 +371,7 @@ class OtpOrderService
                 || stripos($errMessage, 'not found') !== false
                 || stripos($errMessage, 'tidak ditemukan') !== false;
 
-            if (($isNotFoundInProvider || $isTimeExpired) && $order->status === 'pending') {
+            if (($isNotFoundInProvider || $isTimeExpired) && ($order->status === 'pending' || ($order->status === 'completed' && ! filled($order->otp_code)))) {
                 return $this->refundLocal(
                     $order,
                     'expired',
