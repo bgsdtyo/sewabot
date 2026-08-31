@@ -13,7 +13,7 @@
     <div class="flex min-h-screen flex-col items-center justify-center bg-[length:24px_24px] bg-grid-fade px-4">
         <div class="mb-8 text-center">
             <a href="{{ route('landing') }}" class="text-2xl font-extrabold tracking-tight text-brand-900">SewaBot</a>
-            <p class="mt-1 text-sm text-brand-500">Sewa Telegram Bot OTP WhatsApp</p>
+            <p class="mt-1 text-sm text-brand-500">Platform Sewa Telegram Bot Custom Profesional</p>
         </div>
         <div class="w-full max-w-md rounded-2xl border border-brand-200 bg-white p-8 shadow-soft">
             {{ $slot }}
