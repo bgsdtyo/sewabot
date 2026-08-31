@@ -196,78 +196,167 @@
             </section>
 
             {{-- ==================== FITUR SECTION ==================== --}}
-            <section id="fitur" class="border-b border-brand-200 bg-brand-50/50 py-20">
+            <section id="fitur" class="border-b border-brand-200 bg-brand-50/50 py-20 lg:py-24">
                 <div class="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-                    <div class="max-w-2xl">
-                        <p class="text-xs font-bold uppercase tracking-widest text-accent">Fitur Unggulan</p>
-                        <h2 class="mt-2 text-3xl font-extrabold tracking-tight text-brand-900">
-                            Fitur Lengkap untuk Bot Telegram Anda
+                    <div class="text-center max-w-2xl mx-auto space-y-2.5">
+                        <div class="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-white px-3.5 py-1 shadow-2xs">
+                            <span class="h-1.5 w-1.5 rounded-full bg-accent"></span>
+                            <span class="text-xs font-bold uppercase tracking-wider text-brand-700">Fitur Unggulan</span>
+                        </div>
+                        <h2 class="text-3xl font-extrabold tracking-tight text-brand-900 sm:text-4xl">
+                            Semua Kendali Bot di Tangan Anda
                         </h2>
-                        <p class="mt-2 text-sm sm:text-base text-brand-500">
-                            Kelola bot Telegram bisnis dengan kendali penuh dari satu dashboard terpusat.
+                        <p class="text-sm sm:text-base text-brand-500 leading-relaxed">
+                            Dirancang dengan arsitektur modern agar bot Telegram Anda berjalan stabil, responsif, dan mudah dikonfigurasi kapan saja.
                         </p>
                     </div>
 
-                    <div class="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                        <div class="rounded-2xl border border-brand-200 bg-white p-6 shadow-xs">
-                            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-900 text-white font-bold text-sm mb-4">
-                                🔑
+                    <div class="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+
+                        {{-- Card 1: Custom Token --}}
+                        <div class="group relative flex flex-col justify-between rounded-2xl border border-brand-200/90 bg-white p-7 shadow-xs hover:border-brand-300 hover:shadow-soft transition duration-200">
+                            <div>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 border border-brand-100 text-brand-900 transition group-hover:scale-105 group-hover:bg-brand-900 group-hover:text-white">
+                                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                                        </svg>
+                                    </div>
+                                    <span class="rounded-full bg-brand-50 border border-brand-100 px-2.5 py-0.5 text-[11px] font-bold text-brand-700">BotFather</span>
+                                </div>
+                                <h3 class="mt-5 text-lg font-extrabold text-brand-900">Custom Token BotFather</h3>
+                                <p class="mt-2 text-sm leading-relaxed text-brand-500">
+                                    Gunakan API token bot Telegram milik Anda sendiri. Identitas nama, username, dan foto profil 100% mewakili brand bisnis Anda.
+                                </p>
                             </div>
-                            <h3 class="font-extrabold text-brand-900 text-base">Custom Token BotFather</h3>
-                            <p class="mt-2 text-xs sm:text-sm leading-relaxed text-brand-500">
-                                Gunakan token bot pribadi Anda dari @BotFather. Nama bot, username, dan profil sepenuhnya di bawah kendali Anda.
-                            </p>
+                            <div class="mt-5 pt-4 border-t border-brand-100/70 flex items-center gap-2 text-xs font-semibold text-emerald-700">
+                                <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
+                                </svg>
+                                <span>Verifikasi otomatis via getMe</span>
+                            </div>
                         </div>
 
-                        <div class="rounded-2xl border border-brand-200 bg-white p-6 shadow-xs">
-                            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-700 text-white font-bold text-sm mb-4">
-                                🟢
+                        {{-- Card 2: Running Toggle --}}
+                        <div class="group relative flex flex-col justify-between rounded-2xl border border-brand-200/90 bg-white p-7 shadow-xs hover:border-brand-300 hover:shadow-soft transition duration-200">
+                            <div>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-700 transition group-hover:scale-105 group-hover:bg-emerald-600 group-hover:text-white">
+                                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                        </svg>
+                                    </div>
+                                    <span class="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-extrabold text-emerald-700">1-Click Toggle</span>
+                                </div>
+                                <h3 class="mt-5 text-lg font-extrabold text-brand-900">Kontrol Running / Nonaktif</h3>
+                                <p class="mt-2 text-sm leading-relaxed text-brand-500">
+                                    Nyalakan atau istirahatkan operasional bot Anda secara instan dari dashboard. Webhook otomatis menyesuaikan status bot secara real-time.
+                                </p>
                             </div>
-                            <h3 class="font-extrabold text-brand-900 text-base">Kontrol Running / Nonaktif</h3>
-                            <p class="mt-2 text-xs sm:text-sm leading-relaxed text-brand-500">
-                                Butuh mengistirahatkan bot atau maintenance? Aktifkan atau nonaktifkan bot seketika dengan 1 klik dari web dashboard.
-                            </p>
+                            <div class="mt-5 pt-4 border-t border-brand-100/70 flex items-center gap-2 text-xs font-semibold text-emerald-700">
+                                <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
+                                </svg>
+                                <span>Pesan maintenance otomatis</span>
+                            </div>
                         </div>
 
-                        <div class="rounded-2xl border border-brand-200 bg-white p-6 shadow-xs">
-                            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-white font-bold text-sm mb-4">
-                                ⚡
+                        {{-- Card 3: Fast Webhook --}}
+                        <div class="group relative flex flex-col justify-between rounded-2xl border border-brand-200/90 bg-white p-7 shadow-xs hover:border-brand-300 hover:shadow-soft transition duration-200">
+                            <div>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-soft/60 border border-accent/20 text-accent transition group-hover:scale-105 group-hover:bg-accent group-hover:text-white">
+                                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                                        </svg>
+                                    </div>
+                                    <span class="rounded-full bg-brand-50 border border-brand-100 px-2.5 py-0.5 text-[11px] font-bold text-brand-700">&lt; 150ms Latency</span>
+                                </div>
+                                <h3 class="mt-5 text-lg font-extrabold text-brand-900">Webhook Performa Tinggi</h3>
+                                <p class="mt-2 text-sm leading-relaxed text-brand-500">
+                                    Didukung infrastruktur server dedicated dengan HTTPS Webhook Telegram untuk menjamin pemrosesan pesan pengguna super kilat.
+                                </p>
                             </div>
-                            <h3 class="font-extrabold text-brand-900 text-base">Webhook Performa Tinggi</h3>
-                            <p class="mt-2 text-xs sm:text-sm leading-relaxed text-brand-500">
-                                Webhook otomatis disetel ke server berlatensi rendah untuk memastikan setiap perintah bot direspons cepat dan stabil.
-                            </p>
+                            <div class="mt-5 pt-4 border-t border-brand-100/70 flex items-center gap-2 text-xs font-semibold text-emerald-700">
+                                <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
+                                </svg>
+                                <span>Auto-Sync URL Webhook</span>
+                            </div>
                         </div>
 
-                        <div class="rounded-2xl border border-brand-200 bg-white p-6 shadow-xs">
-                            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-900 text-white font-bold text-sm mb-4">
-                                👥
+                        {{-- Card 4: Multi-Admin --}}
+                        <div class="group relative flex flex-col justify-between rounded-2xl border border-brand-200/90 bg-white p-7 shadow-xs hover:border-brand-300 hover:shadow-soft transition duration-200">
+                            <div>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 border border-brand-100 text-brand-900 transition group-hover:scale-105 group-hover:bg-brand-900 group-hover:text-white">
+                                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                                        </svg>
+                                    </div>
+                                    <span class="rounded-full bg-brand-50 border border-brand-100 px-2.5 py-0.5 text-[11px] font-bold text-brand-700">Multi-User</span>
+                                </div>
+                                <h3 class="mt-5 text-lg font-extrabold text-brand-900">Hak Akses Multi-Admin</h3>
+                                <p class="mt-2 text-sm leading-relaxed text-brand-500">
+                                    Daftarkan beberapa Telegram ID admin sekaligus untuk mengelola perintah khusus (/admin, monitoring member, dan manajemen saldo).
+                                </p>
                             </div>
-                            <h3 class="font-extrabold text-brand-900 text-base">Akses Multi-Admin</h3>
-                            <p class="mt-2 text-xs sm:text-sm leading-relaxed text-brand-500">
-                                Daftarkan Telegram ID admin Anda untuk mendapatkan akses perintah khusus (/admin, rekap, dan manajemen operasional).
-                            </p>
+                            <div class="mt-5 pt-4 border-t border-brand-100/70 flex items-center gap-2 text-xs font-semibold text-emerald-700">
+                                <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
+                                </svg>
+                                <span>Akses aman berbasis ID</span>
+                            </div>
                         </div>
 
-                        <div class="rounded-2xl border border-brand-200 bg-white p-6 shadow-xs">
-                            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-700 text-white font-bold text-sm mb-4">
-                                📱
+                        {{-- Card 5: Kontak Deposit --}}
+                        <div class="group relative flex flex-col justify-between rounded-2xl border border-brand-200/90 bg-white p-7 shadow-xs hover:border-brand-300 hover:shadow-soft transition duration-200">
+                            <div>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 border border-brand-100 text-brand-900 transition group-hover:scale-105 group-hover:bg-brand-900 group-hover:text-white">
+                                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                                        </svg>
+                                    </div>
+                                    <span class="rounded-full bg-brand-50 border border-brand-100 px-2.5 py-0.5 text-[11px] font-bold text-brand-700">Direct Contact</span>
+                                </div>
+                                <h3 class="mt-5 text-lg font-extrabold text-brand-900">Kontak Deposit Terintegrasi</h3>
+                                <p class="mt-2 text-sm leading-relaxed text-brand-500">
+                                    Tombol WhatsApp dan Telegram admin muncul secara otomatis pada menu bot untuk memudahkan konfirmasi pelanggan Anda.
+                                </p>
                             </div>
-                            <h3 class="font-extrabold text-brand-900 text-base">Kontak Deposit Otomatis</h3>
-                            <p class="mt-2 text-xs sm:text-sm leading-relaxed text-brand-500">
-                                Tombol WhatsApp & Telegram admin muncul otomatis di menu bot untuk memudahkan komunikasi pelanggan Anda.
-                            </p>
+                            <div class="mt-5 pt-4 border-t border-brand-100/70 flex items-center gap-2 text-xs font-semibold text-emerald-700">
+                                <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
+                                </svg>
+                                <span>Support WhatsApp & Telegram</span>
+                            </div>
                         </div>
 
-                        <div class="rounded-2xl border border-brand-200 bg-white p-6 shadow-xs">
-                            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-white font-bold text-sm mb-4">
-                                🔄
+                        {{-- Card 6: Perpanjangan Fleksibel --}}
+                        <div class="group relative flex flex-col justify-between rounded-2xl border border-brand-200/90 bg-white p-7 shadow-xs hover:border-brand-300 hover:shadow-soft transition duration-200">
+                            <div>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 border border-brand-100 text-brand-900 transition group-hover:scale-105 group-hover:bg-brand-900 group-hover:text-white">
+                                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                        </svg>
+                                    </div>
+                                    <span class="rounded-full bg-brand-50 border border-brand-100 px-2.5 py-0.5 text-[11px] font-bold text-brand-700">Tanpa Reset Data</span>
+                                </div>
+                                <h3 class="mt-5 text-lg font-extrabold text-brand-900">Perpanjangan Sewa Praktis</h3>
+                                <p class="mt-2 text-sm leading-relaxed text-brand-500">
+                                    Perpanjang masa aktif sewa bot Anda kapan saja tanpa khawatir kehilangan riwayat, saldo, atau pengaturan yang telah dibuat.
+                                </p>
                             </div>
-                            <h3 class="font-extrabold text-brand-900 text-base">Perpanjangan Fleksibel</h3>
-                            <p class="mt-2 text-xs sm:text-sm leading-relaxed text-brand-500">
-                                Perpanjang masa aktif sewa bot Anda kapan saja tanpa khawatir kehilangan data atau pengaturan yang sudah tersimpan.
-                            </p>
+                            <div class="mt-5 pt-4 border-t border-brand-100/70 flex items-center gap-2 text-xs font-semibold text-emerald-700">
+                                <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
+                                </svg>
+                                <span>Perpanjangan instan via QRIS</span>
+                            </div>
                         </div>
+
                     </div>
                 </div>
             </section>
