@@ -8,8 +8,10 @@ use App\Models\TelegramBot;
 use App\Services\OtpOrderService;
 use App\Services\OtpProviderManager;
 use App\Services\WalletService;
+use App\Services\TelegramBotService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
@@ -40,11 +42,13 @@ class BotDetailController extends Controller
         return view('bots.show', compact('telegramBot', 'services'));
     }
 
-    public function updateSettings(Request $request, TelegramBot $telegramBot, OtpOrderService $otp): RedirectResponse
+    public function updateSettings(Request $request, TelegramBot $telegramBot, OtpOrderService $otp, TelegramBotService $botService): RedirectResponse
     {
         $this->authorizeOwner($telegramBot);
 
         $data = $request->validate([
+            'token' => ['nullable', 'string', 'max:255'],
+            'status' => ['nullable', 'string', 'in:active,inactive'],
             'otp_provider' => ['nullable', 'string', 'in:kopken,wahub'],
             'otp_api_key' => ['nullable', 'string', 'max:500'],
             'otp_wahub_api_key' => ['nullable', 'string', 'max:500'],
@@ -90,6 +94,69 @@ class BotDetailController extends Controller
             'admin_telegram_ids' => $adminIds->isNotEmpty() ? $adminIds->implode(', ') : null,
         ];
 
+        // 1. Handle BotFather Token
+        if ($request->boolean('clear_token')) {
+            $updates['token'] = null;
+            $updates['status'] = 'inactive';
+        } elseif (filled($data['token'] ?? null)) {
+            $newToken = trim((string) $data['token']);
+            if ($newToken !== (string) $telegramBot->token) {
+                try {
+                    $response = Http::timeout(8)->get("https://api.telegram.org/bot{$newToken}/getMe");
+                    if (! $response->successful() || ! $response->json('ok')) {
+                        $desc = (string) ($response->json('description') ?? 'Unauthorized / Token tidak dikenali');
+
+                        return back()
+                            ->withInput()
+                            ->withErrors(['token' => 'Token BotFather tidak valid: '.$desc]);
+                    }
+
+                    $botInfo = $response->json('result');
+                    $updates['token'] = $newToken;
+                    if (! empty($botInfo['username'])) {
+                        $updates['username'] = $botInfo['username'];
+                    }
+                } catch (\Throwable $e) {
+                    return back()
+                        ->withInput()
+                        ->withErrors(['token' => 'Gagal verifikasi token ke Telegram: '.$e->getMessage()]);
+                }
+            }
+        }
+
+        // 2. Handle Bot Operational Status (Running vs Inactive)
+        if ($request->boolean('clear_token')) {
+            $targetStatus = 'inactive';
+            $updates['status'] = 'inactive';
+        } else {
+            $targetStatus = $data['status'] ?? $telegramBot->status;
+        }
+
+        $effectiveToken = array_key_exists('token', $updates) ? $updates['token'] : $telegramBot->token;
+
+        if ($targetStatus === 'active') {
+            if (empty($effectiveToken)) {
+                return back()
+                    ->withInput()
+                    ->withErrors(['status' => 'Status bot tidak dapat diaktifkan karena Token BotFather masih kosong. Silakan masukkan token terlebih dahulu.']);
+            }
+
+            $hasActiveSub = $telegramBot->subscriptions()
+                ->where('status', 'active')
+                ->where('expires_at', '>', now())
+                ->exists();
+
+            if (! $hasActiveSub && ! (auth()->user()?->is_admin ?? false)) {
+                return back()
+                    ->withInput()
+                    ->withErrors(['status' => 'Status bot tidak dapat diaktifkan karena masa sewa bot ini telah kedaluwarsa. Silakan lakukan perpanjangan langganan.']);
+            }
+
+            $updates['status'] = 'active';
+        } elseif ($targetStatus === 'inactive') {
+            $updates['status'] = 'inactive';
+        }
+
         if ($request->boolean('clear_api_key')) {
             $updates['otp_api_key'] = null;
         } elseif (filled($data['otp_api_key'] ?? null)) {
@@ -104,10 +171,19 @@ class BotDetailController extends Controller
 
         try {
             $telegramBot->update($updates);
+            $freshBot = $telegramBot->fresh();
 
-            if ($telegramBot->hasOtpConfigured()) {
+            // Sync Webhook according to new status & token
+            if ($freshBot->status === 'active' && filled($freshBot->token)) {
+                $freshBot->syncWebhookUrl();
+                $botService->setWebhook($freshBot);
+            } elseif ($freshBot->status === 'inactive' || empty($freshBot->token)) {
+                $botService->deleteWebhook($freshBot);
+            }
+
+            if ($freshBot->hasOtpConfigured()) {
                 try {
-                    $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $telegramBot);
+                    $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $freshBot);
                 } catch (\Throwable $e) {
                     Log::warning('Auto-sync services after update settings: '.$e->getMessage());
                 }
@@ -122,9 +198,11 @@ class BotDetailController extends Controller
                 ]);
         }
 
+        $statusMsg = $telegramBot->fresh()->status === 'active' ? ' (Bot RUNNING)' : ' (Bot NONAKTIF)';
+
         return redirect()
             ->route('bots.show', $telegramBot)
-            ->with('success', 'Konfigurasi bot disimpan.');
+            ->with('success', 'Konfigurasi bot berhasil disimpan'.$statusMsg.'.');
     }
 
     public function syncServices(TelegramBot $telegramBot, OtpOrderService $otp): RedirectResponse

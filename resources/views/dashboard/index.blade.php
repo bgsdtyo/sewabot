@@ -22,9 +22,15 @@
                 <p class="text-xs font-semibold uppercase tracking-wide text-brand-500">Telegram Bot</p>
 
                 @if ($subscription && $bot)
-                    <div class="mt-3 flex h-5 items-center gap-2">
-                        <span class="inline-block h-2.5 w-2.5 shrink-0 rounded-full {{ $dotClass }}"></span>
-                        <span class="text-sm font-semibold {{ $statusClass }}">{{ strtoupper($subscription->status) }}</span>
+                    @php
+                        $botRunning = $bot->isRunning();
+                    @endphp
+                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                        <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-extrabold {{ $botRunning ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-700 border border-slate-200' }}">
+                            <span class="h-2 w-2 rounded-full {{ $botRunning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400' }}"></span>
+                            {{ $botRunning ? 'BOT RUNNING' : 'BOT NONAKTIF' }}
+                        </span>
+                        <span class="text-xs font-semibold {{ $statusClass }}">· Sub: {{ strtoupper($subscription->status) }}</span>
                     </div>
 
                     <p class="mt-3 line-clamp-1 text-xl font-extrabold text-brand-900">{{ $bot->name }}</p>

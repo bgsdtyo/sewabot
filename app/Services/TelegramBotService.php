@@ -125,7 +125,7 @@ class TelegramBotService
                 try {
                     Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
                         'callback_query_id' => $callback['id'],
-                        'text' => '⚠️ Layanan bot sedang dinonaktifkan (Masa sewa berakhir).',
+                        'text' => '⚠️ Layanan bot sedang dinonaktifkan sementara oleh pemilik atau masa sewa berakhir.',
                         'show_alert' => true,
                     ]);
                 } catch (\Throwable $e) {
@@ -135,7 +135,7 @@ class TelegramBotService
                 $this->sendMessage(
                     $bot,
                     $chatId,
-                    "⚠️ <b>Layanan Bot Dinonaktifkan</b>\n\nMasa aktif sewa bot ini telah berakhir atau sedang ditangguhkan (SUSPENDED).\n\nSilakan lakukan perpanjangan subscription di website untuk mengaktifkan kembali bot ini."
+                    "⚠️ <b>Layanan Bot Dinonaktifkan</b>\n\nBot ini sedang dinonaktifkan sementara oleh pemilik atau masa aktif sewa telah berakhir.\n\nSilakan hubungi pemilik bot atau login ke website dashboard untuk mengaktifkan kembali."
                 );
             }
 

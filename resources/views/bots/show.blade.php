@@ -1,6 +1,8 @@
 @php
     $activeProvider = $telegramBot->activeOtpProvider();
     $kopken = $services->first(fn ($s) => in_array(strtoupper($s->name), ['KOPKEN', 'WHATSAPP'])) ?? $services->first();
+    $isBotRunning = $telegramBot->isRunning();
+    $hasToken = $telegramBot->hasValidToken();
 @endphp
 
 <x-app-layout>
@@ -9,12 +11,18 @@
             <div>
                 <a href="{{ route('dashboard') }}" class="text-sm font-medium text-brand-500 hover:text-brand-900">Dashboard</a>
                 <h1 class="mt-2 text-2xl font-extrabold tracking-tight text-brand-900">Konfigurasi Bot</h1>
-                <p class="mt-1 text-sm text-brand-500">
-                    {{ $telegramBot->name }}
+                <div class="mt-1 flex flex-wrap items-center gap-2 text-sm text-brand-500">
+                    <span class="font-semibold text-brand-800">{{ $telegramBot->name }}</span>
                     @if ($telegramBot->username)
-                        · {{ $telegramBot->displayUsername() }}
+                        <span>·</span>
+                        <span class="font-mono text-brand-700">{{ $telegramBot->displayUsername() }}</span>
                     @endif
-                </p>
+                    <span>·</span>
+                    <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-extrabold {{ $isBotRunning ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-700 border border-slate-200' }}">
+                        <span class="h-2 w-2 rounded-full {{ $isBotRunning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400' }}"></span>
+                        {{ $isBotRunning ? 'RUNNING' : 'NONAKTIF' }}
+                    </span>
+                </div>
             </div>
             @if ($telegramBot->telegramUrl())
                 <a href="{{ $telegramBot->telegramUrl() }}" target="_blank"
@@ -37,20 +45,137 @@
                 <div class="flex items-center justify-between">
                     <div>
                         <h2 class="text-lg font-extrabold text-brand-900">Pengaturan & Input</h2>
-                        <p class="text-xs text-brand-500">Kelola provider aktif, API key, markup, dan kontak bot.</p>
+                        <p class="text-xs text-brand-500">Kelola token BotFather, status operasional, provider, API key, dan kontak bot.</p>
                     </div>
                 </div>
 
                 <form method="POST" action="{{ route('bots.settings', $telegramBot) }}"
                       x-data="{
-                          activeProvider: '{{ old('otp_provider', $activeProvider) }}'
+                          activeProvider: '{{ old('otp_provider', $activeProvider) }}',
+                          botStatus: '{{ old('status', $telegramBot->status === 'active' ? 'active' : 'inactive') }}'
                       }"
                       class="space-y-6 rounded-2xl border border-brand-200 bg-white p-5 shadow-xs sm:p-7">
                     @csrf
                     @method('PUT')
 
-                    {{-- 1. Pilihan Provider OTP Aktif --}}
-                    <div>
+                    {{-- 1. Pengaturan Status Operasional Bot --}}
+                    <div class="rounded-2xl border border-brand-100 bg-brand-50/50 p-4 sm:p-5">
+                        <div class="mb-2">
+                            <label class="block text-sm font-bold text-brand-900">Status Operasional Bot</label>
+                            <p class="text-xs text-brand-500">Pilih apakah bot Telegram sedang aktif melayani pengguna atau dinonaktifkan sementara.</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 mt-3">
+                            <label class="relative flex cursor-pointer flex-col justify-between rounded-xl border p-3.5 transition"
+                                   :class="botStatus === 'active' ? 'border-emerald-600 bg-white ring-2 ring-emerald-500 shadow-xs' : 'border-brand-200 bg-white hover:border-brand-300 opacity-70'">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div>
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+                                            <span class="text-sm font-extrabold text-brand-900">Running / Aktif</span>
+                                        </div>
+                                        <p class="mt-1 text-[11px] text-brand-500 leading-tight">Bot online, memproses pesan & transaksi OTP secara otomatis.</p>
+                                    </div>
+                                    <input type="radio" name="status" value="active" class="sr-only" x-model="botStatus">
+                                    <span class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-brand-300"
+                                          :class="botStatus === 'active' ? 'border-emerald-600 bg-emerald-600 text-white' : 'bg-white'">
+                                        <span class="h-1.5 w-1.5 rounded-full bg-white" x-show="botStatus === 'active'"></span>
+                                    </span>
+                                </div>
+                            </label>
+
+                            <label class="relative flex cursor-pointer flex-col justify-between rounded-xl border p-3.5 transition"
+                                   :class="botStatus === 'inactive' ? 'border-rose-600 bg-white ring-2 ring-rose-500 shadow-xs' : 'border-brand-200 bg-white hover:border-brand-300 opacity-70'">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div>
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="h-2.5 w-2.5 rounded-full bg-rose-500"></span>
+                                            <span class="text-sm font-extrabold text-brand-900">Nonaktif / Berhenti</span>
+                                        </div>
+                                        <p class="mt-1 text-[11px] text-brand-500 leading-tight">Bot dihentikan sementara, webhook dimatikan & pesanan ditahan.</p>
+                                    </div>
+                                    <input type="radio" name="status" value="inactive" class="sr-only" x-model="botStatus">
+                                    <span class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-brand-300"
+                                          :class="botStatus === 'inactive' ? 'border-rose-600 bg-rose-600 text-white' : 'bg-white'">
+                                        <span class="h-1.5 w-1.5 rounded-full bg-white" x-show="botStatus === 'inactive'"></span>
+                                    </span>
+                                </div>
+                            </label>
+                        </div>
+                        @error('status')
+                            <p class="mt-2 text-xs text-red-600 font-semibold">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    {{-- 2. Token BotFather Telegram --}}
+                    <div class="border-t border-brand-100 pt-5">
+                        <div class="mb-2 flex items-center justify-between">
+                            <div>
+                                <label class="block text-sm font-bold text-brand-900">Token Bot Telegram (BotFather)</label>
+                                <p class="text-xs text-brand-500">Token API bot yang diperoleh langsung dari @BotFather di Telegram.</p>
+                            </div>
+                            <span class="inline-flex items-center text-[11px] font-bold {{ $hasToken ? 'text-emerald-700' : 'text-amber-600' }}">
+                                {{ $hasToken ? '✓ Token Terhubung' : '⚠ Belum Terisi' }}
+                            </span>
+                        </div>
+
+                        @if ($hasToken)
+                            <div x-data="{ editing: false }">
+                                <div x-show="!editing" class="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+                                    <div class="rounded-xl border border-brand-200 bg-brand-50 px-3.5 py-2.5 sm:flex-1">
+                                        <div class="flex items-center justify-between">
+                                            <p class="font-mono text-xs font-semibold text-emerald-800">
+                                                {{ $telegramBot->maskedToken() }}
+                                            </p>
+                                            @if ($telegramBot->username)
+                                                <span class="text-[11px] font-bold text-brand-600">
+                                                    {{ $telegramBot->displayUsername() }}
+                                                </span>
+                                            @endif
+                                        </div>
+                                    </div>
+                                    <button type="button" @click="editing = true"
+                                            class="rounded-xl border border-brand-200 px-3.5 py-2 text-xs font-bold text-brand-900 hover:bg-brand-50 transition">
+                                        Ganti Token
+                                    </button>
+                                </div>
+
+                                <div x-show="editing" style="display: none;" class="space-y-2.5">
+                                    <input type="password" name="token" autocomplete="off"
+                                           placeholder="1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                                           class="w-full rounded-xl border-brand-200 font-mono text-sm focus:border-brand-900 focus:ring-brand-900">
+                                    <p class="text-[11px] text-brand-500">
+                                        💡 Masukkan token BotFather baru. Sistem akan otomatis memvalidasi token ke Telegram dan menyetel Webhook.
+                                    </p>
+                                    <div class="flex flex-wrap items-center gap-3">
+                                        <button type="button" @click="editing = false"
+                                                class="rounded-xl border border-brand-200 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">
+                                            Batal
+                                        </button>
+                                        <label class="flex items-center gap-2 text-xs text-rose-600 cursor-pointer">
+                                            <input type="checkbox" name="clear_token" value="1" class="rounded border-brand-300 text-rose-600 focus:ring-rose-500">
+                                            Hapus token & putuskan koneksi bot
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        @else
+                            <div class="space-y-2">
+                                <input type="password" name="token" autocomplete="off"
+                                       placeholder="1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                                       class="w-full rounded-xl border-brand-200 font-mono text-sm focus:border-brand-900 focus:ring-brand-900">
+                                <p class="text-[11px] text-brand-500">
+                                    💡 Cara mendapatkan token: Buka Telegram & cari <b>@BotFather</b> &gt; ketik <code class="bg-brand-100 px-1 py-0.5 rounded text-brand-900">/newbot</code> atau <code class="bg-brand-100 px-1 py-0.5 rounded text-brand-900">/mybots</code> &gt; salin API Token di sini.
+                                </p>
+                            </div>
+                        @endif
+                        @error('token')
+                            <p class="mt-1.5 text-xs text-red-600 font-semibold">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    {{-- 3. Pilihan Provider OTP Aktif --}}
+                    <div class="border-t border-brand-100 pt-5">
                         <label class="mb-1 block text-sm font-bold text-brand-900">Pilih Provider OTP Aktif</label>
                         <p class="mb-3 text-xs text-brand-500">Pilih provider yang akan digunakan untuk melayani pesanan OTP bot ini.</p>
 
@@ -96,7 +221,7 @@
                         @enderror
                     </div>
 
-                    {{-- 2. Input API Key Provider 1 (EngineUnicorn) --}}
+                    {{-- 4. Input API Key Provider 1 (EngineUnicorn) --}}
                     <div class="border-t border-brand-100 pt-5" x-show="activeProvider === 'kopken'" x-transition>
                         <div class="mb-2 flex items-center justify-between">
                             <label class="block text-sm font-bold text-brand-900">API Key EngineUnicorn</label>
@@ -141,7 +266,7 @@
                         @enderror
                     </div>
 
-                    {{-- 3. Input API Key Provider 2 (WAHub) --}}
+                    {{-- 5. Input API Key Provider 2 (WAHub) --}}
                     <div class="border-t border-brand-100 pt-5" x-show="activeProvider === 'wahub'" x-transition>
                         <div class="mb-2 flex items-center justify-between">
                             <label class="block text-sm font-bold text-brand-900">API Key WAHub (dehuyzotp.shop)</label>
@@ -186,7 +311,7 @@
                         @enderror
                     </div>
 
-                    {{-- 4. Markup Jual --}}
+                    {{-- 6. Markup Jual --}}
                     <div class="border-t border-brand-100 pt-5"
                          x-data="{
                              markupType: '{{ old('otp_markup_type', $telegramBot->otp_markup_type ?? 'percent') }}',
@@ -228,7 +353,7 @@
                         </div>
                     </div>
 
-                    {{-- 5. Reminder Saldo Pusat --}}
+                    {{-- 7. Reminder Saldo Pusat --}}
                     <div class="border-t border-brand-100 pt-5"
                          x-data="{
                              enabled: {{ ($telegramBot->min_provider_balance_alert && $telegramBot->min_provider_balance_alert > 0) ? 'true' : 'false' }},
@@ -277,7 +402,7 @@
                         </div>
                     </div>
 
-                    {{-- 6. Kontak Deposit Saldo --}}
+                    {{-- 8. Kontak Deposit Saldo --}}
                     <div class="border-t border-brand-100 pt-5">
                         <h3 class="text-sm font-bold text-brand-900">Kontak Deposit Manual</h3>
                         <p class="mb-3 text-xs text-brand-500">Tombol kontak WhatsApp & Telegram yang muncul saat user memilih menu Deposit di bot.</p>
@@ -300,7 +425,7 @@
                         </div>
                     </div>
 
-                    {{-- 7. Akses Admin Bot --}}
+                    {{-- 9. Akses Admin Bot --}}
                     <div class="border-t border-brand-100 pt-5">
                         <h3 class="text-sm font-bold text-brand-900">Akses Admin Bot (/admin)</h3>
                         <p class="mb-2 text-xs text-brand-500">Telegram ID yang diperbolehkan mengakses menu /admin bot (pisahkan dengan koma).</p>
@@ -312,8 +437,8 @@
 
                     {{-- Submit Button --}}
                     <div class="border-t border-brand-100 pt-5">
-                        <button type="submit" class="w-full rounded-xl bg-brand-900 px-5 py-3 text-sm font-bold text-white shadow-xs hover:bg-brand-800 transition">
-                            Simpan Konfigurasi
+                        <button type="submit" class="w-full rounded-xl bg-brand-900 px-5 py-3.5 text-sm font-bold text-white shadow-xs hover:bg-brand-800 transition active:scale-[0.99]">
+                            Simpan Konfigurasi Bot
                         </button>
                     </div>
                 </form>
@@ -322,11 +447,49 @@
             {{-- ==================== KOLOM KANAN (DISPLAY DATA & STATUS LIVE) ==================== --}}
             <div class="w-full lg:w-5/12 space-y-5 lg:sticky lg:top-6">
                 <div>
-                    <h2 class="text-lg font-extrabold text-brand-900">Informasi & Status</h2>
-                    <p class="text-xs text-brand-500">Data live provider, saldo, dan tarif bot.</p>
+                    <h2 class="text-lg font-extrabold text-brand-900">Informasi & Status Live</h2>
+                    <p class="text-xs text-brand-500">Status operasional bot, token Telegram, provider aktif, dan saldo.</p>
                 </div>
 
-                {{-- Card A: Status Provider Aktif --}}
+                {{-- Card 1: Status Operasional & Bot Info --}}
+                <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-xs">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Status Operasional</span>
+                        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-extrabold {{ $isBotRunning ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-700 border border-slate-200' }}">
+                            <span class="h-2 w-2 rounded-full {{ $isBotRunning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400' }}"></span>
+                            {{ $isBotRunning ? 'RUNNING / AKTIF' : 'NONAKTIF' }}
+                        </span>
+                    </div>
+
+                    <div class="mt-4 space-y-3">
+                        <div class="flex items-start justify-between border-b border-brand-100 pb-2.5">
+                            <div>
+                                <p class="text-xs text-brand-500">Nama Bot</p>
+                                <p class="text-sm font-extrabold text-brand-900">{{ $telegramBot->name }}</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-xs text-brand-500">Username</p>
+                                <p class="font-mono text-sm font-bold text-brand-800">{{ $telegramBot->displayUsername() }}</p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between border-b border-brand-100 pb-2.5 text-xs">
+                            <span class="text-brand-500">Token BotFather</span>
+                            <span class="font-bold {{ $hasToken ? 'text-emerald-700' : 'text-amber-600' }}">
+                                {{ $hasToken ? '✓ Terpasang' : 'Belum Ada' }}
+                            </span>
+                        </div>
+
+                        <div class="flex items-center justify-between text-xs">
+                            <span class="text-brand-500">Webhook URL</span>
+                            <span class="font-bold {{ $isBotRunning && $hasToken ? 'text-emerald-700' : 'text-slate-500' }}">
+                                {{ $isBotRunning && $hasToken ? '✓ Terhubung' : 'Nonaktif' }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Card 2: Status Provider Aktif --}}
                 <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-xs">
                     <div class="flex items-center justify-between">
                         <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Provider Aktif</span>
@@ -353,7 +516,7 @@
                     </div>
                 </div>
 
-                {{-- Card B: Saldo Pusat API --}}
+                {{-- Card 3: Saldo Pusat API --}}
                 <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-xs">
                     <div class="flex items-center justify-between">
                         <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Saldo Pusat API</span>
@@ -391,7 +554,7 @@
                     </div>
                 </div>
 
-                {{-- Card C: Ringkasan Harga Layanan --}}
+                {{-- Card 4: Ringkasan Harga Layanan --}}
                 <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-xs">
                     <div class="flex items-center justify-between">
                         <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Layanan & Harga OTP</span>
@@ -453,7 +616,7 @@
                     @endif
                 </div>
 
-                {{-- Card D: Daftar Admin Bot --}}
+                {{-- Card 5: Daftar Admin Bot --}}
                 <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-xs">
                     <div class="flex items-center justify-between">
                         <span class="text-xs font-bold uppercase tracking-wider text-brand-500">Admin Terdaftar</span>
@@ -475,11 +638,14 @@
                     </div>
                 </div>
 
-                {{-- Card E: Info Webhook & Bot Telegram --}}
-                <div class="rounded-2xl border border-brand-200 bg-brand-50/50 p-4 text-xs text-brand-600">
-                    <p class="font-bold text-brand-900">💡 Tips Penggunaan</p>
-                    <p class="mt-1">
-                        Setiap pergantian provider aktif atau perubahan API key akan langsung diterapkan secara instan ke bot Telegram Anda.
+                {{-- Card 6: Info Webhook & Tips --}}
+                <div class="rounded-2xl border border-brand-200 bg-brand-50/50 p-4 text-xs text-brand-600 space-y-2">
+                    <p class="font-bold text-brand-900">💡 Tips & Panduan</p>
+                    <p>
+                        • <b>Token Bot:</b> Saat Anda memasukkan atau mengganti token BotFather, sistem akan langsung memvalidasi ke Telegram dan memperbarui username bot secara otomatis.
+                    </p>
+                    <p>
+                        • <b>Status Running/Nonaktif:</b> Mengubah status ke <b>Running</b> akan langsung mendaftarkan webhook agar bot aktif melayani user. Jika diubah ke <b>Nonaktif</b>, webhook dinonaktifkan sehingga bot berhenti sementara.
                     </p>
                 </div>
             </div>

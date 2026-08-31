@@ -52,6 +52,31 @@ class TelegramBot extends Model
         'otp_wahub_api_key',
     ];
 
+    public function isRunning(): bool
+    {
+        return $this->status === 'active';
+    }
+
+    public function hasValidToken(): bool
+    {
+        return filled($this->token);
+    }
+
+    public function maskedToken(): ?string
+    {
+        $token = trim((string) $this->token);
+        if ($token === '') {
+            return null;
+        }
+
+        $len = strlen($token);
+        if ($len <= 10) {
+            return str_repeat('*', $len);
+        }
+
+        return substr($token, 0, 8) . str_repeat('•', 8) . substr($token, -4);
+    }
+
     public function activeOtpProvider(): string
     {
         $provider = strtolower(trim((string) ($this->otp_provider ?: 'kopken')));
