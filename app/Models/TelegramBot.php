@@ -34,6 +34,9 @@ class TelegramBot extends Model
         'webhook_url',
         'status',
         'notes',
+        'force_subscribe_enabled',
+        'force_subscribe_channel',
+        'force_subscribe_join_url',
     ];
 
     protected function casts(): array
@@ -43,6 +46,7 @@ class TelegramBot extends Model
             'provider_balance_checked_at' => 'datetime',
             'min_provider_balance_alert' => 'integer',
             'provider_balance_last_alerted_at' => 'datetime',
+            'force_subscribe_enabled' => 'boolean',
         ];
     }
 
@@ -285,6 +289,34 @@ class TelegramBot extends Model
         $id = preg_replace('/\D+/', '', (string) $telegramId) ?: '';
 
         return $id !== '' && in_array($id, $this->adminTelegramIdList(), true);
+    }
+
+    public function isForceSubscribeActive(): bool
+    {
+        return (bool) $this->force_subscribe_enabled && filled($this->force_subscribe_channel);
+    }
+
+    /**
+     * Resolve the join/invite URL for the force subscribe channel.
+     * Falls back to constructing t.me URL from @username if invite URL not set.
+     */
+    public function forceSubscribeJoinUrl(): ?string
+    {
+        if (filled($this->force_subscribe_join_url)) {
+            return $this->force_subscribe_join_url;
+        }
+
+        $channel = trim((string) $this->force_subscribe_channel);
+        if ($channel === '') {
+            return null;
+        }
+
+        // If it's a numeric channel ID (private channel), no URL can be derived
+        if (is_numeric(ltrim($channel, '-'))) {
+            return null;
+        }
+
+        return 'https://t.me/' . ltrim($channel, '@');
     }
 
     public function formattedProviderBalance(): string

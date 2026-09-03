@@ -435,6 +435,81 @@
                                class="w-full rounded-xl border-brand-200 text-sm focus:border-brand-900 focus:ring-brand-900">
                     </div>
 
+                    {{-- 10. Force Subscribe Channel --}}
+                    <div class="border-t border-brand-100 pt-5"
+                         x-data="{
+                             enabled: {{ old('force_subscribe_enabled', $telegramBot->force_subscribe_enabled) ? 'true' : 'false' }},
+                         }">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <h3 class="text-sm font-bold text-brand-900">Force Subscribe Channel</h3>
+                                <p class="mt-0.5 text-xs text-brand-500 leading-relaxed">
+                                    User wajib join channel dulu sebelum bisa order / pakai bot.
+                                    <span class="font-semibold text-amber-600">Bot harus jadi <b>admin</b> di channel.</span>
+                                </p>
+                            </div>
+                            <button type="button"
+                                    @click="enabled = !enabled"
+                                    :class="enabled ? 'bg-rose-600' : 'bg-slate-300'"
+                                    class="relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+                                    role="switch" :aria-checked="enabled">
+                                <span :class="enabled ? 'translate-x-5' : 'translate-x-0'"
+                                      class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out"></span>
+                            </button>
+                        </div>
+
+                        <input type="hidden" name="force_subscribe_enabled" :value="enabled ? '1' : '0'">
+
+                        <div x-show="enabled" x-transition class="mt-4 space-y-4 rounded-xl border border-rose-100 bg-rose-50/50 p-4">
+
+                            {{-- Toggle label --}}
+                            <div class="flex items-center gap-2 rounded-lg border border-rose-200 bg-white px-3 py-2.5">
+                                <span class="h-2 w-2 rounded-full bg-rose-500 animate-pulse"></span>
+                                <p class="text-xs font-semibold text-rose-700">
+                                    Aktif — Blokir /start, List Produk, dan checkout sampai user join.
+                                </p>
+                            </div>
+
+                            {{-- Channel Username / ID --}}
+                            <div>
+                                <label class="mb-1 block text-xs font-bold text-brand-900">Channel Username / ID</label>
+                                <div class="flex overflow-hidden rounded-xl border border-brand-200 bg-white focus-within:ring-2 focus-within:ring-brand-900 focus-within:border-brand-900">
+                                    <span class="inline-flex items-center bg-brand-900 px-3 text-xs font-bold text-white select-none">@</span>
+                                    <input type="text"
+                                           name="force_subscribe_channel"
+                                           value="{{ old('force_subscribe_channel', ltrim((string) $telegramBot->force_subscribe_channel, '@')) }}"
+                                           placeholder="premifystoreid"
+                                           class="w-full border-0 bg-white px-3 py-2.5 text-sm font-mono font-semibold text-brand-900 focus:outline-none focus:ring-0">
+                                </div>
+                                <p class="mt-1.5 text-[11px] text-brand-500 leading-relaxed">
+                                    Contoh: <code class="bg-brand-100 px-1 py-0.5 rounded text-brand-900">@premifystore</code>.
+                                    Channel private pakai ID numerik <code class="bg-brand-100 px-1 py-0.5 rounded text-brand-900">-100...</code><br>
+                                    Cara ambil ID: forward 1 post channel ke <b>@userinfobot</b> atau <b>@getidsbot</b>.
+                                    Bot wajib jadi <b>admin</b> channel.
+                                </p>
+                                @error('force_subscribe_channel')
+                                    <p class="mt-1.5 text-xs text-red-600 font-semibold">{{ $message }}</p>
+                                @enderror
+                            </div>
+
+                            {{-- Invite / Join URL (opsional) --}}
+                            <div>
+                                <label class="mb-1 block text-xs font-bold text-brand-900">Invite / Join URL <span class="font-normal text-brand-400">(opsional)</span></label>
+                                <input type="url"
+                                       name="force_subscribe_join_url"
+                                       value="{{ old('force_subscribe_join_url', $telegramBot->force_subscribe_join_url) }}"
+                                       placeholder="https://t.me/namachannel atau invite link"
+                                       class="w-full rounded-xl border-brand-200 text-sm focus:border-brand-900 focus:ring-brand-900">
+                                <p class="mt-1 text-[11px] text-brand-500">
+                                    Kosongkan = URL otomatis dari @username. <b>Wajib diisi jika channel private.</b>
+                                </p>
+                                @error('force_subscribe_join_url')
+                                    <p class="mt-1.5 text-xs text-red-600 font-semibold">{{ $message }}</p>
+                                @enderror
+                            </div>
+                        </div>
+                    </div>
+
                     {{-- Submit Button --}}
                     <div class="border-t border-brand-100 pt-5">
                         <button type="submit" class="w-full rounded-xl bg-brand-900 px-5 py-3.5 text-sm font-bold text-white shadow-xs hover:bg-brand-800 transition active:scale-[0.99]">
@@ -443,6 +518,7 @@
                     </div>
                 </form>
             </div>
+
 
             {{-- ==================== KOLOM KANAN (DISPLAY DATA & STATUS LIVE) ==================== --}}
             <div class="w-full lg:w-5/12 space-y-5 lg:sticky lg:top-6">

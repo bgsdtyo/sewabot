@@ -166,6 +166,16 @@ class TelegramBotService
         $this->currentBot = $bot;
         $this->currentFromId = $fromId;
 
+        // —— Force Subscribe Channel Gate ——
+        // Admin bot dikecualikan dari pengecekan
+        if ($bot->isForceSubscribeActive() && ! $bot->isTelegramAdmin($fromId)) {
+            if (! $this->checkChannelMembership($bot, $fromId)) {
+                $this->sendForceSubscribeMessage($bot, $chatId);
+
+                return;
+            }
+        }
+
         // Wizard admin (setelah klik tombol Cek / Add Deposit)
         if ($bot->isTelegramAdmin($fromId) && $this->handleAdminPendingInput($bot, $chatId, $text, $fromId)) {
             return;
@@ -2777,6 +2787,47 @@ class TelegramBotService
             }
         }
 
+        // —— Force Subscribe re-check callback ——
+        if ($data === 'force_subscribe_check') {
+            if (! $chatId) {
+                return;
+            }
+            $isMember = ! $bot->isForceSubscribeActive()
+                || $bot->isTelegramAdmin($fromId)
+                || $this->checkChannelMembership($bot, $fromId);
+
+            if ($isMember) {
+                // Hapus pesan blokir, lalu tampilkan menu utama
+                if ($messageId) {
+                    $this->deleteMessage($bot, $chatId, $messageId);
+                }
+                $member = app(OtpOrderService::class)->findOrRegisterMember($bot, $from);
+                $this->currentBot = $bot;
+                $this->currentFromId = $fromId;
+                $this->sendMessage(
+                    $bot,
+                    $chatId,
+                    "✅ <b>Terima kasih sudah bergabung!</b>\n\nSekarang kamu bisa menggunakan bot ini. Silakan pilih menu di bawah.",
+                    $this->mainKeyboard()
+                );
+            } else {
+                // Masih belum join — kirim ulang pesan blokir
+                if ($callbackId) {
+                    try {
+                        Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                            'callback_query_id' => $callbackId,
+                            'text' => '❌ Kamu belum bergabung ke channel. Silakan join dulu lalu tekan tombol Saya Sudah Bergabung.',
+                            'show_alert' => true,
+                        ]);
+                    } catch (\Throwable $e) {
+                        // ignore
+                    }
+                }
+            }
+
+            return;
+        }
+
         if (! $chatId) {
             return;
         }
@@ -2941,6 +2992,87 @@ class TelegramBotService
                 $this->clearAdminPending($bot, $chatId);
                 $this->sendMessage($bot, $chatId, "<b>Menu User</b>\n\nSilakan pilih menu di bawah.", $this->mainKeyboard());
             }
+        }
+    }
+
+    /**
+     * Check if a user is a member (member/admin/creator) of the force-subscribe channel.
+     * Returns true if they are a member or if the check cannot be performed.
+     */
+    protected function checkChannelMembership(TelegramBot $bot, string $userId): bool
+    {
+        $channel = trim((string) $bot->force_subscribe_channel);
+        if ($channel === '' || ! $bot->token) {
+            return true;
+        }
+
+        try {
+            $response = Http::timeout(8)->get("https://api.telegram.org/bot{$bot->token}/getChatMember", [
+                'chat_id' => $channel,
+                'user_id' => $userId,
+            ]);
+
+            if (! $response->successful() || ! $response->json('ok')) {
+                // Jika error (mis. bot bukan admin channel / channel tidak ditemukan), biarkan user masuk
+                Log::warning('Force subscribe getChatMember failed', [
+                    'bot_id' => $bot->id,
+                    'channel' => $channel,
+                    'error' => $response->body(),
+                ]);
+
+                return true;
+            }
+
+            $status = $response->json('result.status');
+
+            return in_array($status, ['creator', 'administrator', 'member'], true);
+        } catch (\Throwable $e) {
+            Log::warning('Force subscribe checkChannelMembership error: '.$e->getMessage());
+
+            // Fail open: jika terjadi error teknis, jangan blokir user
+            return true;
+        }
+    }
+
+    /**
+     * Send a "force subscribe" block message with Join Channel & re-check buttons.
+     */
+    protected function sendForceSubscribeMessage(TelegramBot $bot, int|string $chatId): void
+    {
+        $channel = trim((string) $bot->force_subscribe_channel);
+        $joinUrl = $bot->forceSubscribeJoinUrl();
+
+        // Build channel display name
+        $channelDisplay = is_numeric(ltrim($channel, '-'))
+            ? 'channel yang ditentukan'
+            : $channel;
+
+        $text = "🔒 <b>Akses Dibatasi</b>\n\n";
+        $text .= "Untuk menggunakan bot ini, kamu wajib bergabung ke channel kami terlebih dahulu.\n\n";
+        $text .= "📢 Channel: <b>{$channelDisplay}</b>\n\n";
+        $text .= "Setelah bergabung, tekan tombol <b>✅ Saya Sudah Bergabung</b> di bawah.";
+
+        $inlineKeyboard = [];
+
+        if ($joinUrl) {
+            $inlineKeyboard[] = [
+                ['text' => '📢 Join Channel Sekarang', 'url' => $joinUrl],
+            ];
+        }
+
+        $inlineKeyboard[] = [
+            ['text' => '✅ Saya Sudah Bergabung', 'callback_data' => 'force_subscribe_check'],
+        ];
+
+        try {
+            Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/sendMessage", [
+                'chat_id' => $chatId,
+                'text' => $text,
+                'parse_mode' => 'HTML',
+                'reply_markup' => ['inline_keyboard' => $inlineKeyboard],
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Force subscribe sendForceSubscribeMessage error: '.$e->getMessage());
         }
     }
 
