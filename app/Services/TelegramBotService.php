@@ -195,7 +195,7 @@ class TelegramBotService
         }
 
         // —— Admin commands ——
-        if ($this->isAdminCommand($text) || $this->isButton($text, 'Rekap Hari Ini') || $this->isButton($text, 'Menu Admin') || $this->isButton($text, 'Cek User') || $this->isButton($text, 'Add Deposit')) {
+        if ($this->isAdminCommand($text) || $this->isButton($text, 'Rekap Hari Ini') || $this->isButton($text, 'Menu Admin') || $this->isButton($text, 'Cek User') || $this->isButton($text, 'Add Deposit') || $this->isButton($text, 'Broadcast')) {
             if (! $bot->isTelegramAdmin($fromId)) {
                 $this->sendMessage(
                     $bot,
@@ -307,11 +307,13 @@ class TelegramBotService
     {
         $cmd = strtolower(strtok($text, ' ') ?: '');
 
-        return in_array($cmd, ['/admin', '/rekap', '/cek', '/adddeposit', '/menuadmin'], true)
+        return in_array($cmd, ['/admin', '/rekap', '/cek', '/adddeposit', '/menuadmin', '/broadcast', '/bc'], true)
             || str_starts_with(strtolower($text), '/cek@')
             || str_starts_with(strtolower($text), '/admin@')
             || str_starts_with(strtolower($text), '/rekap@')
-            || str_starts_with(strtolower($text), '/adddeposit@');
+            || str_starts_with(strtolower($text), '/adddeposit@')
+            || str_starts_with(strtolower($text), '/broadcast@')
+            || str_starts_with(strtolower($text), '/bc@');
     }
 
     protected function handleAdminCommand(TelegramBot $bot, int|string $chatId, string $text, string $fromId): void
@@ -364,6 +366,23 @@ class TelegramBotService
             return;
         }
 
+        if ($cmd === '/broadcast' || $cmd === '/bc' || $this->isButton($text, 'Broadcast')) {
+            $msg = '';
+            if (str_starts_with($cmd, '/broadcast') || str_starts_with($cmd, '/bc')) {
+                $msg = trim((string) preg_replace('/^\/(?:broadcast|bc)(?:@\w+)?\s*/i', '', $text));
+            }
+
+            if ($msg === '' || $this->isButton($text, 'Broadcast')) {
+                $this->startAdminBroadcastPrompt($bot, $chatId);
+
+                return;
+            }
+
+            $this->previewAdminBroadcast($bot, $chatId, $msg);
+
+            return;
+        }
+
         $this->sendAdminMenu($bot, $chatId);
     }
 
@@ -372,8 +391,8 @@ class TelegramBotService
         return [
             'keyboard' => [
                 [['text' => '📊 Rekap Hari Ini'], ['text' => '🔍 Cek User']],
-                [['text' => '➕ Add Deposit'], ['text' => '🛠 Menu Admin']],
-                [['text' => '⬅️ Menu User']],
+                [['text' => '➕ Add Deposit'], ['text' => '📢 Broadcast']],
+                [['text' => '🛠 Menu Admin'], ['text' => '⬅️ Menu User']],
             ],
             'resize_keyboard' => true,
             'is_persistent' => false,
@@ -391,6 +410,9 @@ class TelegramBotService
                 [
                     ['text' => '🔍 Cek User', 'callback_data' => 'admin_cek'],
                     ['text' => '➕ Add Deposit', 'callback_data' => 'admin_adddeposit'],
+                ],
+                [
+                    ['text' => '📢 Broadcast Pesan', 'callback_data' => 'admin_broadcast'],
                 ],
                 [
                     ['text' => '⬅️ Menu User', 'callback_data' => 'admin_user_menu'],
@@ -523,9 +545,151 @@ class TelegramBotService
             return true;
         }
 
+        if ($action === 'broadcast_input') {
+            $msg = trim($text);
+            if ($msg === '') {
+                $this->sendMessage($bot, $chatId, 'Pesan broadcast tidak boleh kosong. Kirim teks pesan, atau /bataladmin.', $this->adminKeyboard());
+
+                return true;
+            }
+
+            $this->previewAdminBroadcast($bot, $chatId, $msg);
+
+            return true;
+        }
+
+        if ($action === 'broadcast_confirm') {
+            $lower = strtolower(trim($text));
+            if (in_array($lower, ['kirim', 'ya', 'yes', 'ok', 'lanjut', 'send'], true)) {
+                $this->executeAdminBroadcast($bot, $chatId);
+
+                return true;
+            }
+
+            if (in_array($lower, ['batal', 'cancel', 'tidak', 'no'], true) || str_starts_with($lower, '/batal')) {
+                $this->clearAdminPending($bot, $chatId);
+                $this->sendMessage($bot, $chatId, '❌ Broadcast dibatalkan.', $this->adminKeyboard());
+
+                return true;
+            }
+
+            $this->sendMessage($bot, $chatId, "Tekan tombol <b>✅ Kirim Sekarang</b> di atas atau ketik <b>KIRIM</b> untuk menyiarkan pesan ke seluruh member, atau /bataladmin untuk membatalkan.", $this->adminKeyboard());
+
+            return true;
+        }
+
         $this->clearAdminPending($bot, $chatId);
 
         return false;
+    }
+
+    protected function startAdminBroadcastPrompt(TelegramBot $bot, int|string $chatId): void
+    {
+        $totalMembers = BotMember::query()
+            ->where('telegram_bot_id', $bot->id)
+            ->where('is_active', true)
+            ->whereNotNull('telegram_chat_id')
+            ->count();
+
+        $this->setAdminPending($bot, $chatId, ['action' => 'broadcast_input']);
+
+        $text = "📢 <b>Broadcast ke Seluruh Member</b>\n\n"
+            ."Total member aktif terdaftar: <b>{$totalMembers}</b> orang.\n\n"
+            ."Silakan kirim pesan yang ingin disiarkan sekarang.\n"
+            ."Mendukung format HTML (<b>tebal</b>, <i>miring</i>, <code>kode</code>, link, emoji).\n\n"
+            ."Ketik /bataladmin untuk membatalkan.";
+
+        $this->sendMessage($bot, $chatId, $text, $this->adminKeyboard());
+    }
+
+    protected function previewAdminBroadcast(TelegramBot $bot, int|string $chatId, string $broadcastText): void
+    {
+        $totalMembers = BotMember::query()
+            ->where('telegram_bot_id', $bot->id)
+            ->where('is_active', true)
+            ->whereNotNull('telegram_chat_id')
+            ->count();
+
+        $this->setAdminPending($bot, $chatId, [
+            'action' => 'broadcast_confirm',
+            'broadcast_text' => $broadcastText,
+        ]);
+
+        $previewText = "📢 <b>Pratinjau Pesan Broadcast</b>\n\n"
+            ."Target: <b>{$totalMembers} member aktif</b>\n"
+            ."────────────────────\n"
+            ."{$broadcastText}\n"
+            ."────────────────────\n\n"
+            ."Tekan tombol <b>✅ Kirim Sekarang</b> di bawah atau ketik <b>KIRIM</b> untuk memulai pengiriman ke seluruh member.";
+
+        $keyboard = [
+            'inline_keyboard' => [
+                [
+                    ['text' => '✅ Kirim Sekarang', 'callback_data' => 'admin_bc_confirm'],
+                    ['text' => '❌ Batalkan', 'callback_data' => 'admin_bc_cancel'],
+                ],
+            ],
+        ];
+
+        $this->sendMessage($bot, $chatId, $previewText, $this->adminKeyboard(), $keyboard);
+    }
+
+    protected function executeAdminBroadcast(TelegramBot $bot, int|string $chatId): void
+    {
+        $state = $this->getAdminPending($bot, $chatId);
+        $broadcastText = (string) ($state['broadcast_text'] ?? '');
+
+        $this->clearAdminPending($bot, $chatId);
+
+        if ($broadcastText === '') {
+            $this->sendMessage($bot, $chatId, '⚠️ Sesi broadcast telah berakhir atau pesan kosong.', $this->adminKeyboard());
+
+            return;
+        }
+
+        $members = BotMember::query()
+            ->where('telegram_bot_id', $bot->id)
+            ->where('is_active', true)
+            ->whereNotNull('telegram_chat_id')
+            ->get();
+
+        $total = $members->count();
+
+        if ($total === 0) {
+            $this->sendMessage($bot, $chatId, '⚠️ Belum ada member aktif yang terdaftar di bot ini.', $this->adminKeyboard());
+
+            return;
+        }
+
+        $this->sendMessage($bot, $chatId, "⏳ Memulai pengiriman broadcast ke <b>{$total}</b> member...\nMohon tunggu beberapa saat.", $this->adminKeyboard());
+
+        $successCount = 0;
+        $failCount = 0;
+        $messageToSend = "📢 <b>PENGUMUMAN</b>\n\n".$broadcastText;
+
+        foreach ($members as $member) {
+            try {
+                $res = $this->sendMessage($bot, $member->telegram_chat_id, $messageToSend);
+                if ($res) {
+                    $successCount++;
+                } else {
+                    $failCount++;
+                }
+            } catch (\Throwable $e) {
+                $failCount++;
+            }
+
+            // Throttle to respect Telegram rate limit (~30 msg/sec max across chats)
+            usleep(40000);
+        }
+
+        $report = "✅ <b>Laporan Broadcast Selesai</b> 📊\n\n"
+            ."• Total target: <b>{$total}</b> member\n"
+            ."• Berhasil terkirim: <b>{$successCount}</b> 🟢\n"
+            ."• Gagal / diblokir: <b>{$failCount}</b> 🔴\n\n"
+            ."Waktu selesai: <code>".now()->timezone(config('app.timezone', 'Asia/Jakarta'))->format('d-m-Y H:i:s')." WIB</code>";
+
+        $this->sendMessage($bot, $chatId, $report, $this->adminKeyboard());
     }
 
     protected function sendAdminMenu(TelegramBot $bot, int|string $chatId): void
@@ -534,11 +698,13 @@ class TelegramBotService
             ."Mode admin aktif.\n\n"
             ."• Rekap Hari Ini\n"
             ."• Cek User\n"
-            ."• Add Deposit\n\n"
+            ."• Add Deposit\n"
+            ."• Broadcast Pesan\n\n"
             ."Kembali ke menu member: <b>⬅️ Menu User</b>\n\n"
             ."Atau ketik:\n"
             ."<code>/cek 123456789</code>\n"
-            .'<code>/adddeposit 123456789 50000</code>';
+            ."<code>/adddeposit 123456789 50000</code>\n"
+            .'<code>/broadcast Pesan pengumuman...</code>';
 
         $this->sendMessage($bot, $chatId, $text, $this->adminKeyboard());
     }
@@ -2994,6 +3160,25 @@ class TelegramBotService
 
             if ($data === 'admin_adddeposit') {
                 $this->startAdminDepositPrompt($bot, $chatId);
+
+                return;
+            }
+
+            if ($data === 'admin_broadcast') {
+                $this->startAdminBroadcastPrompt($bot, $chatId);
+
+                return;
+            }
+
+            if ($data === 'admin_bc_confirm') {
+                $this->executeAdminBroadcast($bot, $chatId);
+
+                return;
+            }
+
+            if ($data === 'admin_bc_cancel') {
+                $this->clearAdminPending($bot, $chatId);
+                $this->sendMessage($bot, $chatId, '❌ Broadcast dibatalkan.', $this->adminKeyboard());
 
                 return;
             }
