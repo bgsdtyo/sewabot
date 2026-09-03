@@ -293,7 +293,9 @@ class TelegramBot extends Model
 
     public function isForceSubscribeActive(): bool
     {
-        return (bool) $this->force_subscribe_enabled && filled($this->force_subscribe_join_url);
+        return (bool) $this->force_subscribe_enabled
+            && filled($this->force_subscribe_channel)
+            && filled($this->force_subscribe_join_url);
     }
 
     /**
@@ -305,27 +307,14 @@ class TelegramBot extends Model
     }
 
     /**
-     * Try to derive a channel identifier (@username) from the join URL for getChatMember checks.
-     * Returns null if URL is a private invite link (t.me/+...) or cannot be parsed.
+     * Return the channel identifier used for getChatMember verification.
+     * Uses force_subscribe_channel directly (set explicitly by the owner).
      */
     public function forceSubscribeChannelId(): ?string
     {
-        $url = trim((string) $this->force_subscribe_join_url);
-        if ($url === '') {
-            return null;
-        }
+        $channel = trim((string) $this->force_subscribe_channel);
 
-        // Private invite links (t.me/+HASH) cannot be used as channel identifiers
-        if (preg_match('#t\.me/\+#i', $url)) {
-            return null;
-        }
-
-        // Public channel: https://t.me/channelname  or  t.me/channelname
-        if (preg_match('#t\.me/([A-Za-z0-9_]{5,})#i', $url, $m)) {
-            return '@' . $m[1];
-        }
-
-        return null;
+        return $channel !== '' ? $channel : null;
     }
 
     public function formattedProviderBalance(): string

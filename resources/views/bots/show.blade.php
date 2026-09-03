@@ -470,19 +470,41 @@
                                 </p>
                             </div>
 
+                            {{-- Channel ID untuk verifikasi membership --}}
+                            <div>
+                                <label class="mb-1 block text-xs font-bold text-brand-900">
+                                    Channel ID / Username
+                                    <span class="ml-1 rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">Wajib untuk validasi</span>
+                                </label>
+                                <input type="text"
+                                       name="force_subscribe_channel"
+                                       value="{{ old('force_subscribe_channel', $telegramBot->force_subscribe_channel) }}"
+                                       placeholder="@namachannel atau -1001234567890"
+                                       class="w-full rounded-xl border-brand-200 font-mono text-sm focus:border-brand-900 focus:ring-brand-900">
+                                <p class="mt-1.5 text-[11px] text-brand-500 leading-relaxed">
+                                    Dipakai bot untuk verifikasi membership via Telegram API.<br>
+                                    Channel publik: <code class="bg-brand-100 px-1 py-0.5 rounded text-brand-900">@namachannel</code> &nbsp;·&nbsp;
+                                    Channel private: ID numerik <code class="bg-brand-100 px-1 py-0.5 rounded text-brand-900">-100xxxxxxxxxx</code><br>
+                                    Cara dapat ID: forward 1 post ke <b>@userinfobot</b>. Bot harus jadi <b>admin</b> channel.
+                                </p>
+                                @error('force_subscribe_channel')
+                                    <p class="mt-1.5 text-xs text-red-600 font-semibold">{{ $message }}</p>
+                                @enderror
+                            </div>
+
                             {{-- Link Channel / Invite URL --}}
                             <div>
-                                <label class="mb-1 block text-xs font-bold text-brand-900">Link Channel / Invite URL</label>
+                                <label class="mb-1 block text-xs font-bold text-brand-900">
+                                    Link Join Channel
+                                    <span class="ml-1 text-[10px] font-normal text-brand-400">(tombol yang dikirim ke user)</span>
+                                </label>
                                 <input type="url"
                                        name="force_subscribe_join_url"
                                        value="{{ old('force_subscribe_join_url', $telegramBot->force_subscribe_join_url) }}"
                                        placeholder="https://t.me/namachannel atau https://t.me/+invitelink"
                                        class="w-full rounded-xl border-brand-200 text-sm focus:border-brand-900 focus:ring-brand-900">
-                                <p class="mt-1 text-[11px] text-brand-500 leading-relaxed">
-                                    Link publik: <code class="bg-brand-100 px-1 py-0.5 rounded text-brand-900">https://t.me/namachannel</code> —
-                                    bot otomatis cek membership.<br>
-                                    Link invite private: <code class="bg-brand-100 px-1 py-0.5 rounded text-brand-900">https://t.me/+xxxx</code> —
-                                    user tinggal klik join.
+                                <p class="mt-1 text-[11px] text-brand-500">
+                                    Link publik atau private invite — ini yang muncul di tombol <b>Join Channel</b>.
                                 </p>
                                 @error('force_subscribe_join_url')
                                     <p class="mt-1.5 text-xs text-red-600 font-semibold">{{ $message }}</p>

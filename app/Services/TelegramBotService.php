@@ -2794,8 +2794,6 @@ class TelegramBotService
             }
             $isMember = ! $bot->isForceSubscribeActive()
                 || $bot->isTelegramAdmin($fromId)
-                // Private invite link: tidak bisa dicek via API, loloskan saat klik tombol (trust-based)
-                || $bot->forceSubscribeChannelId() === null
                 || $this->checkChannelMembership($bot, $fromId);
 
             if ($isMember) {
@@ -3004,16 +3002,11 @@ class TelegramBotService
      */
     protected function checkChannelMembership(TelegramBot $bot, string $userId): bool
     {
-        // Derive channel ID (@username) from the join URL
+        // Gunakan force_subscribe_channel langsung sebagai channel identifier
         $channel = $bot->forceSubscribeChannelId();
 
-        // Private invite links (t.me/+HASH) cannot be verified via getChatMember.
-        // Return false = blokir user; mereka akan diloloskan saat klik "Saya Sudah Bergabung" (trust-based).
-        if (! $channel) {
-            return false;
-        }
-
-        if (! $bot->token) {
+        if (! $channel || ! $bot->token) {
+            // Tidak ada channel ID → tidak bisa verifikasi → fail open (jangan blokir)
             return true;
         }
 
