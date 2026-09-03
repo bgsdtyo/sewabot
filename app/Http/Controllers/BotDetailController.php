@@ -63,7 +63,6 @@ class BotDetailController extends Controller
             'deposit_note' => ['nullable', 'string', 'max:1000'],
             'admin_telegram_ids' => ['nullable', 'string', 'max:500'],
             'force_subscribe_enabled' => ['nullable', 'boolean'],
-            'force_subscribe_channel' => ['nullable', 'string', 'max:100'],
             'force_subscribe_join_url' => ['nullable', 'string', 'max:255', 'url'],
         ]);
 
@@ -96,7 +95,6 @@ class BotDetailController extends Controller
             'deposit_note' => filled($data['deposit_note'] ?? null) ? trim($data['deposit_note']) : null,
             'admin_telegram_ids' => $adminIds->isNotEmpty() ? $adminIds->implode(', ') : null,
             'force_subscribe_enabled' => $request->boolean('force_subscribe_enabled'),
-            'force_subscribe_channel' => filled($data['force_subscribe_channel'] ?? null) ? trim($data['force_subscribe_channel']) : null,
             'force_subscribe_join_url' => filled($data['force_subscribe_join_url'] ?? null) ? trim($data['force_subscribe_join_url']) : null,
         ];
 

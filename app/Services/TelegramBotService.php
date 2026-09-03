@@ -2997,12 +2997,16 @@ class TelegramBotService
 
     /**
      * Check if a user is a member (member/admin/creator) of the force-subscribe channel.
-     * Returns true if they are a member or if the check cannot be performed.
+     * Channel identifier is auto-parsed from the join URL.
+     * Returns true if they are a member, if the check cannot be performed, or on any error (fail-open).
      */
     protected function checkChannelMembership(TelegramBot $bot, string $userId): bool
     {
-        $channel = trim((string) $bot->force_subscribe_channel);
-        if ($channel === '' || ! $bot->token) {
+        // Derive channel ID (@username) from the join URL
+        $channel = $bot->forceSubscribeChannelId();
+
+        // Private invite links (t.me/+HASH) cannot be verified via getChatMember — fail open
+        if (! $channel || ! $bot->token) {
             return true;
         }
 
@@ -3013,7 +3017,7 @@ class TelegramBotService
             ]);
 
             if (! $response->successful() || ! $response->json('ok')) {
-                // Jika error (mis. bot bukan admin channel / channel tidak ditemukan), biarkan user masuk
+                // Bot bukan admin channel / channel tidak ditemukan — biarkan user masuk
                 Log::warning('Force subscribe getChatMember failed', [
                     'bot_id' => $bot->id,
                     'channel' => $channel,
@@ -3039,17 +3043,10 @@ class TelegramBotService
      */
     protected function sendForceSubscribeMessage(TelegramBot $bot, int|string $chatId): void
     {
-        $channel = trim((string) $bot->force_subscribe_channel);
         $joinUrl = $bot->forceSubscribeJoinUrl();
-
-        // Build channel display name
-        $channelDisplay = is_numeric(ltrim($channel, '-'))
-            ? 'channel yang ditentukan'
-            : $channel;
 
         $text = "🔒 <b>Akses Dibatasi</b>\n\n";
         $text .= "Untuk menggunakan bot ini, kamu wajib bergabung ke channel kami terlebih dahulu.\n\n";
-        $text .= "📢 Channel: <b>{$channelDisplay}</b>\n\n";
         $text .= "Setelah bergabung, tekan tombol <b>✅ Saya Sudah Bergabung</b> di bawah.";
 
         $inlineKeyboard = [];

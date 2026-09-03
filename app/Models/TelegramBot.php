@@ -293,30 +293,39 @@ class TelegramBot extends Model
 
     public function isForceSubscribeActive(): bool
     {
-        return (bool) $this->force_subscribe_enabled && filled($this->force_subscribe_channel);
+        return (bool) $this->force_subscribe_enabled && filled($this->force_subscribe_join_url);
     }
 
     /**
-     * Resolve the join/invite URL for the force subscribe channel.
-     * Falls back to constructing t.me URL from @username if invite URL not set.
+     * Return the join/invite URL for the force subscribe channel.
      */
     public function forceSubscribeJoinUrl(): ?string
     {
-        if (filled($this->force_subscribe_join_url)) {
-            return $this->force_subscribe_join_url;
-        }
+        return filled($this->force_subscribe_join_url) ? $this->force_subscribe_join_url : null;
+    }
 
-        $channel = trim((string) $this->force_subscribe_channel);
-        if ($channel === '') {
+    /**
+     * Try to derive a channel identifier (@username) from the join URL for getChatMember checks.
+     * Returns null if URL is a private invite link (t.me/+...) or cannot be parsed.
+     */
+    public function forceSubscribeChannelId(): ?string
+    {
+        $url = trim((string) $this->force_subscribe_join_url);
+        if ($url === '') {
             return null;
         }
 
-        // If it's a numeric channel ID (private channel), no URL can be derived
-        if (is_numeric(ltrim($channel, '-'))) {
+        // Private invite links (t.me/+HASH) cannot be used as channel identifiers
+        if (preg_match('#t\.me/\+#i', $url)) {
             return null;
         }
 
-        return 'https://t.me/' . ltrim($channel, '@');
+        // Public channel: https://t.me/channelname  or  t.me/channelname
+        if (preg_match('#t\.me/([A-Za-z0-9_]{5,})#i', $url, $m)) {
+            return '@' . $m[1];
+        }
+
+        return null;
     }
 
     public function formattedProviderBalance(): string

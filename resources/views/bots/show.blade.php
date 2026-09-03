@@ -462,7 +462,7 @@
 
                         <div x-show="enabled" x-transition class="mt-4 space-y-4 rounded-xl border border-rose-100 bg-rose-50/50 p-4">
 
-                            {{-- Toggle label --}}
+                            {{-- Status label --}}
                             <div class="flex items-center gap-2 rounded-lg border border-rose-200 bg-white px-3 py-2.5">
                                 <span class="h-2 w-2 rounded-full bg-rose-500 animate-pulse"></span>
                                 <p class="text-xs font-semibold text-rose-700">
@@ -470,38 +470,19 @@
                                 </p>
                             </div>
 
-                            {{-- Channel Username / ID --}}
+                            {{-- Link Channel / Invite URL --}}
                             <div>
-                                <label class="mb-1 block text-xs font-bold text-brand-900">Channel Username / ID</label>
-                                <div class="flex overflow-hidden rounded-xl border border-brand-200 bg-white focus-within:ring-2 focus-within:ring-brand-900 focus-within:border-brand-900">
-                                    <span class="inline-flex items-center bg-brand-900 px-3 text-xs font-bold text-white select-none">@</span>
-                                    <input type="text"
-                                           name="force_subscribe_channel"
-                                           value="{{ old('force_subscribe_channel', ltrim((string) $telegramBot->force_subscribe_channel, '@')) }}"
-                                           placeholder="premifystoreid"
-                                           class="w-full border-0 bg-white px-3 py-2.5 text-sm font-mono font-semibold text-brand-900 focus:outline-none focus:ring-0">
-                                </div>
-                                <p class="mt-1.5 text-[11px] text-brand-500 leading-relaxed">
-                                    Contoh: <code class="bg-brand-100 px-1 py-0.5 rounded text-brand-900">@premifystore</code>.
-                                    Channel private pakai ID numerik <code class="bg-brand-100 px-1 py-0.5 rounded text-brand-900">-100...</code><br>
-                                    Cara ambil ID: forward 1 post channel ke <b>@userinfobot</b> atau <b>@getidsbot</b>.
-                                    Bot wajib jadi <b>admin</b> channel.
-                                </p>
-                                @error('force_subscribe_channel')
-                                    <p class="mt-1.5 text-xs text-red-600 font-semibold">{{ $message }}</p>
-                                @enderror
-                            </div>
-
-                            {{-- Invite / Join URL (opsional) --}}
-                            <div>
-                                <label class="mb-1 block text-xs font-bold text-brand-900">Invite / Join URL <span class="font-normal text-brand-400">(opsional)</span></label>
+                                <label class="mb-1 block text-xs font-bold text-brand-900">Link Channel / Invite URL</label>
                                 <input type="url"
                                        name="force_subscribe_join_url"
                                        value="{{ old('force_subscribe_join_url', $telegramBot->force_subscribe_join_url) }}"
-                                       placeholder="https://t.me/namachannel atau invite link"
+                                       placeholder="https://t.me/namachannel atau https://t.me/+invitelink"
                                        class="w-full rounded-xl border-brand-200 text-sm focus:border-brand-900 focus:ring-brand-900">
-                                <p class="mt-1 text-[11px] text-brand-500">
-                                    Kosongkan = URL otomatis dari @username. <b>Wajib diisi jika channel private.</b>
+                                <p class="mt-1 text-[11px] text-brand-500 leading-relaxed">
+                                    Link publik: <code class="bg-brand-100 px-1 py-0.5 rounded text-brand-900">https://t.me/namachannel</code> —
+                                    bot otomatis cek membership.<br>
+                                    Link invite private: <code class="bg-brand-100 px-1 py-0.5 rounded text-brand-900">https://t.me/+xxxx</code> —
+                                    user tinggal klik join.
                                 </p>
                                 @error('force_subscribe_join_url')
                                     <p class="mt-1.5 text-xs text-red-600 font-semibold">{{ $message }}</p>
