@@ -2777,7 +2777,7 @@ class TelegramBotService
         $fromId = (string) ($from['id'] ?? $chatId);
         $callbackId = $callback['id'] ?? null;
 
-        if ($callbackId && ! str_starts_with($data, 'otp_check_stock:') && ! str_starts_with($data, 'otp_status:') && ! str_starts_with($data, 'otp_resend:')) {
+        if ($callbackId && ! str_starts_with($data, 'otp_check_stock:') && ! str_starts_with($data, 'otp_status:') && ! str_starts_with($data, 'otp_resend:') && $data !== 'force_subscribe_check') {
             try {
                 Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
                     'callback_query_id' => $callbackId,
@@ -2797,6 +2797,16 @@ class TelegramBotService
                 || $this->checkChannelMembership($bot, $fromId);
 
             if ($isMember) {
+                if ($callbackId) {
+                    try {
+                        Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                            'callback_query_id' => $callbackId,
+                        ]);
+                    } catch (\Throwable $e) {
+                        // ignore
+                    }
+                }
+
                 // Hapus pesan blokir, lalu tampilkan menu utama
                 if ($messageId) {
                     $this->deleteMessage($bot, $chatId, $messageId);
@@ -2811,16 +2821,16 @@ class TelegramBotService
                     $this->mainKeyboard()
                 );
             } else {
-                // Masih belum join — kirim ulang pesan blokir
+                // Masih belum join — tampilkan modal alert pop-up di Telegram
                 if ($callbackId) {
                     try {
                         Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
                             'callback_query_id' => $callbackId,
-                            'text' => '❌ Kamu belum bergabung ke channel. Silakan join dulu lalu tekan tombol Saya Sudah Bergabung.',
+                            'text' => "⚠️ Kamu belum bergabung ke channel!\n\nSilakan klik tombol '📢 Join Channel Sekarang' di atas terlebih dahulu, lalu klik tombol ini lagi.",
                             'show_alert' => true,
                         ]);
                     } catch (\Throwable $e) {
-                        // ignore
+                        Log::warning('force_subscribe_check answerCallbackQuery error: ' . $e->getMessage());
                     }
                 }
             }
