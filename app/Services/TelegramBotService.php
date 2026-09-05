@@ -2972,7 +2972,7 @@ class TelegramBotService
         $fromId = (string) ($from['id'] ?? $chatId);
         $callbackId = $callback['id'] ?? null;
 
-        if ($callbackId && ! str_starts_with($data, 'otp_check_stock:') && ! str_starts_with($data, 'otp_status:') && ! str_starts_with($data, 'otp_resend:') && $data !== 'force_subscribe_check') {
+        if ($callbackId && ! str_starts_with($data, 'otp_check_stock:') && ! str_starts_with($data, 'otp_status:') && ! str_starts_with($data, 'otp_resend:') && ! str_starts_with($data, 'otp_change:') && ! str_starts_with($data, 'otp_batch_status:') && $data !== 'force_subscribe_check') {
             try {
                 Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
                     'callback_query_id' => $callbackId,
