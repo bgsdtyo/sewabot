@@ -2570,17 +2570,6 @@ class TelegramBotService
         ?int $editMessageId = null,
         ?string $callbackId = null
     ): void {
-        if ($callbackId) {
-            try {
-                Http::asJson()->timeout(3)->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
-                    'callback_query_id' => $callbackId,
-                    'text' => '⏳ Memproses ganti nomor...',
-                    'show_alert' => false,
-                ]);
-            } catch (\Throwable) {
-            }
-        }
-
         $order = OtpOrder::query()
             ->where('bot_member_id', $member->id)
             ->where('status', 'pending')
@@ -2589,6 +2578,17 @@ class TelegramBotService
             ->first();
 
         if (! $order) {
+            if ($callbackId) {
+                try {
+                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                        'callback_query_id' => $callbackId,
+                        'text' => '⚠️ Tidak ada order OTP aktif untuk diganti.',
+                        'show_alert' => true,
+                    ]);
+                } catch (\Throwable) {
+                }
+            }
+
             $recent = OtpOrder::query()
                 ->where('bot_member_id', $member->id)
                 ->when($orderId, fn ($q) => $q->whereKey($orderId))
@@ -2617,6 +2617,18 @@ class TelegramBotService
 
         try {
             $order = app(OtpOrderService::class)->changeNumber($order);
+
+            if ($callbackId) {
+                $phoneDisplay = $order->phone_number ? "+{$order->phone_number}" : 'Nomor baru aktif';
+                try {
+                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                        'callback_query_id' => $callbackId,
+                        'text' => "✅ Nomor Berhasil Diganti!\n\n📲 {$phoneDisplay}",
+                        'show_alert' => true,
+                    ]);
+                } catch (\Throwable) {
+                }
+            }
 
             if ($messageId) {
                 $this->rememberOrderMessage($order, $messageId);
@@ -2660,6 +2672,18 @@ class TelegramBotService
             }
         } catch (\Throwable $e) {
             $errText = 'Gagal ganti nomor: '.$e->getMessage();
+
+            if ($callbackId) {
+                try {
+                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                        'callback_query_id' => $callbackId,
+                        'text' => '⚠️ '.$errText,
+                        'show_alert' => true,
+                    ]);
+                } catch (\Throwable) {
+                }
+            }
+
             if ($order->isPartOfBatch()) {
                 $this->notifyBatchOrderUpdated($bot, $member, $order->getBatchOrders());
             } else {
