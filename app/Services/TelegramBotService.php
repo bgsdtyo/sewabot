@@ -2562,8 +2562,25 @@ class TelegramBotService
         $this->notifyBatchOrderUpdated($bot, $member, $allOrders);
     }
 
-    protected function changePending(TelegramBot $bot, $member, $chatId, ?int $orderId = null, ?int $editMessageId = null): void
-    {
+    protected function changePending(
+        TelegramBot $bot,
+        $member,
+        $chatId,
+        ?int $orderId = null,
+        ?int $editMessageId = null,
+        ?string $callbackId = null
+    ): void {
+        if ($callbackId) {
+            try {
+                Http::asJson()->timeout(3)->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                    'callback_query_id' => $callbackId,
+                    'text' => '⏳ Memproses ganti nomor...',
+                    'show_alert' => false,
+                ]);
+            } catch (\Throwable) {
+            }
+        }
+
         $order = OtpOrder::query()
             ->where('bot_member_id', $member->id)
             ->where('status', 'pending')
@@ -2597,18 +2614,6 @@ class TelegramBotService
         }
 
         $messageId = $editMessageId ?? $this->orderMessageId($order);
-
-        $loadingText = "⏳ <b>Memeriksa Ketersediaan Nomor</b>\n\n"
-            ."Mohon tunggu, sistem sedang memverifikasi nomor sebelum diberikan kepada Anda...";
-
-        $workingMessageId = $this->replyOrSend(
-            $bot,
-            $chatId,
-            $messageId,
-            $loadingText,
-            removeInlineKeyboard: true
-        );
-        $messageId = $workingMessageId ?? $messageId;
 
         try {
             $order = app(OtpOrderService::class)->changeNumber($order);
@@ -3109,7 +3114,7 @@ class TelegramBotService
 
         if (str_starts_with($data, 'otp_change:')) {
             $orderId = (int) substr($data, strlen('otp_change:'));
-            $this->changePending($bot, $member, $chatId, $orderId, $messageId ? (int) $messageId : null);
+            $this->changePending($bot, $member, $chatId, $orderId, $messageId ? (int) $messageId : null, $callbackId);
 
             return;
         }

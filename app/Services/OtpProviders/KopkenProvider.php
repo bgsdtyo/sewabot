@@ -57,10 +57,13 @@ class KopkenProvider implements OtpProviderInterface
 
         return Http::baseUrl($base)
             ->withToken($this->resolveApiKey())
+            ->withHeaders([
+                'Connection' => 'keep-alive',
+            ])
             ->acceptJson()
             ->timeout($timeout)
             ->withOptions([
-                'connect_timeout' => min(8, $timeout),
+                'connect_timeout' => min(4, $timeout),
             ]);
     }
 

@@ -56,10 +56,13 @@ class WahubProvider implements OtpProviderInterface
 
         return Http::baseUrl($base)
             ->withToken($this->resolveApiKey())
+            ->withHeaders([
+                'Connection' => 'keep-alive',
+            ])
             ->acceptJson()
             ->timeout($timeout)
             ->withOptions([
-                'connect_timeout' => min(8, $timeout),
+                'connect_timeout' => min(4, $timeout),
             ]);
     }
 
@@ -222,18 +225,26 @@ class WahubProvider implements OtpProviderInterface
 
     public function changeNumber(string $providerOrderId, ?string $token = null, ?int $serviceId = null): array
     {
-        // WAHub tidak memiliki direct change endpoint -> lakukan cancel nomor lama + rent nomor baru
-        try {
-            $this->cancelOrder($providerOrderId, $token);
-        } catch (\Throwable $e) {
-            Log::warning('WAHub changeNumber cancel old order warning: '.$e->getMessage());
-        }
-
         if (! $serviceId) {
             throw new RuntimeException('ID Layanan diperlukan untuk ganti nomor WAHub.');
         }
 
-        return $this->createOrder($serviceId);
+        // Buat order nomor baru terlebih dahulu agar respon instan
+        $newOrder = $this->createOrder($serviceId);
+
+        // Batalkan nomor lama secara asynchronous / non-blocking agar tidak menahan latensi
+        try {
+            $identifier = filled($providerOrderId) ? $providerOrderId : $token;
+            if (filled($identifier)) {
+                $this->client(timeout: 4)->post('/api/order/'.$identifier, [
+                    'action' => 'cancel',
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('WAHub changeNumber background cancel old order notice: '.$e->getMessage());
+        }
+
+        return $newOrder;
     }
 
     public function doneOrder(string $providerOrderId, ?string $token = null): array
