@@ -103,6 +103,11 @@ class KopkenProvider implements OtpProviderInterface
             $this->throwFromResponse($response, 'Gagal buat pesanan OTP Kopken');
         }
 
+        $json = $response->json();
+        if (isset($json['status']) && ($json['status'] === false || $json['status'] === 'error' || $json['status'] === 'failed')) {
+            $this->throwFromResponse($response, 'Gagal buat pesanan OTP Kopken');
+        }
+
         $data = $response->json('data') ?? [];
         $data['_idempotency_key'] = $key;
 
@@ -158,6 +163,11 @@ class KopkenProvider implements OtpProviderInterface
             ->post('/orders/'.$providerOrderId.'/change');
 
         if (! in_array($response->status(), [200, 201], true)) {
+            $this->throwFromResponse($response, 'Gagal ganti nomor Kopken');
+        }
+
+        $json = $response->json();
+        if (isset($json['status']) && ($json['status'] === false || $json['status'] === 'error' || $json['status'] === 'failed')) {
             $this->throwFromResponse($response, 'Gagal ganti nomor Kopken');
         }
 
@@ -316,7 +326,7 @@ class KopkenProvider implements OtpProviderInterface
             stripos($message, 'insufficient') !== false ||
             stripos($message, 'not enough') !== false
         ) {
-            $message = 'Nomor untuk layanan ini sedang tidak tersedia saat ini. Slot dibatalkan, saldo Anda tidak dipotong. Segera hubungi admin untuk dibantu pengecekan.';
+            $message = 'tidak dapat diproses, silakan hubungi admin';
         }
 
         Log::warning('Kopken provider error', [

@@ -1671,6 +1671,18 @@ class TelegramBotService
                 if (stripos($errMessage, 'cURL error 28') !== false || stripos($errMessage, 'timed out') !== false || stripos($errMessage, 'Resolving timed out') !== false) {
                     $errMessage = 'Server pemesanan nomor sedang sibuk (koneksi timeout). Silakan coba pesan kembali.';
                 }
+                if (
+                    stripos($errMessage, 'saldo tidak cukup') !== false
+                    || stripos($errMessage, 'saldo server') !== false
+                    || stripos($errMessage, 'saldo pusat') !== false
+                    || stripos($errMessage, 'insufficient') !== false
+                    || stripos($errMessage, 'tidak dapat diproses') !== false
+                    || (stripos($errMessage, 'saldo') !== false && (stripos($errMessage, 'kurang') !== false || stripos($errMessage, 'tidak cukup') !== false || stripos($errMessage, 'habis') !== false || stripos($errMessage, 'kosong') !== false))
+                    || (stripos($errMessage, 'balance') !== false && (stripos($errMessage, 'not enough') !== false || stripos($errMessage, 'low') !== false))
+                ) {
+                    $errMessage = 'tidak dapat diproses, silakan hubungi admin';
+                }
+
                 $isCancelledOrBanned = stripos($errMessage, 'terblokir') !== false
                     || stripos($errMessage, 'banned') !== false
                     || stripos($errMessage, 'dibatalkan') !== false
@@ -1763,6 +1775,18 @@ class TelegramBotService
                 $errMessage = 'Server pemesanan nomor sedang sibuk (koneksi timeout). Silakan coba pesan kembali.';
             }
 
+            if (
+                stripos($errMessage, 'saldo tidak cukup') !== false
+                || stripos($errMessage, 'saldo server') !== false
+                || stripos($errMessage, 'saldo pusat') !== false
+                || stripos($errMessage, 'insufficient') !== false
+                || stripos($errMessage, 'tidak dapat diproses') !== false
+                || (stripos($errMessage, 'saldo') !== false && (stripos($errMessage, 'kurang') !== false || stripos($errMessage, 'tidak cukup') !== false || stripos($errMessage, 'habis') !== false || stripos($errMessage, 'kosong') !== false))
+                || (stripos($errMessage, 'balance') !== false && (stripos($errMessage, 'not enough') !== false || stripos($errMessage, 'low') !== false))
+            ) {
+                $errMessage = 'tidak dapat diproses, silakan hubungi admin';
+            }
+
             $isCancelledOrBanned = stripos($errMessage, 'terblokir') !== false
                 || stripos($errMessage, 'banned') !== false
                 || stripos($errMessage, 'dibatalkan') !== false
@@ -1800,6 +1824,19 @@ class TelegramBotService
 
     protected function formatBulkSlotFailed(int $slot, string $svcName, string $reason): string
     {
+        if (
+            stripos($reason, 'saldo tidak cukup') !== false
+            || stripos($reason, 'saldo server') !== false
+            || stripos($reason, 'saldo pusat') !== false
+            || stripos($reason, 'insufficient') !== false
+            || stripos($reason, 'tidak dapat diproses') !== false
+            || stripos($reason, 'hubungi admin') !== false
+            || (stripos($reason, 'saldo') !== false && (stripos($reason, 'kurang') !== false || stripos($reason, 'tidak cukup') !== false || stripos($reason, 'habis') !== false || stripos($reason, 'kosong') !== false))
+            || (stripos($reason, 'balance') !== false && (stripos($reason, 'not enough') !== false || stripos($reason, 'low') !== false))
+        ) {
+            $reason = 'tidak dapat diproses, silakan hubungi admin';
+        }
+
         $reason = e($reason);
 
         return "❌ <b>Order {$svcName} #{$slot} Gagal</b>\n\n"
@@ -2618,6 +2655,47 @@ class TelegramBotService
         try {
             $order = app(OtpOrderService::class)->changeNumber($order);
 
+            if ($messageId) {
+                $this->rememberOrderMessage($order, $messageId);
+            }
+
+            try {
+                app(OtpOrderWatcher::class)->start($order);
+            } catch (\Throwable $watchErr) {
+                Log::warning('OTP watcher failed to start: '.$watchErr->getMessage());
+            }
+
+            // Pastikan bubble di-update / di-edit terlebih dahulu
+            if ($order->isPartOfBatch()) {
+                $this->notifyBatchOrderUpdated($bot, $member, $order->getBatchOrders());
+            } else {
+                $service = e($order->otpService?->name ?? 'Kopken');
+                $slot = $order->isPartOfBatch() ? $order->batchSlotNumber() : null;
+                $title = $slot
+                    ? "Order {$service} #{$slot} — Nomor Diganti 🔀"
+                    : "Order {$service} — Nomor Diganti 🔀";
+
+                $text = $this->formatOrderCard(
+                    $order,
+                    title: $title,
+                    footer: 'Nomor baru aktif. OTP masuk otomatis — bubble ini akan diupdate.',
+                    statusOverride: 'Pending'
+                );
+
+                $newId = $this->replyOrSend(
+                    $bot,
+                    $chatId,
+                    $messageId,
+                    $text,
+                    inlineKeyboard: $this->orderActionKeyboard($order)
+                );
+
+                if ($newId) {
+                    $this->rememberOrderMessage($order, $newId);
+                }
+            }
+
+            // Setelah bubble terupdate di Telegram, baru munculkan pop-up alert
             if ($callbackId) {
                 $phoneDisplay = $order->phone_number ? "+{$order->phone_number}" : 'Nomor baru aktif';
                 try {
@@ -2629,60 +2707,20 @@ class TelegramBotService
                 } catch (\Throwable) {
                 }
             }
-
-            if ($messageId) {
-                $this->rememberOrderMessage($order, $messageId);
-            }
-
-            try {
-                app(OtpOrderWatcher::class)->start($order);
-            } catch (\Throwable $watchErr) {
-                Log::warning('OTP watcher failed to start: '.$watchErr->getMessage());
-            }
-
-            if ($order->isPartOfBatch()) {
-                $this->notifyBatchOrderUpdated($bot, $member, $order->getBatchOrders());
-
-                return;
-            }
-
-            $service = e($order->otpService?->name ?? 'Kopken');
-            $slot = $order->isPartOfBatch() ? $order->batchSlotNumber() : null;
-            $title = $slot
-                ? "Order {$service} #{$slot} — Nomor Diganti 🔀"
-                : "Order {$service} — Nomor Diganti 🔀";
-
-            $text = $this->formatOrderCard(
-                $order,
-                title: $title,
-                footer: 'Nomor baru aktif. OTP masuk otomatis — bubble ini akan diupdate.',
-                statusOverride: 'Pending'
-            );
-
-            $newId = $this->replyOrSend(
-                $bot,
-                $chatId,
-                $messageId,
-                $text,
-                inlineKeyboard: $this->orderActionKeyboard($order)
-            );
-
-            if ($newId) {
-                $this->rememberOrderMessage($order, $newId);
-            }
         } catch (\Throwable $e) {
-            $errText = 'Gagal ganti nomor: '.$e->getMessage();
-
-            if ($callbackId) {
-                try {
-                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
-                        'callback_query_id' => $callbackId,
-                        'text' => '⚠️ '.$errText,
-                        'show_alert' => true,
-                    ]);
-                } catch (\Throwable) {
-                }
+            $rawMsg = (string) $e->getMessage();
+            if (
+                stripos($rawMsg, 'saldo tidak cukup') !== false
+                || stripos($rawMsg, 'saldo server') !== false
+                || stripos($rawMsg, 'saldo pusat') !== false
+                || stripos($rawMsg, 'insufficient') !== false
+                || stripos($rawMsg, 'tidak dapat diproses') !== false
+                || (stripos($rawMsg, 'saldo') !== false && (stripos($rawMsg, 'kurang') !== false || stripos($rawMsg, 'tidak cukup') !== false || stripos($rawMsg, 'habis') !== false || stripos($rawMsg, 'kosong') !== false))
+                || (stripos($rawMsg, 'balance') !== false && (stripos($rawMsg, 'not enough') !== false || stripos($rawMsg, 'low') !== false))
+            ) {
+                $rawMsg = 'tidak dapat diproses, silakan hubungi admin';
             }
+            $errText = 'Gagal ganti nomor: '.$rawMsg;
 
             if ($order->isPartOfBatch()) {
                 $this->notifyBatchOrderUpdated($bot, $member, $order->getBatchOrders());
@@ -2694,6 +2732,17 @@ class TelegramBotService
                     $errText,
                     inlineKeyboard: $this->orderActionKeyboard($order)
                 );
+            }
+
+            if ($callbackId) {
+                try {
+                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                        'callback_query_id' => $callbackId,
+                        'text' => '⚠️ '.$errText,
+                        'show_alert' => true,
+                    ]);
+                } catch (\Throwable) {
+                }
             }
         }
     }

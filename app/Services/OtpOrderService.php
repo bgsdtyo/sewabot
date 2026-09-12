@@ -323,6 +323,8 @@ class OtpOrderService
         return stripos($message, 'saldo server') !== false
             || stripos($message, 'tidak cukup') !== false
             || stripos($message, 'insufficient') !== false
+            || stripos($message, 'tidak dapat diproses') !== false
+            || stripos($message, 'hubungi admin') !== false
             || (stripos($message, 'balance') !== false && stripos($message, 'not enough') !== false)
             || stripos($message, 'stok nomor') !== false
             || stripos($message, 'stok habis') !== false

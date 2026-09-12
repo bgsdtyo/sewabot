@@ -113,6 +113,10 @@ class WahubProvider implements OtpProviderInterface
         }
 
         $data = $response->json() ?? [];
+        if (isset($data['status']) && ($data['status'] === false || $data['status'] === 'error' || $data['status'] === 'failed')) {
+            $this->throwFromResponse($response, 'Gagal sewa nomor OTP WAHub');
+        }
+
         if (isset($data['data']) && is_array($data['data'])) {
             $data = array_merge($data, $data['data']);
         }
@@ -354,7 +358,14 @@ class WahubProvider implements OtpProviderInterface
             $message = $fallback." (HTTP {$status})";
         }
 
-        if ($status === 503 || stripos($message, 'stok') !== false || stripos($message, 'stock') !== false) {
+        if (
+            stripos($message, 'balance') !== false ||
+            stripos($message, 'saldo') !== false ||
+            stripos($message, 'insufficient') !== false ||
+            stripos($message, 'not enough') !== false
+        ) {
+            $message = 'tidak dapat diproses, silakan hubungi admin';
+        } elseif ($status === 503 || stripos($message, 'stok') !== false || stripos($message, 'stock') !== false) {
             $message = 'Stok nomor WAHub untuk layanan ini sedang habis. Silakan coba beberapa saat lagi.';
         } elseif ($status === 409 && ! $hasServerMessage) {
             $message = 'Sewa nomor WAHub telah kedaluwarsa atau batas permintaan ulang tercapai.';
