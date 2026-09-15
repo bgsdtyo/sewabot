@@ -138,22 +138,11 @@ class WahubProvider implements OtpProviderInterface
     {
         $identifier = filled($providerOrderId) ? $providerOrderId : $token;
 
-        // 1. Coba ambil status lengkap dari /api/order/{id}
-        $response = $this->client(timeout: 10)->get('/api/order/'.$identifier);
-
-        if ($response->successful()) {
-            $json = $response->json() ?? [];
-            $data = (isset($json['data']) && is_array($json['data'])) ? $json['data'] : $json;
-            $data['raw'] = $json;
-
-            return $this->normalizeOrderPayload($data, $providerOrderId, $token);
-        }
-
-        // 2. Jika 404 dan token ada serta beda dari identifier, coba /api/order/{token} sebagai alternatif
-        if ($response->status() === 404 && filled($token) && $token !== $identifier) {
-            $altRes = $this->client(timeout: 10)->get('/api/order/'.$token);
-            if ($altRes->successful()) {
-                $json = $altRes->json() ?? [];
+        // 1. Coba ambil status lengkap dari /api/order/{id} jika identifier tersedia
+        if (filled($identifier)) {
+            $response = $this->client(timeout: 10)->get('/api/order/'.$identifier);
+            if ($response->successful()) {
+                $json = $response->json() ?? [];
                 $data = (isset($json['data']) && is_array($json['data'])) ? $json['data'] : $json;
                 $data['raw'] = $json;
 
@@ -161,31 +150,32 @@ class WahubProvider implements OtpProviderInterface
             }
         }
 
-        // 3. Fallback cek cepat via /api/sms/{token} jika token tersedia
+        // 2. Coba cek status via /api/sms/{token} jika token tersedia
         if (filled($token)) {
             $smsRes = $this->client(timeout: 8)->get('/api/sms/'.$token.'?timeout=5');
             if ($smsRes->successful()) {
-                $smsData = $smsRes->json() ?? [];
-                $state = strtolower((string) ($smsData['state'] ?? ''));
-                $rawOtp = (string) ($smsData['otp'] ?? '');
+                $smsJson = $smsRes->json() ?? [];
+                $smsData = (isset($smsJson['data']) && is_array($smsJson['data'])) ? $smsJson['data'] : $smsJson;
+                $smsData['raw'] = $smsJson;
 
-                if ($state === 'success' && filled($rawOtp)) {
-                    return [
-                        'id' => $providerOrderId,
-                        'token' => $token,
-                        'phone_number' => null,
-                        'status' => 'completed',
-                        'otp_code' => $rawOtp,
-                        'full_text' => $rawOtp,
-                        'expire_at' => null,
-                        'cancel_reason' => null,
-                        'raw' => $smsData,
-                    ];
-                }
+                return $this->normalizeOrderPayload($smsData, $providerOrderId, $token);
+            }
+
+            if ($smsRes->status() === 404 || $smsRes->status() === 410) {
+                return [
+                    'id' => $providerOrderId,
+                    'token' => $token,
+                    'status' => 'expired',
+                    'otp_code' => null,
+                    'full_text' => null,
+                    'cancel_reason' => 'Sewa nomor telah berakhir di server WAHub.',
+                    'raw' => $smsRes->json(),
+                ];
             }
         }
 
-        if ($response->status() === 404 || $response->status() === 410) {
+        // 3. Fallback jika response dari /api/order adalah 404/410 dan token tidak ada
+        if (isset($response) && ($response->status() === 404 || $response->status() === 410)) {
             return [
                 'id' => $providerOrderId,
                 'token' => $token,
@@ -197,7 +187,11 @@ class WahubProvider implements OtpProviderInterface
             ];
         }
 
-        $this->throwFromResponse($response, 'Gagal cek status pesanan WAHub');
+        if (isset($response)) {
+            $this->throwFromResponse($response, 'Gagal cek status pesanan WAHub');
+        }
+
+        throw new RuntimeException('Data pesanan WAHub tidak valid untuk dicek.');
     }
 
     public function cancelOrder(string $providerOrderId, ?string $token = null): array

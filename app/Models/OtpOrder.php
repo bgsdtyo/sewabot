@@ -88,7 +88,7 @@ class OtpOrder extends Model
 
     public function otpWindowExpiresAt(): ?\Illuminate\Support\Carbon
     {
-        if ($this->provider_expire_at) {
+        if ($this->provider_expire_at && ($this->provider_expire_at->isFuture() || ($this->created_at && $this->provider_expire_at->gt($this->created_at)))) {
             return $this->provider_expire_at;
         }
 
