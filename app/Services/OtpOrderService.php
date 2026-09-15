@@ -291,7 +291,7 @@ class OtpOrderService
                         'provider_order_id' => $providerOrderId,
                         'provider_token' => $providerToken,
                         'phone_number' => $phone,
-                        'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : null,
+                        'provider_expire_at' => isset($data['expire_at']) ? $this->parseExpireAt($data['expire_at']) : null,
                         'raw_payload' => $data['raw'] ?? $data,
                     ]);
 
@@ -399,7 +399,7 @@ class OtpOrderService
             'otp_code' => $newOtp,
             'full_text' => $data['full_text'] ?? $data['sms'] ?? $data['sms_text'] ?? $order->full_text,
             'raw_payload' => $data['raw'] ?? $data,
-            'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : $order->provider_expire_at,
+            'provider_expire_at' => isset($data['expire_at']) ? $this->parseExpireAt($data['expire_at']) : $order->provider_expire_at,
         ]);
 
         $order = $order->fresh(['otpService', 'botMember', 'telegramBot']) ?? $order;
@@ -624,7 +624,7 @@ class OtpOrderService
             'status' => 'pending',
             'cancelled_at' => null,
             'wallet_status' => $walletStatus,
-            'provider_expire_at' => isset($data['expire_at']) ? now()->setTimestamp((int) $data['expire_at']) : $order->provider_expire_at,
+            'provider_expire_at' => isset($data['expire_at']) ? $this->parseExpireAt($data['expire_at']) : $order->provider_expire_at,
         ]);
 
         Log::info('changeNumber ok', [
@@ -802,5 +802,35 @@ class OtpOrderService
         }
 
         return null;
+    }
+
+    public function parseExpireAt(mixed $expireAt): ?\Illuminate\Support\Carbon
+    {
+        if (blank($expireAt)) {
+            return null;
+        }
+
+        if ($expireAt instanceof \Illuminate\Support\Carbon || $expireAt instanceof \DateTimeInterface) {
+            return \Illuminate\Support\Carbon::instance($expireAt);
+        }
+
+        if (is_numeric($expireAt)) {
+            $val = (int) $expireAt;
+            if ($val > 1000000000000) {
+                return \Illuminate\Support\Carbon::createFromTimestampMs($val);
+            }
+            if ($val > 1000000000) {
+                return \Illuminate\Support\Carbon::createFromTimestamp($val);
+            }
+            if ($val > 0 && $val < 86400) {
+                return now()->addSeconds($val);
+            }
+        }
+
+        try {
+            return \Illuminate\Support\Carbon::parse((string) $expireAt);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }

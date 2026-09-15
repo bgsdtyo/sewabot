@@ -136,7 +136,7 @@ class WahubProvider implements OtpProviderInterface
 
     public function getOrder(string $providerOrderId, ?string $token = null): array
     {
-        $identifier = filled($token) ? $token : $providerOrderId;
+        $identifier = filled($providerOrderId) ? $providerOrderId : $token;
 
         // 1. Coba ambil status lengkap dari /api/order/{id}
         $response = $this->client(timeout: 10)->get('/api/order/'.$identifier);
@@ -149,7 +149,19 @@ class WahubProvider implements OtpProviderInterface
             return $this->normalizeOrderPayload($data, $providerOrderId, $token);
         }
 
-        // 2. Fallback cek cepat via /api/sms/{token} jika token tersedia
+        // 2. Jika 404 dan token ada serta beda dari identifier, coba /api/order/{token} sebagai alternatif
+        if ($response->status() === 404 && filled($token) && $token !== $identifier) {
+            $altRes = $this->client(timeout: 10)->get('/api/order/'.$token);
+            if ($altRes->successful()) {
+                $json = $altRes->json() ?? [];
+                $data = (isset($json['data']) && is_array($json['data'])) ? $json['data'] : $json;
+                $data['raw'] = $json;
+
+                return $this->normalizeOrderPayload($data, $providerOrderId, $token);
+            }
+        }
+
+        // 3. Fallback cek cepat via /api/sms/{token} jika token tersedia
         if (filled($token)) {
             $smsRes = $this->client(timeout: 8)->get('/api/sms/'.$token.'?timeout=5');
             if ($smsRes->successful()) {
