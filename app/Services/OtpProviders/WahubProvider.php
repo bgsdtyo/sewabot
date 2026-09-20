@@ -68,10 +68,14 @@ class WahubProvider implements OtpProviderInterface
 
     public function getServices(int $timeout = 10): array
     {
-        $response = $this->client($timeout)->get('/api/services');
+        try {
+            $response = $this->client($timeout)->get('/api/services');
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'ambil daftar layanan');
+        }
 
         if (! $response->successful()) {
-            $this->throwFromResponse($response, 'Gagal ambil daftar layanan WAHub');
+            $this->throwFromResponse($response, 'Gagal ambil daftar layanan');
         }
 
         $items = $response->json();
@@ -104,17 +108,21 @@ class WahubProvider implements OtpProviderInterface
 
     public function createOrder(int $serviceId, ?string $idempotencyKey = null): array
     {
-        $response = $this->client(timeout: 20)->post('/api/rent', [
-            'service_id' => $serviceId,
-        ]);
+        try {
+            $response = $this->client(timeout: 20)->post('/api/rent', [
+                'service_id' => $serviceId,
+            ]);
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'sewa nomor');
+        }
 
         if (! in_array($response->status(), [200, 201], true)) {
-            $this->throwFromResponse($response, 'Gagal sewa nomor OTP WAHub');
+            $this->throwFromResponse($response, 'Gagal membuat pesanan nomor OTP');
         }
 
         $data = $response->json() ?? [];
         if (isset($data['status']) && ($data['status'] === false || $data['status'] === 'error' || $data['status'] === 'failed')) {
-            $this->throwFromResponse($response, 'Gagal sewa nomor OTP WAHub');
+            $this->throwFromResponse($response, 'Gagal membuat pesanan nomor OTP');
         }
 
         if (isset($data['data']) && is_array($data['data'])) {
@@ -140,37 +148,45 @@ class WahubProvider implements OtpProviderInterface
 
         // 1. Coba ambil status lengkap dari /api/order/{id} jika identifier tersedia
         if (filled($identifier)) {
-            $response = $this->client(timeout: 10)->get('/api/order/'.$identifier);
-            if ($response->successful()) {
-                $json = $response->json() ?? [];
-                $data = (isset($json['data']) && is_array($json['data'])) ? $json['data'] : $json;
-                $data['raw'] = $json;
+            try {
+                $response = $this->client(timeout: 10)->get('/api/order/'.$identifier);
+                if ($response->successful()) {
+                    $json = $response->json() ?? [];
+                    $data = (isset($json['data']) && is_array($json['data'])) ? $json['data'] : $json;
+                    $data['raw'] = $json;
 
-                return $this->normalizeOrderPayload($data, $providerOrderId, $token);
+                    return $this->normalizeOrderPayload($data, $providerOrderId, $token);
+                }
+            } catch (\Throwable $e) {
+                $this->handleHttpException($e, 'cek status pesanan');
             }
         }
 
         // 2. Coba cek status via /api/sms/{token} jika token tersedia
         if (filled($token)) {
-            $smsRes = $this->client(timeout: 8)->get('/api/sms/'.$token.'?timeout=5');
-            if ($smsRes->successful()) {
-                $smsJson = $smsRes->json() ?? [];
-                $smsData = (isset($smsJson['data']) && is_array($smsJson['data'])) ? $smsJson['data'] : $smsJson;
-                $smsData['raw'] = $smsJson;
+            try {
+                $smsRes = $this->client(timeout: 8)->get('/api/sms/'.$token.'?timeout=5');
+                if ($smsRes->successful()) {
+                    $smsJson = $smsRes->json() ?? [];
+                    $smsData = (isset($smsJson['data']) && is_array($smsJson['data'])) ? $smsJson['data'] : $smsJson;
+                    $smsData['raw'] = $smsJson;
 
-                return $this->normalizeOrderPayload($smsData, $providerOrderId, $token);
-            }
+                    return $this->normalizeOrderPayload($smsData, $providerOrderId, $token);
+                }
 
-            if ($smsRes->status() === 404 || $smsRes->status() === 410) {
-                return [
-                    'id' => $providerOrderId,
-                    'token' => $token,
-                    'status' => 'expired',
-                    'otp_code' => null,
-                    'full_text' => null,
-                    'cancel_reason' => 'Sewa nomor telah berakhir di server WAHub.',
-                    'raw' => $smsRes->json(),
-                ];
+                if ($smsRes->status() === 404 || $smsRes->status() === 410) {
+                    return [
+                        'id' => $providerOrderId,
+                        'token' => $token,
+                        'status' => 'expired',
+                        'otp_code' => null,
+                        'full_text' => null,
+                        'cancel_reason' => 'Sewa nomor telah berakhir.',
+                        'raw' => $smsRes->json(),
+                    ];
+                }
+            } catch (\Throwable $e) {
+                $this->handleHttpException($e, 'cek sms pesanan');
             }
         }
 
@@ -182,37 +198,41 @@ class WahubProvider implements OtpProviderInterface
                 'status' => 'expired',
                 'otp_code' => null,
                 'full_text' => null,
-                'cancel_reason' => 'Sewa nomor telah berakhir di server WAHub.',
+                'cancel_reason' => 'Sewa nomor telah berakhir.',
                 'raw' => $response->json(),
             ];
         }
 
         if (isset($response)) {
-            $this->throwFromResponse($response, 'Gagal cek status pesanan WAHub');
+            $this->throwFromResponse($response, 'Gagal cek status pesanan');
         }
 
-        throw new RuntimeException('Data pesanan WAHub tidak valid untuk dicek.');
+        throw new RuntimeException('Data pesanan tidak valid untuk dicek.');
     }
 
     public function cancelOrder(string $providerOrderId, ?string $token = null): array
     {
         $identifier = filled($providerOrderId) ? $providerOrderId : $token;
 
-        // POST /api/order/{id} dengan action = cancel
-        $response = $this->client()->post('/api/order/'.$identifier, [
-            'action' => 'cancel',
-        ]);
+        try {
+            // POST /api/order/{id} dengan action = cancel
+            $response = $this->client()->post('/api/order/'.$identifier, [
+                'action' => 'cancel',
+            ]);
 
-        if (! $response->successful() && filled($token)) {
-            // Fallback ke legacy DELETE /api/rent/{token}
-            $delRes = $this->client()->delete('/api/rent/'.$token);
-            if ($delRes->successful()) {
-                return $delRes->json() ?? ['ok' => true];
+            if (! $response->successful() && filled($token)) {
+                // Fallback ke legacy DELETE /api/rent/{token}
+                $delRes = $this->client()->delete('/api/rent/'.$token);
+                if ($delRes->successful()) {
+                    return $delRes->json() ?? ['ok' => true];
+                }
             }
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'batalkan pesanan');
         }
 
         if (! $response->successful()) {
-            $this->throwFromResponse($response, 'Gagal batalkan sewa nomor WAHub');
+            $this->throwFromResponse($response, 'Gagal membatalkan pesanan');
         }
 
         return $response->json() ?? ['ok' => true];
@@ -222,10 +242,14 @@ class WahubProvider implements OtpProviderInterface
     {
         $identifier = filled($token) ? $token : $providerOrderId;
 
-        $response = $this->client()->post('/api/rent/'.$identifier.'/retry');
+        try {
+            $response = $this->client()->post('/api/rent/'.$identifier.'/retry');
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'minta ulang OTP');
+        }
 
         if (! $response->successful()) {
-            $this->throwFromResponse($response, 'Gagal minta ulang OTP WAHub (Re-OTP)');
+            $this->throwFromResponse($response, 'Gagal minta ulang OTP');
         }
 
         $data = $response->json() ?? [];
@@ -236,7 +260,7 @@ class WahubProvider implements OtpProviderInterface
     public function changeNumber(string $providerOrderId, ?string $token = null, ?int $serviceId = null): array
     {
         if (! $serviceId) {
-            throw new RuntimeException('ID Layanan diperlukan untuk ganti nomor WAHub.');
+            throw new RuntimeException('ID Layanan diperlukan untuk ganti nomor.');
         }
 
         // Buat order nomor baru terlebih dahulu agar respon instan
@@ -265,10 +289,14 @@ class WahubProvider implements OtpProviderInterface
 
     public function getBalance(): array
     {
-        $response = $this->client()->get('/api/balance');
+        try {
+            $response = $this->client()->get('/api/balance');
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'cek saldo');
+        }
 
         if (! $response->successful()) {
-            $this->throwFromResponse($response, 'Gagal cek saldo akun WAHub');
+            $this->throwFromResponse($response, 'Gagal cek saldo server');
         }
 
         $data = $response->json() ?? [];
@@ -347,6 +375,32 @@ class WahubProvider implements OtpProviderInterface
         ];
     }
 
+    protected function handleHttpException(\Throwable $e, string $action = 'pemesanan'): never
+    {
+        $msg = $e->getMessage();
+        Log::warning("WAHub {$action} connection error: {$msg}");
+
+        if (
+            stripos($msg, 'cURL error 28') !== false
+            || stripos($msg, 'timed out') !== false
+            || stripos($msg, 'timeout') !== false
+            || stripos($msg, 'Resolving timed out') !== false
+        ) {
+            throw new RuntimeException('Server pemesanan nomor sedang sibuk (koneksi timeout). Silakan coba pesan kembali.');
+        }
+
+        if (
+            stripos($msg, 'cURL error') !== false
+            || stripos($msg, 'Could not resolve host') !== false
+            || stripos($msg, 'Failed to connect') !== false
+            || stripos($msg, 'Connection refused') !== false
+        ) {
+            throw new RuntimeException('Gagal terhubung ke server pemesanan nomor. Silakan coba beberapa saat lagi.');
+        }
+
+        throw new RuntimeException('Terjadi gangguan koneksi ke server pemesanan. Silakan coba beberapa saat lagi.');
+    }
+
     protected function throwFromResponse($response, string $fallback): void
     {
         $status = $response->status();
@@ -364,6 +418,11 @@ class WahubProvider implements OtpProviderInterface
             $message = $fallback." (HTTP {$status})";
         }
 
+        // Filter out URLs and backend domain names
+        $message = preg_replace('/https?:\/\/[^\s<>\'"]+/i', '', $message);
+        $message = str_ireplace(['dehuyzotp.shop', 'dehuyzotp', 'wahub'], '', $message);
+        $message = trim($message);
+
         if (
             stripos($message, 'balance') !== false ||
             stripos($message, 'saldo') !== false ||
@@ -372,13 +431,13 @@ class WahubProvider implements OtpProviderInterface
         ) {
             $message = 'tidak dapat diproses, silakan hubungi admin';
         } elseif ($status === 503 || stripos($message, 'stok') !== false || stripos($message, 'stock') !== false) {
-            $message = 'Stok nomor WAHub untuk layanan ini sedang habis. Silakan coba beberapa saat lagi.';
+            $message = 'Stok nomor untuk layanan ini sedang habis. Silakan coba beberapa saat lagi.';
         } elseif ($status === 409 && ! $hasServerMessage) {
-            $message = 'Sewa nomor WAHub telah kedaluwarsa atau batas permintaan ulang tercapai.';
+            $message = 'Sewa nomor telah kedaluwarsa atau batas permintaan ulang tercapai.';
         } elseif ($status === 429 && ! $hasServerMessage) {
-            $message = 'Batas maksimum sewa bersamaan WAHub tercapai. Silakan selesaikan sewa lama terlebih dahulu.';
+            $message = 'Batas maksimum sewa bersamaan tercapai. Silakan selesaikan sewa lama terlebih dahulu.';
         } elseif ($status === 401 && ! $hasServerMessage) {
-            $message = 'API Key WAHub tidak valid atau kedaluwarsa. Periksa kembali di Pengaturan Bot.';
+            $message = 'tidak dapat diproses, silakan hubungi admin';
         }
 
         Log::warning('WAHub provider error', [

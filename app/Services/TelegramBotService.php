@@ -1667,21 +1667,7 @@ class TelegramBotService
                     removeInlineKeyboard: true
                 );
             } catch (\Throwable $e) {
-                $errMessage = (string) $e->getMessage();
-                if (stripos($errMessage, 'cURL error 28') !== false || stripos($errMessage, 'timed out') !== false || stripos($errMessage, 'Resolving timed out') !== false) {
-                    $errMessage = 'Server pemesanan nomor sedang sibuk (koneksi timeout). Silakan coba pesan kembali.';
-                }
-                if (
-                    stripos($errMessage, 'saldo tidak cukup') !== false
-                    || stripos($errMessage, 'saldo server') !== false
-                    || stripos($errMessage, 'saldo pusat') !== false
-                    || stripos($errMessage, 'insufficient') !== false
-                    || stripos($errMessage, 'tidak dapat diproses') !== false
-                    || (stripos($errMessage, 'saldo') !== false && (stripos($errMessage, 'kurang') !== false || stripos($errMessage, 'tidak cukup') !== false || stripos($errMessage, 'habis') !== false || stripos($errMessage, 'kosong') !== false))
-                    || (stripos($errMessage, 'balance') !== false && (stripos($errMessage, 'not enough') !== false || stripos($errMessage, 'low') !== false))
-                ) {
-                    $errMessage = 'tidak dapat diproses, silakan hubungi admin';
-                }
+                $errMessage = $this->sanitizeErrorMessage($e->getMessage());
 
                 $isCancelledOrBanned = stripos($errMessage, 'terblokir') !== false
                     || stripos($errMessage, 'banned') !== false
@@ -1770,22 +1756,7 @@ class TelegramBotService
                 removeInlineKeyboard: true
             );
         } catch (\Throwable $e) {
-            $errMessage = (string) $e->getMessage();
-            if (stripos($errMessage, 'cURL error 28') !== false || stripos($errMessage, 'timed out') !== false || stripos($errMessage, 'Resolving timed out') !== false) {
-                $errMessage = 'Server pemesanan nomor sedang sibuk (koneksi timeout). Silakan coba pesan kembali.';
-            }
-
-            if (
-                stripos($errMessage, 'saldo tidak cukup') !== false
-                || stripos($errMessage, 'saldo server') !== false
-                || stripos($errMessage, 'saldo pusat') !== false
-                || stripos($errMessage, 'insufficient') !== false
-                || stripos($errMessage, 'tidak dapat diproses') !== false
-                || (stripos($errMessage, 'saldo') !== false && (stripos($errMessage, 'kurang') !== false || stripos($errMessage, 'tidak cukup') !== false || stripos($errMessage, 'habis') !== false || stripos($errMessage, 'kosong') !== false))
-                || (stripos($errMessage, 'balance') !== false && (stripos($errMessage, 'not enough') !== false || stripos($errMessage, 'low') !== false))
-            ) {
-                $errMessage = 'tidak dapat diproses, silakan hubungi admin';
-            }
+            $errMessage = $this->sanitizeErrorMessage($e->getMessage());
 
             $isCancelledOrBanned = stripos($errMessage, 'terblokir') !== false
                 || stripos($errMessage, 'banned') !== false
@@ -1822,21 +1793,79 @@ class TelegramBotService
         }
     }
 
-    protected function formatBulkSlotFailed(int $slot, string $svcName, string $reason): string
+    public function sanitizeErrorMessage(?string $message): string
     {
-        if (
-            stripos($reason, 'saldo tidak cukup') !== false
-            || stripos($reason, 'saldo server') !== false
-            || stripos($reason, 'saldo pusat') !== false
-            || stripos($reason, 'insufficient') !== false
-            || stripos($reason, 'tidak dapat diproses') !== false
-            || stripos($reason, 'hubungi admin') !== false
-            || (stripos($reason, 'saldo') !== false && (stripos($reason, 'kurang') !== false || stripos($reason, 'tidak cukup') !== false || stripos($reason, 'habis') !== false || stripos($reason, 'kosong') !== false))
-            || (stripos($reason, 'balance') !== false && (stripos($reason, 'not enough') !== false || stripos($reason, 'low') !== false))
-        ) {
-            $reason = 'tidak dapat diproses, silakan hubungi admin';
+        if (! $message) {
+            return 'Terjadi kesalahan sistem.';
         }
 
+        $raw = trim($message);
+
+        // 1. Connection / cURL / Timeout errors
+        if (
+            stripos($raw, 'cURL error') !== false
+            || stripos($raw, 'timed out') !== false
+            || stripos($raw, 'timeout') !== false
+            || stripos($raw, 'Resolving timed out') !== false
+            || stripos($raw, 'Could not resolve host') !== false
+            || stripos($raw, 'Failed to connect') !== false
+            || stripos($raw, 'Connection refused') !== false
+            || stripos($raw, 'Connection reset') !== false
+        ) {
+            return 'Server pemesanan nomor sedang sibuk (koneksi timeout). Silakan coba pesan kembali.';
+        }
+
+        // 2. Insufficient balance / server balance
+        if (
+            stripos($raw, 'saldo tidak cukup') !== false
+            || stripos($raw, 'saldo server') !== false
+            || stripos($raw, 'saldo pusat') !== false
+            || stripos($raw, 'insufficient') !== false
+            || stripos($raw, 'tidak dapat diproses') !== false
+            || stripos($raw, 'hubungi admin') !== false
+            || (stripos($raw, 'saldo') !== false && (stripos($raw, 'kurang') !== false || stripos($raw, 'tidak cukup') !== false || stripos($raw, 'habis') !== false || stripos($raw, 'kosong') !== false))
+            || (stripos($raw, 'balance') !== false && (stripos($raw, 'not enough') !== false || stripos($raw, 'low') !== false))
+        ) {
+            return 'tidak dapat diproses, silakan hubungi admin';
+        }
+
+        // 3. Stock empty
+        if (
+            stripos($raw, 'out of stock') !== false
+            || stripos($raw, 'no stock') !== false
+            || stripos($raw, 'stock empty') !== false
+            || stripos($raw, 'stok habis') !== false
+            || stripos($raw, 'stok nomor') !== false
+            || stripos($raw, 'stok kosong') !== false
+        ) {
+            return 'Stok nomor untuk layanan ini sedang habis. Silakan coba beberapa saat lagi.';
+        }
+
+        // 4. Strip any URLs (https://..., http://...)
+        $cleaned = preg_replace('/https?:\/\/[^\s<>\'"]+/i', '', $raw);
+
+        // 5. Strip any domain names or provider names
+        $cleaned = str_ireplace(
+            ['dehuyzotp.shop', 'dehuyzotp', 'engineunicorn.cloud', 'engineunicorn', 'wahub', 'kopken'],
+            '',
+            $cleaned
+        );
+
+        // 6. Clean up technical artifacts like (see ...) or HTTP error codes if leftover
+        $cleaned = preg_replace('/\(see\s*\)/i', '', $cleaned);
+        $cleaned = preg_replace('/\s{2,}/', ' ', $cleaned);
+        $cleaned = trim($cleaned, " \t\n\r\0\x0B:.,-");
+
+        if ($cleaned === '') {
+            return 'Gagal memproses pesanan. Silakan coba beberapa saat lagi.';
+        }
+
+        return $cleaned;
+    }
+
+    protected function formatBulkSlotFailed(int $slot, string $svcName, string $reason): string
+    {
+        $reason = $this->sanitizeErrorMessage($reason);
         $reason = e($reason);
 
         return "❌ <b>Order {$svcName} #{$slot} Gagal</b>\n\n"
@@ -2507,11 +2536,12 @@ class TelegramBotService
                 ]
             );
         } catch (\Throwable $e) {
+            $errMessage = $this->sanitizeErrorMessage($e->getMessage());
             $this->replyOrSend(
                 $bot,
                 $chatId,
                 $editMessageId ?? $this->orderMessageId($order),
-                'Gagal membatalkan order: '.$e->getMessage(),
+                'Gagal membatalkan order: '.$errMessage,
                 inlineKeyboard: $this->orderActionKeyboard($order)
             );
         }
@@ -2708,18 +2738,7 @@ class TelegramBotService
                 }
             }
         } catch (\Throwable $e) {
-            $rawMsg = (string) $e->getMessage();
-            if (
-                stripos($rawMsg, 'saldo tidak cukup') !== false
-                || stripos($rawMsg, 'saldo server') !== false
-                || stripos($rawMsg, 'saldo pusat') !== false
-                || stripos($rawMsg, 'insufficient') !== false
-                || stripos($rawMsg, 'tidak dapat diproses') !== false
-                || (stripos($rawMsg, 'saldo') !== false && (stripos($rawMsg, 'kurang') !== false || stripos($rawMsg, 'tidak cukup') !== false || stripos($rawMsg, 'habis') !== false || stripos($rawMsg, 'kosong') !== false))
-                || (stripos($rawMsg, 'balance') !== false && (stripos($rawMsg, 'not enough') !== false || stripos($rawMsg, 'low') !== false))
-            ) {
-                $rawMsg = 'tidak dapat diproses, silakan hubungi admin';
-            }
+            $rawMsg = $this->sanitizeErrorMessage($e->getMessage());
             $errText = 'Gagal ganti nomor: '.$rawMsg;
 
             if ($order->isPartOfBatch()) {
@@ -2855,11 +2874,12 @@ class TelegramBotService
                 $this->rememberOrderMessage($order, $newId);
             }
         } catch (\Throwable $e) {
+            $errMsg = $this->sanitizeErrorMessage($e->getMessage());
             if ($callbackId) {
                 try {
                     Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
                         'callback_query_id' => $callbackId,
-                        'text' => 'Gagal meminta ulang: '.$e->getMessage(),
+                        'text' => 'Gagal meminta ulang: '.$errMsg,
                         'show_alert' => true,
                     ]);
                 } catch (\Throwable) {}
@@ -2869,7 +2889,7 @@ class TelegramBotService
                 $bot,
                 $chatId,
                 $messageId,
-                'Gagal mengirim ulang: '.$e->getMessage(),
+                'Gagal mengirim ulang: '.$errMsg,
                 inlineKeyboard: $this->orderActionKeyboard($order)
             );
         }

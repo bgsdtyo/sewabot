@@ -69,10 +69,14 @@ class KopkenProvider implements OtpProviderInterface
 
     public function getServices(int $timeout = 5): array
     {
-        $response = $this->client($timeout)->get('/services');
+        try {
+            $response = $this->client($timeout)->get('/services');
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'ambil daftar layanan');
+        }
 
         if (! $response->successful()) {
-            $this->throwFromResponse($response, 'Gagal ambil daftar layanan Kopken');
+            $this->throwFromResponse($response, 'Gagal ambil daftar layanan');
         }
 
         $items = $response->json('data') ?? [];
@@ -95,17 +99,21 @@ class KopkenProvider implements OtpProviderInterface
     {
         $key = $idempotencyKey ?: (string) Str::uuid();
 
-        $response = $this->client(timeout: 20)
-            ->withHeaders(['Idempotency-Key' => $key])
-            ->post('/orders', ['service_id' => $serviceId]);
+        try {
+            $response = $this->client(timeout: 20)
+                ->withHeaders(['Idempotency-Key' => $key])
+                ->post('/orders', ['service_id' => $serviceId]);
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'buat pesanan');
+        }
 
         if (! in_array($response->status(), [200, 201], true)) {
-            $this->throwFromResponse($response, 'Gagal buat pesanan OTP Kopken');
+            $this->throwFromResponse($response, 'Gagal membuat pesanan nomor OTP');
         }
 
         $json = $response->json();
         if (isset($json['status']) && ($json['status'] === false || $json['status'] === 'error' || $json['status'] === 'failed')) {
-            $this->throwFromResponse($response, 'Gagal buat pesanan OTP Kopken');
+            $this->throwFromResponse($response, 'Gagal membuat pesanan nomor OTP');
         }
 
         $data = $response->json('data') ?? [];
@@ -123,7 +131,11 @@ class KopkenProvider implements OtpProviderInterface
 
     public function getOrder(string $providerOrderId, ?string $token = null): array
     {
-        $response = $this->client(timeout: 8)->get('/orders/'.$providerOrderId);
+        try {
+            $response = $this->client(timeout: 8)->get('/orders/'.$providerOrderId);
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'cek status pesanan');
+        }
 
         if (! $response->successful()) {
             $body = $response->json();
@@ -137,7 +149,7 @@ class KopkenProvider implements OtpProviderInterface
                 return $this->normalizeOrderPayload($data);
             }
 
-            $this->throwFromResponse($response, 'Gagal cek status pesanan Kopken');
+            $this->throwFromResponse($response, 'Gagal cek status pesanan');
         }
 
         return $this->normalizeOrderPayload($this->unwrapOrderPayload($response->json()));
@@ -145,10 +157,14 @@ class KopkenProvider implements OtpProviderInterface
 
     public function cancelOrder(string $providerOrderId, ?string $token = null): array
     {
-        $response = $this->client()->post('/orders/'.$providerOrderId.'/cancel');
+        try {
+            $response = $this->client()->post('/orders/'.$providerOrderId.'/cancel');
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'batalkan pesanan');
+        }
 
         if (! $response->successful()) {
-            $this->throwFromResponse($response, 'Gagal batalkan pesanan Kopken');
+            $this->throwFromResponse($response, 'Gagal membatalkan pesanan');
         }
 
         return $response->json('data') ?? [];
@@ -158,17 +174,21 @@ class KopkenProvider implements OtpProviderInterface
     {
         $key = (string) Str::uuid();
 
-        $response = $this->client()
-            ->withHeaders(['Idempotency-Key' => $key])
-            ->post('/orders/'.$providerOrderId.'/change');
+        try {
+            $response = $this->client()
+                ->withHeaders(['Idempotency-Key' => $key])
+                ->post('/orders/'.$providerOrderId.'/change');
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'ganti nomor');
+        }
 
         if (! in_array($response->status(), [200, 201], true)) {
-            $this->throwFromResponse($response, 'Gagal ganti nomor Kopken');
+            $this->throwFromResponse($response, 'Gagal ganti nomor');
         }
 
         $json = $response->json();
         if (isset($json['status']) && ($json['status'] === false || $json['status'] === 'error' || $json['status'] === 'failed')) {
-            $this->throwFromResponse($response, 'Gagal ganti nomor Kopken');
+            $this->throwFromResponse($response, 'Gagal ganti nomor');
         }
 
         $data = $response->json('data') ?? [];
@@ -185,10 +205,14 @@ class KopkenProvider implements OtpProviderInterface
 
     public function resendOtp(string $providerOrderId, ?string $token = null): array
     {
-        $response = $this->client()->post('/orders/'.$providerOrderId.'/resend');
+        try {
+            $response = $this->client()->post('/orders/'.$providerOrderId.'/resend');
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'minta ulang OTP');
+        }
 
         if (! $response->successful()) {
-            $this->throwFromResponse($response, 'Gagal minta ulang OTP Kopken');
+            $this->throwFromResponse($response, 'Gagal minta ulang OTP');
         }
 
         return $response->json('data') ?? [];
@@ -201,10 +225,14 @@ class KopkenProvider implements OtpProviderInterface
 
     public function getBalance(): array
     {
-        $response = $this->client()->get('/balance');
+        try {
+            $response = $this->client()->get('/balance');
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'cek saldo');
+        }
 
         if (! $response->successful()) {
-            $this->throwFromResponse($response, 'Gagal cek saldo pusat Kopken');
+            $this->throwFromResponse($response, 'Gagal cek saldo pusat');
         }
 
         $data = $response->json('data') ?? [];
@@ -285,6 +313,32 @@ class KopkenProvider implements OtpProviderInterface
         return $data;
     }
 
+    protected function handleHttpException(\Throwable $e, string $action = 'pemesanan'): never
+    {
+        $msg = $e->getMessage();
+        Log::warning("EngineUnicorn {$action} connection error: {$msg}");
+
+        if (
+            stripos($msg, 'cURL error 28') !== false
+            || stripos($msg, 'timed out') !== false
+            || stripos($msg, 'timeout') !== false
+            || stripos($msg, 'Resolving timed out') !== false
+        ) {
+            throw new RuntimeException('Server pemesanan nomor sedang sibuk (koneksi timeout). Silakan coba pesan kembali.');
+        }
+
+        if (
+            stripos($msg, 'cURL error') !== false
+            || stripos($msg, 'Could not resolve host') !== false
+            || stripos($msg, 'Failed to connect') !== false
+            || stripos($msg, 'Connection refused') !== false
+        ) {
+            throw new RuntimeException('Gagal terhubung ke server pemesanan nomor. Silakan coba beberapa saat lagi.');
+        }
+
+        throw new RuntimeException('Terjadi gangguan koneksi ke server pemesanan. Silakan coba beberapa saat lagi.');
+    }
+
     protected function throwFromResponse($response, string $fallback): void
     {
         $body = $response->json();
@@ -303,6 +357,11 @@ class KopkenProvider implements OtpProviderInterface
         } else {
             $message = $fallback.' (HTTP '.$response->status().')';
         }
+
+        // Filter out URLs and backend domain names
+        $message = preg_replace('/https?:\/\/[^\s<>\'"]+/i', '', $message);
+        $message = str_ireplace(['engineunicorn.cloud', 'engineunicorn', 'kopken'], '', $message);
+        $message = trim($message);
 
         if (
             stripos($message, 'banned') !== false ||
