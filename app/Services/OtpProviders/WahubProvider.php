@@ -437,7 +437,7 @@ class WahubProvider implements OtpProviderInterface
         } elseif ($status === 429 && ! $hasServerMessage) {
             $message = 'Batas maksimum sewa bersamaan tercapai. Silakan selesaikan sewa lama terlebih dahulu.';
         } elseif ($status === 401 && ! $hasServerMessage) {
-            $message = 'tidak dapat diproses, silakan hubungi admin';
+            $message = 'API Key WAHub tidak valid atau kedaluwarsa. Periksa kembali di Pengaturan Bot.';
         }
 
         Log::warning('WAHub provider error', [

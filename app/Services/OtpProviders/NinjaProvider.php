@@ -53,7 +53,7 @@ class NinjaProvider implements OtpProviderInterface
     {
         $base = rtrim((string) (Setting::otpProvider()['api_base_url'] ?? ''), '/');
 
-        if ($base === '') {
+        if ($base === '' || str_contains($base, 'engineunicorn')) {
             $base = self::DEFAULT_BASE_URL;
         }
 
@@ -389,18 +389,20 @@ class NinjaProvider implements OtpProviderInterface
         }
 
         // Handle specific Ninja OTP error codes
-        if ($errorCode === 'INSUFFICIENT_BALANCE' || $status === 402) {
-            $message = 'tidak dapat diproses, silakan hubungi admin';
+        if ($errorCode === 'UNAUTHENTICATED' || $status === 401) {
+            $message = 'API Key Ninja OTP tidak valid atau belum diisi (wajib format nk_...). Silakan periksa di Konfigurasi Bot.';
+        } elseif ($errorCode === 'FORBIDDEN' || $status === 403) {
+            $message = 'API Key Ninja OTP tidak memiliki izin atau akses ditolak oleh server.';
+        } elseif ($errorCode === 'INSUFFICIENT_BALANCE' || $status === 402) {
+            $message = 'Saldo akun Ninja OTP tidak cukup di server provider.';
         } elseif ($errorCode === 'OUT_OF_STOCK' || $status === 503) {
             $message = 'Stok nomor untuk layanan ini sedang habis. Silakan coba beberapa saat lagi.';
-        } elseif ($errorCode === 'UNAUTHENTICATED' || $status === 401) {
-            $message = 'tidak dapat diproses, silakan hubungi admin';
-        } elseif ($errorCode === 'FORBIDDEN' || $status === 403) {
-            $message = 'tidak dapat diproses, silakan hubungi admin';
+        } elseif ($errorCode === 'NOT_FOUND' || $status === 404) {
+            $message = 'Data pesanan/layanan tidak ditemukan di server Ninja OTP.';
         } elseif ($errorCode === 'RATE_LIMITED' || $status === 429) {
-            $message = 'Server pemesanan nomor sedang sibuk. Silakan coba beberapa saat lagi.';
+            $message = 'Server Ninja OTP rate limit (terlalu banyak request). Silakan coba beberapa saat lagi.';
         } elseif ($errorCode === 'API_DISABLED') {
-            $message = 'Server pemesanan nomor sedang dalam pemeliharaan. Silakan coba beberapa saat lagi.';
+            $message = 'Server Ninja OTP sedang dalam pemeliharaan. Silakan coba beberapa saat lagi.';
         }
 
         // Filter out URLs and backend domain names
@@ -424,13 +426,6 @@ class NinjaProvider implements OtpProviderInterface
             stripos($message, 'stok') !== false
         ) {
             $message = 'Stok nomor untuk layanan ini saat ini sedang habis. Silakan coba beberapa saat lagi.';
-        } elseif (
-            stripos($message, 'balance') !== false ||
-            stripos($message, 'saldo') !== false ||
-            stripos($message, 'insufficient') !== false ||
-            stripos($message, 'not enough') !== false
-        ) {
-            $message = 'tidak dapat diproses, silakan hubungi admin';
         }
 
         Log::warning('Ninja OTP provider error', [
