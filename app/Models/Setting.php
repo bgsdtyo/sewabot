@@ -43,7 +43,7 @@ class Setting extends Model
     public static function otpProvider(): array
     {
         return [
-            'api_base_url' => rtrim((string) static::get('otp_api_base_url', env('OTP_API_BASE_URL', '')), '/'),
+            'api_base_url' => rtrim((string) static::get('otp_api_base_url', env('OTP_API_BASE_URL', 'https://app.ninjatop.cloud/api/public/v1')), '/'),
             'api_key' => (string) static::get('otp_api_key', env('OTP_API_KEY', '')),
         ];
     }

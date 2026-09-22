@@ -8,7 +8,7 @@
             </x-filament::button>
 
             <x-filament::button type="button" color="gray" wire:click="syncKopken">
-                Sync KOPKEN (EngineUnicorn)
+                Sync Ninja OTP (Provider 1)
             </x-filament::button>
 
             <x-filament::button type="button" color="info" wire:click="syncWahub">

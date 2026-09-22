@@ -90,7 +90,7 @@ class TelegramBot extends Model
 
     public function otpProviderName(): string
     {
-        return $this->activeOtpProvider() === 'wahub' ? 'WAHub (dehuyzotp.shop)' : 'EngineUnicorn (engineunicorn.cloud)';
+        return $this->activeOtpProvider() === 'wahub' ? 'WAHub (dehuyzotp.shop)' : 'Ninja OTP (app.ninjatop.cloud)';
     }
 
     public function activeOtpApiKey(): ?string

@@ -401,7 +401,7 @@
                         <select id="filter-provider" name="provider"
                                 class="w-full rounded-xl border-brand-200 py-2.5 px-3 text-sm text-brand-900 focus:border-brand-900 focus:ring-brand-900">
                             <option value="">Semua Provider (2 Provider)</option>
-                            <option value="kopken" @selected(request('provider') === 'kopken')>🟣 EngineUnicorn (Kopken)</option>
+                            <option value="kopken" @selected(request('provider') === 'kopken')>🟣 Ninja OTP (app.ninjatop.cloud)</option>
                             <option value="wahub" @selected(request('provider') === 'wahub')>🔵 WAHub (dehuyzotp.shop)</option>
                         </select>
                     </div>
@@ -691,8 +691,8 @@
                                                 WAHub
                                             </span>
                                         @else
-                                            <span class="inline-flex items-center rounded-md bg-purple-50 px-1.5 py-0.5 text-[10px] font-bold text-purple-700 border border-purple-200" title="Provider 1: EngineUnicorn">
-                                                EngineUnicorn
+                                            <span class="inline-flex items-center rounded-md bg-purple-50 px-1.5 py-0.5 text-[10px] font-bold text-purple-700 border border-purple-200" title="Provider 1: Ninja OTP">
+                                                Ninja OTP
                                             </span>
                                         @endif
                                     </div>
@@ -778,7 +778,7 @@
                                                     'id' => $order->id,
                                                     'batch_id' => $order->batch_id,
                                                     'provider' => $order->provider ?? 'kopken',
-                                                    'provider_label' => ($order->provider === 'wahub') ? 'WAHub (dehuyzotp.shop)' : 'EngineUnicorn (engineunicorn.cloud)',
+                                                    'provider_label' => ($order->provider === 'wahub') ? 'WAHub (dehuyzotp.shop)' : 'Ninja OTP (app.ninjatop.cloud)',
                                                     'provider_order_id' => $order->provider_order_id ?: $order->provider_token,
                                                     'service_name' => $order->otpService?->name ?? 'WhatsApp',
                                                     'member_name' => $order->botMember?->displayName() ?? 'Member',
@@ -896,9 +896,9 @@
                             </h3>
                             <span class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-extrabold"
                                   :class="selectedOrder?.provider === 'wahub' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-purple-50 text-purple-700 border border-purple-200'"
-                                  x-text="selectedOrder?.provider === 'wahub' ? 'WAHub' : 'EngineUnicorn'"></span>
+                                  x-text="selectedOrder?.provider === 'wahub' ? 'WAHub' : 'Ninja OTP'"></span>
                         </div>
-                        <p class="mt-0.5 text-[11px] text-brand-500" x-text="(selectedOrder?.service_name || 'WhatsApp') + ' • ' + (selectedOrder?.provider_label || 'EngineUnicorn')"></p>
+                        <p class="mt-0.5 text-[11px] text-brand-500" x-text="(selectedOrder?.service_name || 'WhatsApp') + ' • ' + (selectedOrder?.provider_label || 'Ninja OTP')"></p>
                     </div>
                     <button type="button" @click="detailModal = false" class="shrink-0 rounded-xl p-1.5 text-brand-400">
                         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -926,7 +926,7 @@
                             <span class="lbl">Provider</span>
                             <span class="val font-semibold"
                                   :class="selectedOrder.provider === 'wahub' ? 'text-blue-700' : 'text-purple-700'"
-                                  x-text="selectedOrder.provider_label || (selectedOrder.provider === 'wahub' ? 'WAHub' : 'EngineUnicorn')"></span>
+                                  x-text="selectedOrder.provider_label || (selectedOrder.provider === 'wahub' ? 'WAHub' : 'Ninja OTP')"></span>
                         </div>
                         <div class="otp-detail-row">
                             <span class="lbl">Layanan</span>
@@ -1057,7 +1057,7 @@
                             </label>
                             <select id="create-provider" name="provider" required
                                     class="w-full rounded-xl border-brand-200 py-2.5 px-3 text-sm text-brand-900 focus:border-brand-900 focus:ring-brand-900">
-                                <option value="kopken">🟣 EngineUnicorn (Kopken)</option>
+                                <option value="kopken">🟣 Ninja OTP (app.ninjatop.cloud)</option>
                                 <option value="wahub">🔵 WAHub (dehuyzotp.shop)</option>
                             </select>
                         </div>

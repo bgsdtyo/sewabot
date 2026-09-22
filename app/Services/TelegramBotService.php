@@ -1846,7 +1846,7 @@ class TelegramBotService
 
         // 5. Strip any domain names or provider names
         $cleaned = str_ireplace(
-            ['dehuyzotp.shop', 'dehuyzotp', 'engineunicorn.cloud', 'engineunicorn', 'wahub', 'kopken'],
+            ['dehuyzotp.shop', 'dehuyzotp', 'ninjatop.cloud', 'ninjatop', 'ninjaotp', 'engineunicorn.cloud', 'engineunicorn', 'wahub', 'kopken', 'ninja'],
             '',
             $cleaned
         );

@@ -54,26 +54,27 @@ class OtpProviderSettings extends Page implements HasForms
                         Forms\Components\Radio::make('active_otp_provider')
                             ->label('Default Active Provider')
                             ->options([
-                                'kopken' => 'Provider 1: EngineUnicorn (engineunicorn.cloud)',
+                                'kopken' => 'Provider 1: Ninja OTP (app.ninjatop.cloud)',
                                 'wahub' => 'Provider 2: WAHub (dehuyzotp.shop)',
                             ])
                             ->required(),
                     ]),
 
-                Forms\Components\Section::make('Provider 1 (EngineUnicorn / engineunicorn.cloud)')
-                    ->description('Konfigurasi REST API Provider 1 (EngineUnicorn).')
+                Forms\Components\Section::make('Provider 1 (Ninja OTP / app.ninjatop.cloud)')
+                    ->description('Konfigurasi REST API Provider 1 (Ninja OTP).')
                     ->schema([
                         Forms\Components\TextInput::make('otp_api_base_url')
-                            ->label('API Base URL EngineUnicorn')
-                            ->placeholder('https://api.engineunicorn.cloud/v1')
-                            ->helperText('Tanpa slash di akhir. Endpoint: /services, /orders')
+                            ->label('API Base URL Ninja OTP')
+                            ->placeholder('https://app.ninjatop.cloud/api/public/v1')
+                            ->default('https://app.ninjatop.cloud/api/public/v1')
+                            ->helperText('Default: https://app.ninjatop.cloud/api/public/v1')
                             ->required()
                             ->url(),
                         Forms\Components\TextInput::make('otp_api_key')
-                            ->label('API Key Sync EngineUnicorn (opsional)')
+                            ->label('API Key Sync Ninja OTP (opsional)')
                             ->password()
                             ->revealable()
-                            ->helperText('Fallback key untuk sync layanan dari admin.'),
+                            ->helperText('Fallback key Ninja OTP (nk_...) untuk sync layanan dari admin.'),
                     ]),
 
                 Forms\Components\Section::make('Provider 2 (WAHub / dehuyzotp.shop)')
@@ -101,7 +102,7 @@ class OtpProviderSettings extends Page implements HasForms
         $state = $this->form->getState();
 
         Setting::set('active_otp_provider', $state['active_otp_provider'] ?? 'kopken');
-        Setting::set('otp_api_base_url', rtrim($state['otp_api_base_url'], '/'));
+        Setting::set('otp_api_base_url', rtrim($state['otp_api_base_url'] ?? 'https://app.ninjatop.cloud/api/public/v1', '/'));
         Setting::set('otp_api_key', $state['otp_api_key'] ?? '');
         Setting::set('wahub_api_base_url', rtrim($state['wahub_api_base_url'] ?? 'https://dehuyzotp.shop', '/'));
         Setting::set('wahub_api_key', $state['wahub_api_key'] ?? '');
@@ -113,10 +114,10 @@ class OtpProviderSettings extends Page implements HasForms
     {
         try {
             $bot = TelegramBot::query()->where('otp_provider', 'kopken')->whereNotNull('otp_api_key')->where('otp_api_key', '!=', '')->latest('id')->first();
-            $count = app(OtpOrderService::class)->syncServices(['KOPKEN', 'WHATSAPP'], $bot, 'kopken');
-            Notification::make()->title("Sync Provider 1 (EngineUnicorn) OK: {$count} layanan")->success()->send();
+            $count = app(OtpOrderService::class)->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $bot, 'kopken');
+            Notification::make()->title("Sync Provider 1 (Ninja OTP) OK: {$count} layanan")->success()->send();
         } catch (\Throwable $e) {
-            Notification::make()->title('Sync EngineUnicorn gagal')->body($e->getMessage())->danger()->send();
+            Notification::make()->title('Sync Ninja OTP gagal')->body($e->getMessage())->danger()->send();
         }
     }
 
@@ -124,7 +125,7 @@ class OtpProviderSettings extends Page implements HasForms
     {
         try {
             $bot = TelegramBot::query()->where('otp_provider', 'wahub')->whereNotNull('otp_wahub_api_key')->where('otp_wahub_api_key', '!=', '')->latest('id')->first();
-            $count = app(OtpOrderService::class)->syncServices(['KOPKEN', 'WHATSAPP', 'WA'], $bot, 'wahub');
+            $count = app(OtpOrderService::class)->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $bot, 'wahub');
             Notification::make()->title("Sync Provider 2 (WAHub) OK: {$count} layanan")->success()->send();
         } catch (\Throwable $e) {
             Notification::make()->title('Sync WAHub gagal')->body($e->getMessage())->danger()->send();

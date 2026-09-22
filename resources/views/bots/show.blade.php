@@ -184,8 +184,8 @@
                                    :class="activeProvider === 'kopken' ? 'border-brand-900 bg-brand-50/80 ring-2 ring-brand-900' : 'border-brand-200 hover:border-brand-300 bg-white'">
                                 <div class="flex items-start justify-between gap-2">
                                     <div>
-                                        <span class="text-sm font-extrabold text-brand-900">Provider 1 (EngineUnicorn)</span>
-                                        <p class="mt-0.5 text-[11px] text-brand-500">engineunicorn.cloud</p>
+                                        <span class="text-sm font-extrabold text-brand-900">Provider 1 (Ninja OTP)</span>
+                                        <p class="mt-0.5 text-[11px] text-brand-500">app.ninjatop.cloud</p>
                                     </div>
                                     <input type="radio" name="otp_provider" value="kopken" class="sr-only" x-model="activeProvider">
                                     <span class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-brand-300"
@@ -221,10 +221,10 @@
                         @enderror
                     </div>
 
-                    {{-- 4. Input API Key Provider 1 (EngineUnicorn) --}}
+                    {{-- 4. Input API Key Provider 1 (Ninja OTP) --}}
                     <div class="border-t border-brand-100 pt-5" x-show="activeProvider === 'kopken'" x-transition>
                         <div class="mb-2 flex items-center justify-between">
-                            <label class="block text-sm font-bold text-brand-900">API Key EngineUnicorn</label>
+                            <label class="block text-sm font-bold text-brand-900">API Key Ninja OTP (nk_...)</label>
                             <span class="text-xs text-brand-500">Provider 1</span>
                         </div>
 
@@ -232,7 +232,7 @@
                             <div x-data="{ editing: false }">
                                 <div x-show="!editing" class="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
                                     <p class="rounded-xl border border-brand-200 bg-brand-50 px-3.5 py-2.5 text-xs font-semibold text-emerald-700 sm:flex-1">
-                                        ✓ API Key EngineUnicorn tersimpan
+                                        ✓ API Key Ninja OTP tersimpan
                                     </p>
                                     <button type="button" @click="editing = true"
                                             class="rounded-xl border border-brand-200 px-3.5 py-2 text-xs font-bold text-brand-900 hover:bg-brand-50">
@@ -242,7 +242,7 @@
 
                                 <div x-show="editing" style="display: none;" class="space-y-2.5">
                                     <input type="password" name="otp_api_key" autocomplete="off"
-                                           placeholder="Tempel API key EngineUnicorn baru"
+                                           placeholder="Tempel API key Ninja OTP baru (nk_...)"
                                            class="w-full rounded-xl border-brand-200 text-sm focus:border-brand-900 focus:ring-brand-900">
                                     <div class="flex flex-wrap items-center gap-3">
                                         <button type="button" @click="editing = false"
@@ -258,7 +258,7 @@
                             </div>
                         @else
                             <input type="password" name="otp_api_key" autocomplete="off"
-                                   placeholder="Tempel API key EngineUnicorn"
+                                   placeholder="Tempel API key Ninja OTP (nk_...)"
                                    class="w-full rounded-xl border-brand-200 text-sm focus:border-brand-900 focus:ring-brand-900">
                         @endif
                         @error('otp_api_key')
@@ -586,10 +586,10 @@
                         </div>
                         <div>
                             <p class="text-base font-extrabold text-brand-900">
-                                {{ $activeProvider === 'wahub' ? 'WAHub' : 'EngineUnicorn' }}
+                                {{ $activeProvider === 'wahub' ? 'WAHub' : 'Ninja OTP' }}
                             </p>
                             <p class="text-xs text-brand-500">
-                                {{ $activeProvider === 'wahub' ? 'dehuyzotp.shop' : 'engineunicorn.cloud' }}
+                                {{ $activeProvider === 'wahub' ? 'dehuyzotp.shop' : 'app.ninjatop.cloud' }}
                             </p>
                         </div>
                     </div>

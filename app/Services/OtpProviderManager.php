@@ -6,29 +6,30 @@ use App\Contracts\OtpProviderInterface;
 use App\Models\OtpOrder;
 use App\Models\Setting;
 use App\Models\TelegramBot;
-use App\Services\OtpProviders\KopkenProvider;
+use App\Services\OtpProviders\NinjaProvider;
 use App\Services\OtpProviders\WahubProvider;
 use InvalidArgumentException;
 
 class OtpProviderManager
 {
+    public const PROVIDER_NINJA = 'kopken';
     public const PROVIDER_KOPKEN = 'kopken';
     public const PROVIDER_WAHUB = 'wahub';
 
     public function __construct(
-        protected KopkenProvider $kopkenProvider,
+        protected NinjaProvider $ninjaProvider,
         protected WahubProvider $wahubProvider
     ) {}
 
     /**
-     * Get a provider instance by name ('kopken' or 'wahub').
+     * Get a provider instance by name ('ninja', 'kopken', or 'wahub').
      */
     public function driver(?string $name = null): OtpProviderInterface
     {
         $name = strtolower(trim((string) ($name ?: $this->defaultProvider())));
 
         return match ($name) {
-            self::PROVIDER_KOPKEN, 'default' => $this->kopkenProvider,
+            'ninja', 'ninjatop', self::PROVIDER_KOPKEN, 'default' => $this->ninjaProvider,
             self::PROVIDER_WAHUB, 'dehuyz' => $this->wahubProvider,
             default => throw new InvalidArgumentException("Provider OTP tidak dikenali: {$name}"),
         };
@@ -69,9 +70,14 @@ class OtpProviderManager
         return (string) Setting::get('active_otp_provider', self::PROVIDER_KOPKEN);
     }
 
-    public function kopken(?string $apiKey = null): KopkenProvider
+    public function ninja(?string $apiKey = null): NinjaProvider
     {
-        return $apiKey ? $this->kopkenProvider->withApiKey($apiKey) : $this->kopkenProvider;
+        return $apiKey ? $this->ninjaProvider->withApiKey($apiKey) : $this->ninjaProvider;
+    }
+
+    public function kopken(?string $apiKey = null): NinjaProvider
+    {
+        return $this->ninja($apiKey);
     }
 
     public function wahub(?string $apiKey = null): WahubProvider
