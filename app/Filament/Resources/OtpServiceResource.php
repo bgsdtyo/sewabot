@@ -50,10 +50,10 @@ class OtpServiceResource extends Resource
             ])
             ->headerActions([
                 Tables\Actions\Action::make('sync')
-                    ->label('Sync KOPKEN')
+                    ->label('Sync Kopi Kenangan / OTP')
                     ->action(function () {
                         try {
-                            $n = app(OtpOrderService::class)->syncServices(['KOPKEN']);
+                            $n = app(OtpOrderService::class)->syncServices(['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'WHATSAPP', 'WA']);
                             Notification::make()->title("Synced {$n}")->success()->send();
                         } catch (\Throwable $e) {
                             Notification::make()->title($e->getMessage())->danger()->send();

@@ -73,14 +73,39 @@ class OtpService extends Model
         return $query->where('provider', $pv);
     }
 
+    public function scopeKopiKenangan($query, ?string $provider = null)
+    {
+        $q = $query->where(function ($sub) {
+            $sub->whereIn('slug', ['kopi-kenangan', 'kopken', 'kopi_kenangan', 'kopikenangan', 'kopi'])
+                ->orWhereRaw('UPPER(name) = ?', ['KOPI KENANGAN'])
+                ->orWhereRaw('UPPER(name) = ?', ['KOPKEN'])
+                ->orWhereRaw('UPPER(name) = ?', ['KOPIKENANGAN'])
+                ->orWhereRaw('UPPER(name) LIKE ?', ['%KOPI%KENANGAN%'])
+                ->orWhereRaw('UPPER(name) LIKE ?', ['%KOPKEN%'])
+                ->orWhereRaw('UPPER(name) LIKE ?', ['%KOPI%'])
+                ->orWhereRaw('UPPER(name) LIKE ?', ['%KENANGAN%']);
+        });
+
+        if ($provider) {
+            $q->where('provider', strtolower(trim($provider)));
+        }
+
+        return $q;
+    }
+
     public function scopeKopken($query, ?string $provider = null)
     {
         $q = $query->where(function ($sub) {
-            $sub->where('slug', 'kopken')
-                ->orWhere('slug', 'whatsapp')
+            $sub->whereIn('slug', ['kopi-kenangan', 'kopken', 'kopi_kenangan', 'kopikenangan', 'kopi', 'whatsapp', 'wa'])
+                ->orWhereRaw('UPPER(name) = ?', ['KOPI KENANGAN'])
                 ->orWhereRaw('UPPER(name) = ?', ['KOPKEN'])
+                ->orWhereRaw('UPPER(name) = ?', ['KOPIKENANGAN'])
                 ->orWhereRaw('UPPER(name) = ?', ['WHATSAPP'])
+                ->orWhereRaw('UPPER(name) = ?', ['WA'])
+                ->orWhereRaw('UPPER(name) LIKE ?', ['%KOPI%KENANGAN%'])
                 ->orWhereRaw('UPPER(name) LIKE ?', ['%KOPKEN%'])
+                ->orWhereRaw('UPPER(name) LIKE ?', ['%KOPI%'])
+                ->orWhereRaw('UPPER(name) LIKE ?', ['%KENANGAN%'])
                 ->orWhereRaw('UPPER(name) LIKE ?', ['%WHATSAPP%']);
         });
 

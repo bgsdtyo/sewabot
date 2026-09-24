@@ -1,6 +1,6 @@
 @php
     $activeProvider = $telegramBot->activeOtpProvider();
-    $kopken = $services->first(fn ($s) => in_array(strtoupper($s->name), ['KOPKEN', 'WHATSAPP'])) ?? $services->first();
+    $kopken = $services->first(fn ($s) => in_array(strtoupper(trim($s->name)), ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'WHATSAPP', 'WA']) || str_contains(strtoupper($s->name), 'KOPI') || str_contains(strtoupper($s->name), 'KENANGAN') || str_contains(strtoupper($s->name), 'KOPKEN')) ?? $services->first();
     $isBotRunning = $telegramBot->isRunning();
     $hasToken = $telegramBot->hasValidToken();
     $providerName = $telegramBot->otpProviderName();

@@ -994,12 +994,19 @@ class TelegramBotService
     {
         $provider = $bot ? $bot->activeOtpProvider() : null;
 
-        $service = OtpService::sellable()->kopken($provider)->first();
+        // 1. Prioritaskan layanan Kopi Kenangan / Kopken spesifik untuk provider aktif
+        $service = OtpService::sellable()->kopiKenangan($provider)->first();
+
+        // 2. Jika tidak ada, cari via scopeKopken (termasuk WhatsApp) untuk provider aktif
         if (! $service && $provider) {
-            $service = OtpService::sellable()->forProvider($provider)->first();
+            $service = OtpService::sellable()->kopken($provider)->first();
         }
+
+        // 3. Fallback global jika bot provider belum punya service tersimpan
         if (! $service) {
-            $service = OtpService::sellable()->kopken()->first() ?? OtpService::sellable()->first();
+            $service = OtpService::sellable()->kopiKenangan()->first()
+                ?? OtpService::sellable()->kopken()->first()
+                ?? OtpService::sellable()->first();
         }
 
         return $service;

@@ -105,8 +105,11 @@ class OtpOrderController extends Controller
             ->orderBy('telegram_name')
             ->get();
 
-        $kopkenService = OtpService::query()->kopken('kopken')->first() ?? OtpService::query()->forProvider('kopken')->first();
-        $wahubService = OtpService::query()->forProvider('wahub')->first() ?? OtpService::query()->kopken('wahub')->first();
+        $kopkenService = OtpService::query()->kopiKenangan('kopken')->first()
+            ?? OtpService::query()->kopken('kopken')->first()
+            ?? OtpService::query()->forProvider('kopken')->first();
+        $wahubService = OtpService::query()->forProvider('wahub')->first()
+            ?? OtpService::query()->kopken('wahub')->first();
 
         return view('otp-orders.index', compact(
             'orders',
@@ -144,7 +147,8 @@ class OtpOrderController extends Controller
         $bot = TelegramBot::where('id', $data['telegram_bot_id'])->firstOrFail();
         $member = BotMember::where('id', $data['bot_member_id'])->where('telegram_bot_id', $bot->id)->firstOrFail();
         $provider = $data['provider'] ?? $bot->activeOtpProvider();
-        $service = OtpService::query()->kopken($provider)->first()
+        $service = OtpService::query()->kopiKenangan($provider)->first()
+            ?? OtpService::query()->kopken($provider)->first()
             ?? OtpService::query()->forProvider($provider)->first()
             ?? OtpService::query()->first();
 

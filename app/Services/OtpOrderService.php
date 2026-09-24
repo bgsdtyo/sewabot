@@ -23,9 +23,9 @@ class OtpOrderService
     ) {}
 
     /**
-     * Sync services specifically for KOPKEN / WhatsApp from the active provider.
+     * Sync services specifically for Kopi Kenangan / Kopken / WhatsApp from the active provider.
      */
-    public function syncServices(?array $onlyNames = ['KOPKEN', 'WHATSAPP'], ?TelegramBot $usingBot = null, ?string $providerName = null): int
+    public function syncServices(?array $onlyNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'WHATSAPP', 'WA'], ?TelegramBot $usingBot = null, ?string $providerName = null): int
     {
         $targetProvider = $usingBot
             ? $usingBot->activeOtpProvider()
@@ -37,12 +37,14 @@ class OtpOrderService
 
         $items = $client->getServices();
         Log::info("Syncing services for provider [{$targetProvider}] - items count: ".count($items), ['items' => $items]);
-        // Cek apakah provider memiliki layanan spesifik 'KOPKEN' / 'KOPI KENANGAN'
+
+        // Cek apakah provider memiliki layanan spesifik 'KOPI KENANGAN' / 'KOPKEN'
         $hasKopkenSpecific = collect($items)->contains(function ($item) {
             $n = strtoupper(trim((string) ($item['name'] ?? '')));
-            return str_contains($n, 'KOPKEN') || str_contains($n, 'KOPI KENANGAN') || str_contains($n, 'KOPIKENANGAN');
+            return str_contains($n, 'KOPI') || str_contains($n, 'KENANGAN') || str_contains($n, 'KOPKEN');
         });
 
+        $matchedProviderServiceIds = [];
         $count = 0;
         foreach ($items as $item) {
             $name = (string) ($item['name'] ?? '');
@@ -50,19 +52,19 @@ class OtpOrderService
 
             $isMatched = false;
             if ($hasKopkenSpecific) {
-                // Hanya ambil layanan KOPKEN
-                if (str_contains($nameUpper, 'KOPKEN') || str_contains($nameUpper, 'KOPI KENANGAN') || str_contains($nameUpper, 'KOPIKENANGAN')) {
+                // Hanya ambil layanan Kopi Kenangan / Kopken (jangan ambil Gopay atau layanan lain)
+                if (str_contains($nameUpper, 'KOPI') || str_contains($nameUpper, 'KENANGAN') || str_contains($nameUpper, 'KOPKEN')) {
                     $isMatched = true;
                 }
             } else {
-                // Fallback jika provider menamai layanannya WhatsApp
+                // Fallback jika provider hanya menyediakan WhatsApp
                 if ($nameUpper === 'WHATSAPP' || str_starts_with($nameUpper, 'WHATSAPP') || in_array($nameUpper, ['WA', 'WHATSAPP'], true) || count($items) === 1) {
                     $isMatched = true;
                 }
             }
 
             if (! $isMatched) {
-                // Nonaktifkan service lain jika sempat tersimpan
+                // Nonaktifkan service non-target (misal Gopay, Shopee, dll) jika sempat tersimpan
                 OtpService::where('provider', $targetProvider)
                     ->where('provider_service_id', (int) $item['id'])
                     ->update(['is_active' => false, 'is_enabled' => false]);
@@ -70,6 +72,7 @@ class OtpOrderService
                 continue;
             }
 
+            $matchedProviderServiceIds[] = (int) $item['id'];
             $providerPrice = (int) ($item['price'] ?? 0);
 
             OtpService::updateOrCreate(
@@ -90,6 +93,13 @@ class OtpOrderService
             );
 
             $count++;
+        }
+
+        // Deactivate any other services for this provider that were not matched in this sync
+        if (! empty($matchedProviderServiceIds)) {
+            OtpService::where('provider', $targetProvider)
+                ->whereNotIn('provider_service_id', $matchedProviderServiceIds)
+                ->update(['is_active' => false, 'is_enabled' => false]);
         }
 
         return $count;
