@@ -235,6 +235,11 @@ class OtpOrderService
                 continue;
             }
 
+            if ($i > 0) {
+                // Beri jeda 400ms antar slot pesanan bulk agar tidak memicu race condition / lock pada database provider
+                usleep(400000);
+            }
+
             try {
                 $order = DB::transaction(function () use ($bot, $member, $service, $sellPrice, $batchId, $activeProvider) {
                     $item = OtpOrder::create([

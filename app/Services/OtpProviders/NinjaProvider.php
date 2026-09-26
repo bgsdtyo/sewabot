@@ -109,50 +109,100 @@ class NinjaProvider implements OtpProviderInterface
 
     public function createOrder(int $serviceId, ?string $idempotencyKey = null): array
     {
-        $key = $idempotencyKey ?: (string) Str::uuid();
+        $maxAttempts = 3;
+        $attempt = 0;
+        $lastException = null;
 
-        try {
-            $response = $this->client(timeout: 20)
-                ->withHeaders(['Idempotency-Key' => $key])
-                ->post('/orders', [
-                    'service_id' => $serviceId,
-                    'qty' => 1,
-                ]);
-        } catch (\Throwable $e) {
-            $this->handleHttpException($e, 'buat pesanan');
+        while ($attempt < $maxAttempts) {
+            $attempt++;
+            $key = ($attempt === 1 && $idempotencyKey) ? $idempotencyKey : (string) Str::uuid();
+
+            try {
+                $response = $this->client(timeout: 20)
+                    ->withHeaders(['Idempotency-Key' => $key])
+                    ->post('/orders', [
+                        'service_id' => $serviceId,
+                        'qty' => 1,
+                    ]);
+
+                $status = $response->status();
+                $json = $response->json() ?? [];
+                $isExplicitError = isset($json['status']) && ($json['status'] === false || $json['status'] === 'error' || $json['status'] === 'failed');
+
+                if (! in_array($status, [200, 201], true) || $isExplicitError) {
+                    $rawMsg = (string) ($json['message'] ?? $json['error'] ?? $json['errors'] ?? '');
+                    if (is_array($json['error'] ?? null)) {
+                        $rawMsg = (string) ($json['error']['message'] ?? $rawMsg);
+                    }
+
+                    $isTransient = $status >= 500
+                        || stripos($rawMsg, 'db error') !== false
+                        || stripos($rawMsg, 'database') !== false
+                        || stripos($rawMsg, 'deadlock') !== false
+                        || stripos($rawMsg, 'lock') !== false
+                        || stripos($rawMsg, 'timeout') !== false
+                        || stripos($rawMsg, 'try again') !== false;
+
+                    if ($isTransient && $attempt < $maxAttempts) {
+                        Log::info("Ninja OTP createOrder transient error ({$rawMsg}), retrying attempt {$attempt}/{$maxAttempts} in 500ms...");
+                        usleep(500000);
+                        continue;
+                    }
+
+                    $this->throwFromResponse($response, 'Gagal membuat pesanan nomor OTP');
+                }
+
+                $orderData = [];
+                if (isset($json['orders']) && is_array($json['orders']) && ! empty($json['orders'])) {
+                    $orderData = $json['orders'][0];
+                } elseif (isset($json['data']) && is_array($json['data'])) {
+                    $orderData = isset($json['data']['orders'][0]) ? $json['data']['orders'][0] : $json['data'];
+                } else {
+                    $orderData = $json;
+                }
+
+                $orderData['_idempotency_key'] = $key;
+
+                $phone = (string) ($orderData['phone_number'] ?? $orderData['phone'] ?? '');
+                $phoneFormatted = $phone !== '' ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : null;
+
+                return [
+                    'id' => (string) ($orderData['id'] ?? ''),
+                    'token' => null,
+                    'phone_number' => $phoneFormatted,
+                    'status' => strtolower((string) ($orderData['status'] ?? 'pending')),
+                    'expire_at' => isset($orderData['expire_at']) ? (int) $orderData['expire_at'] : null,
+                    'raw' => $orderData,
+                ];
+            } catch (\Throwable $e) {
+                $lastException = $e;
+                $msg = $e->getMessage();
+                $isTransient = stripos($msg, 'cURL error') !== false
+                    || stripos($msg, 'timed out') !== false
+                    || stripos($msg, 'timeout') !== false
+                    || stripos($msg, 'db error') !== false
+                    || stripos($msg, 'Connection refused') !== false
+                    || stripos($msg, 'Connection reset') !== false;
+
+                if ($isTransient && $attempt < $maxAttempts) {
+                    Log::info("Ninja OTP createOrder connection/transient error ({$msg}), retrying attempt {$attempt}/{$maxAttempts} in 500ms...");
+                    usleep(500000);
+                    continue;
+                }
+
+                if ($e instanceof RuntimeException) {
+                    throw $e;
+                }
+
+                $this->handleHttpException($e, 'buat pesanan');
+            }
         }
 
-        if (! in_array($response->status(), [200, 201], true)) {
-            $this->throwFromResponse($response, 'Gagal membuat pesanan nomor OTP');
+        if ($lastException instanceof RuntimeException) {
+            throw $lastException;
         }
 
-        $json = $response->json() ?? [];
-        if (isset($json['status']) && ($json['status'] === false || $json['status'] === 'error' || $json['status'] === 'failed')) {
-            $this->throwFromResponse($response, 'Gagal membuat pesanan nomor OTP');
-        }
-
-        $orderData = [];
-        if (isset($json['orders']) && is_array($json['orders']) && ! empty($json['orders'])) {
-            $orderData = $json['orders'][0];
-        } elseif (isset($json['data']) && is_array($json['data'])) {
-            $orderData = isset($json['data']['orders'][0]) ? $json['data']['orders'][0] : $json['data'];
-        } else {
-            $orderData = $json;
-        }
-
-        $orderData['_idempotency_key'] = $key;
-
-        $phone = (string) ($orderData['phone_number'] ?? $orderData['phone'] ?? '');
-        $phoneFormatted = $phone !== '' ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : null;
-
-        return [
-            'id' => (string) ($orderData['id'] ?? ''),
-            'token' => null,
-            'phone_number' => $phoneFormatted,
-            'status' => strtolower((string) ($orderData['status'] ?? 'pending')),
-            'expire_at' => isset($orderData['expire_at']) ? (int) $orderData['expire_at'] : null,
-            'raw' => $orderData,
-        ];
+        throw new RuntimeException('Gagal membuat pesanan nomor OTP setelah beberapa percobaan.');
     }
 
     public function getOrder(string $providerOrderId, ?string $token = null): array
@@ -416,6 +466,12 @@ class NinjaProvider implements OtpProviderInterface
             stripos($message, 'blocked') !== false
         ) {
             $message = 'Nomor WhatsApp terblokir/banned oleh WhatsApp, jadi tidak diberikan kepada Anda. Saldo yang tertahan telah dikembalikan.';
+        } elseif (
+            stripos($message, 'db error') !== false ||
+            stripos($message, 'database error') !== false ||
+            stripos($message, 'sql') !== false
+        ) {
+            $message = 'Server pemesanan nomor sedang sibuk/gangguan sementara. Silakan coba beberapa saat lagi.';
         } elseif (
             stripos($message, 'out of stock') !== false ||
             stripos($message, 'no stock') !== false ||

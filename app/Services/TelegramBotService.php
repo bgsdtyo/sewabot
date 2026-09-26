@@ -1848,7 +1848,22 @@ class TelegramBotService
             return 'Stok nomor untuk layanan ini sedang habis. Silakan coba beberapa saat lagi.';
         }
 
-        // 4. Strip any URLs (https://..., http://...)
+        // 4. Database / SQL / Internal Provider / Deadlock errors
+        if (
+            stripos($raw, 'db error') !== false
+            || stripos($raw, 'database error') !== false
+            || stripos($raw, 'sqlstate') !== false
+            || stripos($raw, 'query exception') !== false
+            || stripos($raw, 'deadlock') !== false
+            || stripos($raw, 'internal server error') !== false
+            || stripos($raw, '500 internal') !== false
+            || stripos($raw, 'bad gateway') !== false
+            || stripos($raw, 'service unavailable') !== false
+        ) {
+            return 'Server pemesanan nomor sedang sibuk/gangguan sementara. Silakan coba pesan kembali.';
+        }
+
+        // 5. Strip any URLs (https://..., http://...)
         $cleaned = preg_replace('/https?:\/\/[^\s<>\'"]+/i', '', $raw);
 
         // 5. Strip any domain names or provider names

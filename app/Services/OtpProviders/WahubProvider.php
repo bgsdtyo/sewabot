@@ -108,38 +108,89 @@ class WahubProvider implements OtpProviderInterface
 
     public function createOrder(int $serviceId, ?string $idempotencyKey = null): array
     {
-        try {
-            $response = $this->client(timeout: 20)->post('/api/rent', [
-                'service_id' => $serviceId,
-            ]);
-        } catch (\Throwable $e) {
-            $this->handleHttpException($e, 'sewa nomor');
+        $maxAttempts = 3;
+        $attempt = 0;
+        $lastException = null;
+
+        while ($attempt < $maxAttempts) {
+            $attempt++;
+
+            try {
+                $response = $this->client(timeout: 20)->post('/api/rent', [
+                    'service_id' => $serviceId,
+                ]);
+
+                $status = $response->status();
+                $data = $response->json() ?? [];
+                $isExplicitError = isset($data['status']) && ($data['status'] === false || $data['status'] === 'error' || $data['status'] === 'failed');
+
+                if (! in_array($status, [200, 201], true) || $isExplicitError) {
+                    $rawMsg = (string) ($data['message'] ?? $data['error'] ?? $data['errors'] ?? '');
+                    if (is_array($data['error'] ?? null)) {
+                        $rawMsg = (string) ($data['error']['message'] ?? $rawMsg);
+                    }
+
+                    $isTransient = $status >= 500
+                        || stripos($rawMsg, 'db error') !== false
+                        || stripos($rawMsg, 'database') !== false
+                        || stripos($rawMsg, 'deadlock') !== false
+                        || stripos($rawMsg, 'lock') !== false
+                        || stripos($rawMsg, 'timeout') !== false
+                        || stripos($rawMsg, 'try again') !== false;
+
+                    if ($isTransient && $attempt < $maxAttempts) {
+                        Log::info("WAHub createOrder transient error ({$rawMsg}), retrying attempt {$attempt}/{$maxAttempts} in 500ms...");
+                        usleep(500000);
+                        continue;
+                    }
+
+                    $this->throwFromResponse($response, 'Gagal membuat pesanan nomor OTP');
+                }
+
+                if (isset($data['data']) && is_array($data['data'])) {
+                    $data = array_merge($data, $data['data']);
+                }
+
+                $phone = (string) ($data['phone'] ?? $data['phone_number'] ?? '');
+                $phoneFormatted = $phone !== '' ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : null;
+
+                return [
+                    'id' => (string) ($data['order_id'] ?? $data['id'] ?? ''),
+                    'token' => (string) ($data['token'] ?? ''),
+                    'phone_number' => $phoneFormatted,
+                    'status' => 'pending',
+                    'expire_at' => isset($data['expires_at']) ? (int) $data['expires_at'] : null,
+                    'raw' => $data,
+                ];
+            } catch (\Throwable $e) {
+                $lastException = $e;
+                $msg = $e->getMessage();
+                $isTransient = stripos($msg, 'cURL error') !== false
+                    || stripos($msg, 'timed out') !== false
+                    || stripos($msg, 'timeout') !== false
+                    || stripos($msg, 'db error') !== false
+                    || stripos($msg, 'Connection refused') !== false
+                    || stripos($msg, 'Connection reset') !== false;
+
+                if ($isTransient && $attempt < $maxAttempts) {
+                    Log::info("WAHub createOrder connection/transient error ({$msg}), retrying attempt {$attempt}/{$maxAttempts} in 500ms...");
+                    usleep(500000);
+                    continue;
+                }
+
+                if ($e instanceof RuntimeException) {
+                    throw $e;
+                }
+
+                $this->handleHttpException($e, 'sewa nomor');
+            }
         }
 
-        if (! in_array($response->status(), [200, 201], true)) {
-            $this->throwFromResponse($response, 'Gagal membuat pesanan nomor OTP');
+        if ($lastException instanceof RuntimeException) {
+            throw $lastException;
         }
 
-        $data = $response->json() ?? [];
-        if (isset($data['status']) && ($data['status'] === false || $data['status'] === 'error' || $data['status'] === 'failed')) {
-            $this->throwFromResponse($response, 'Gagal membuat pesanan nomor OTP');
-        }
-
-        if (isset($data['data']) && is_array($data['data'])) {
-            $data = array_merge($data, $data['data']);
-        }
-
-        $phone = (string) ($data['phone'] ?? $data['phone_number'] ?? '');
-        $phoneFormatted = $phone !== '' ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : null;
-
-        return [
-            'id' => (string) ($data['order_id'] ?? $data['id'] ?? ''),
-            'token' => (string) ($data['token'] ?? ''),
-            'phone_number' => $phoneFormatted,
-            'status' => 'pending',
-            'expire_at' => isset($data['expires_at']) ? (int) $data['expires_at'] : null,
-            'raw' => $data,
-        ];
+        throw new RuntimeException('Gagal membuat pesanan nomor OTP setelah beberapa percobaan.');
     }
 
     public function getOrder(string $providerOrderId, ?string $token = null): array
@@ -430,6 +481,12 @@ class WahubProvider implements OtpProviderInterface
             stripos($message, 'not enough') !== false
         ) {
             $message = 'tidak dapat diproses, silakan hubungi admin';
+        } elseif (
+            stripos($message, 'db error') !== false ||
+            stripos($message, 'database error') !== false ||
+            stripos($message, 'sql') !== false
+        ) {
+            $message = 'Server pemesanan nomor sedang sibuk/gangguan sementara. Silakan coba beberapa saat lagi.';
         } elseif ($status === 503 || stripos($message, 'stok') !== false || stripos($message, 'stock') !== false) {
             $message = 'Stok nomor untuk layanan ini sedang habis. Silakan coba beberapa saat lagi.';
         } elseif ($status === 409 && ! $hasServerMessage) {
