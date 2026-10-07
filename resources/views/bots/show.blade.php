@@ -4,17 +4,6 @@
     $isBotRunning = $telegramBot->isRunning();
     $hasToken = $telegramBot->hasValidToken();
     $providerName = $telegramBot->otpProviderName();
-
-    $servicesJson = $allServices->map(function ($s) {
-        return [
-            'id' => $s->id,
-            'name' => $s->name,
-            'provider' => $s->provider,
-            'provider_price' => (int) $s->provider_price,
-            'stock' => (int) $s->stock,
-            'formatted_price' => $s->formattedProviderPrice(),
-        ];
-    })->values()->toJson();
 @endphp
 
 <x-app-layout>
@@ -146,41 +135,7 @@
 
         {{-- ==================== FORM KONFIGURASI BOT ==================== --}}
         <form method="POST" action="{{ route('bots.settings', $telegramBot) }}"
-              x-data="{
-                  activeProvider: '{{ old('otp_provider', $activeProvider) }}',
-                  selectedServiceId: '{{ old('otp_service_id', (string) ($telegramBot->otp_service_id ?? '')) }}',
-                  allServices: {!! $servicesJson !!},
-                  botStatus: '{{ old('status', $telegramBot->status === 'active' ? 'active' : 'inactive') }}',
-                  markupType: '{{ old('otp_markup_type', $telegramBot->otp_markup_type ?? 'percent') }}',
-                  markupValue: {{ (int) old('otp_markup_percent', $telegramBot->otp_markup_percent ?? 50) }},
-                  reminderEnabled: {{ ($telegramBot->min_provider_balance_alert && $telegramBot->min_provider_balance_alert > 0) ? 'true' : 'false' }},
-                  reminderAmount: {{ (int) old('min_provider_balance_alert', $telegramBot->min_provider_balance_alert ?? 10000) }},
-                  forceSubEnabled: {{ old('force_subscribe_enabled', $telegramBot->force_subscribe_enabled) ? 'true' : 'false' }},
-
-                  get availableServices() {
-                      return this.allServices.filter(s => s.provider === this.activeProvider);
-                  },
-                  get currentSelectedService() {
-                      if (this.selectedServiceId) {
-                          const found = this.availableServices.find(s => String(s.id) === String(this.selectedServiceId));
-                          if (found) return found;
-                      }
-                      return this.availableServices[0] || null;
-                  },
-                  get modalPrice() {
-                      return this.currentSelectedService ? this.currentSelectedService.provider_price : {{ (int) ($activeService->provider_price ?? 1650) }};
-                  },
-                  get sellPrice() {
-                      if (this.markupType === 'flat') return this.modalPrice + Number(this.markupValue || 0);
-                      return Math.ceil(this.modalPrice * (100 + Number(this.markupValue || 0)) / 100);
-                  },
-                  get profit() {
-                      return Math.max(0, this.sellPrice - this.modalPrice);
-                  },
-                  formatRp(n) {
-                      return 'Rp' + new Intl.NumberFormat('id-ID').format(n || 0);
-                  }
-              }"
+              x-data="botSettingsForm()"
               class="space-y-6">
             @csrf
             @method('PUT')
@@ -706,4 +661,59 @@
         </form>
 
     </div>
+
+    <script>
+        (function() {
+            const componentFactory = () => ({
+                activeProvider: @js(old('otp_provider', $activeProvider)),
+                selectedServiceId: @js(old('otp_service_id', (string) ($telegramBot->otp_service_id ?? ''))),
+                allServices: @js($allServices->map(fn ($s) => [
+                    'id' => $s->id,
+                    'name' => $s->name,
+                    'provider' => $s->provider,
+                    'provider_price' => (int) $s->provider_price,
+                    'stock' => (int) $s->stock,
+                    'formatted_price' => $s->formattedProviderPrice(),
+                ])->values()),
+                botStatus: @js(old('status', $telegramBot->status === 'active' ? 'active' : 'inactive')),
+                markupType: @js(old('otp_markup_type', $telegramBot->otp_markup_type ?? 'percent')),
+                markupValue: {{ (int) old('otp_markup_percent', $telegramBot->otp_markup_percent ?? 50) }},
+                reminderEnabled: {{ ($telegramBot->min_provider_balance_alert && $telegramBot->min_provider_balance_alert > 0) ? 'true' : 'false' }},
+                reminderAmount: {{ (int) old('min_provider_balance_alert', $telegramBot->min_provider_balance_alert ?? 10000) }},
+                forceSubEnabled: {{ old('force_subscribe_enabled', $telegramBot->force_subscribe_enabled) ? 'true' : 'false' }},
+
+                get availableServices() {
+                    return this.allServices.filter(s => s.provider === this.activeProvider);
+                },
+                get currentSelectedService() {
+                    if (this.selectedServiceId) {
+                        const found = this.availableServices.find(s => String(s.id) === String(this.selectedServiceId));
+                        if (found) return found;
+                    }
+                    return this.availableServices[0] || null;
+                },
+                get modalPrice() {
+                    return this.currentSelectedService ? this.currentSelectedService.provider_price : {{ (int) ($activeService->provider_price ?? 1650) }};
+                },
+                get sellPrice() {
+                    if (this.markupType === 'flat') return this.modalPrice + Number(this.markupValue || 0);
+                    return Math.ceil(this.modalPrice * (100 + Number(this.markupValue || 0)) / 100);
+                },
+                get profit() {
+                    return Math.max(0, this.sellPrice - this.modalPrice);
+                },
+                formatRp(n) {
+                    return 'Rp' + new Intl.NumberFormat('id-ID').format(n || 0);
+                }
+            });
+
+            if (window.Alpine) {
+                window.Alpine.data('botSettingsForm', componentFactory);
+            } else {
+                document.addEventListener('alpine:init', () => {
+                    window.Alpine.data('botSettingsForm', componentFactory);
+                });
+            }
+        })();
+    </script>
 </x-app-layout>
