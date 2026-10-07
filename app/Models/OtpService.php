@@ -63,7 +63,10 @@ class OtpService extends Model
 
     public function scopeSellable($query)
     {
-        return $query->where('is_active', true)->where('is_enabled', true);
+        return $query->where('is_active', true)
+            ->where('is_enabled', true)
+            ->whereRaw('UPPER(name) NOT LIKE ?', ['%SHOPEE%'])
+            ->whereRaw('UPPER(name) NOT LIKE ?', ['%GOPAY%']);
     }
 
     public function scopeForProvider($query, ?string $provider = null)
@@ -86,7 +89,8 @@ class OtpService extends Model
                 ->orWhereRaw('UPPER(name) LIKE ?', ['%KOPKEN%'])
                 ->orWhereRaw('UPPER(name) LIKE ?', ['%KOPI%'])
                 ->orWhereRaw('UPPER(name) LIKE ?', ['%KENANGAN%']);
-        });
+        })->whereRaw('UPPER(name) NOT LIKE ?', ['%SHOPEE%'])
+          ->whereRaw('UPPER(name) NOT LIKE ?', ['%GOPAY%']);
 
         if ($provider) {
             $q->where('provider', strtolower(trim($provider)));
@@ -98,13 +102,21 @@ class OtpService extends Model
     public function scopeKopkenFilter($query, ?string $provider = null)
     {
         $q = $query->where(function ($sub) {
-            $sub->whereIn('slug', ['kopken-filter', 'kopi-kenangan-filter', 'filter-kopken', 'filter'])
+            $sub->whereIn('slug', ['kopken-filter', 'kopi-kenangan-filter', 'filter-kopken'])
                 ->orWhereRaw('UPPER(name) = ?', ['KOPKEN FILTER'])
                 ->orWhereRaw('UPPER(name) = ?', ['KOPI KENANGAN FILTER'])
                 ->orWhereRaw('UPPER(name) LIKE ?', ['%KOPKEN%FILTER%'])
                 ->orWhereRaw('UPPER(name) LIKE ?', ['%KOPI%KENANGAN%FILTER%'])
-                ->orWhereRaw('UPPER(name) LIKE ?', ['%FILTER%']);
-        });
+                ->orWhere(function ($sub2) {
+                    $sub2->whereRaw('UPPER(name) LIKE ?', ['%FILTER%'])
+                        ->where(function ($sub3) {
+                            $sub3->whereRaw('UPPER(name) LIKE ?', ['%KOPI%'])
+                                ->orWhereRaw('UPPER(name) LIKE ?', ['%KENANGAN%'])
+                                ->orWhereRaw('UPPER(name) LIKE ?', ['%KOPKEN%']);
+                        });
+                });
+        })->whereRaw('UPPER(name) NOT LIKE ?', ['%SHOPEE%'])
+          ->whereRaw('UPPER(name) NOT LIKE ?', ['%GOPAY%']);
 
         if ($provider) {
             $q->where('provider', strtolower(trim($provider)));
@@ -128,9 +140,9 @@ class OtpService extends Model
                 ->orWhereRaw('UPPER(name) LIKE ?', ['%KOPKEN%'])
                 ->orWhereRaw('UPPER(name) LIKE ?', ['%KOPI%'])
                 ->orWhereRaw('UPPER(name) LIKE ?', ['%KENANGAN%'])
-                ->orWhereRaw('UPPER(name) LIKE ?', ['%FILTER%'])
                 ->orWhereRaw('UPPER(name) LIKE ?', ['%WHATSAPP%']);
-        });
+        })->whereRaw('UPPER(name) NOT LIKE ?', ['%SHOPEE%'])
+          ->whereRaw('UPPER(name) NOT LIKE ?', ['%GOPAY%']);
 
         if ($provider) {
             $q->where('provider', strtolower(trim($provider)));

@@ -38,10 +38,10 @@ class OtpOrderService
         $items = $client->getServices();
         Log::info("Syncing services for provider [{$targetProvider}] - items count: ".count($items), ['items' => $items]);
 
-        // Cek apakah provider memiliki layanan spesifik 'KOPI KENANGAN' / 'KOPKEN' / 'FILTER'
+        // Cek apakah provider memiliki layanan spesifik 'KOPI KENANGAN' / 'KOPKEN'
         $hasKopkenSpecific = collect($items)->contains(function ($item) {
             $n = strtoupper(trim((string) ($item['name'] ?? '')));
-            return str_contains($n, 'KOPI') || str_contains($n, 'KENANGAN') || str_contains($n, 'KOPKEN') || str_contains($n, 'FILTER');
+            return str_contains($n, 'KOPI') || str_contains($n, 'KENANGAN') || str_contains($n, 'KOPKEN');
         });
 
         $matchedProviderServiceIds = [];
@@ -50,10 +50,19 @@ class OtpOrderService
             $name = (string) ($item['name'] ?? '');
             $nameUpper = strtoupper(trim($name));
 
+            // Abaikan secara mutlak layanan non-target (Shopee, Gopay, Shopee Filter, dsb.)
+            if (str_contains($nameUpper, 'SHOPEE') || str_contains($nameUpper, 'GOPAY') || str_contains($nameUpper, 'GRAB') || str_contains($nameUpper, 'DANA') || str_contains($nameUpper, 'OVO') || str_contains($nameUpper, 'TIKTOK')) {
+                OtpService::where('provider', $targetProvider)
+                    ->where('provider_service_id', (int) $item['id'])
+                    ->update(['is_active' => false, 'is_enabled' => false]);
+
+                continue;
+            }
+
             $isMatched = false;
             if ($hasKopkenSpecific) {
-                // Ambil layanan Kopi Kenangan / Kopken / Kopken Filter (jangan ambil Gopay atau layanan lain)
-                if (str_contains($nameUpper, 'KOPI') || str_contains($nameUpper, 'KENANGAN') || str_contains($nameUpper, 'KOPKEN') || str_contains($nameUpper, 'FILTER')) {
+                // Hanya ambil layanan Kopi Kenangan / Kopken / Kopken Filter
+                if (str_contains($nameUpper, 'KOPI') || str_contains($nameUpper, 'KENANGAN') || str_contains($nameUpper, 'KOPKEN')) {
                     $isMatched = true;
                 }
             } else {
