@@ -39,11 +39,33 @@ class TelegramBotResource extends Resource
                 ->helperText('Token dari BotFather. Kosongkan saat simpan jika tidak ingin mengubah token yang sudah tersimpan.')
                 ->dehydrated(fn (?string $state): bool => filled($state))
                 ->dehydrateStateUsing(fn (?string $state): ?string => filled($state) ? trim($state) : null),
+            Forms\Components\Select::make('otp_provider')
+                ->label('OTP Provider')
+                ->options([
+                    'kopken' => 'Ninja OTP (app.ninjatop.cloud)',
+                    'wahub' => 'WAHub (dehuyzotp.shop)',
+                ])
+                ->default('kopken')
+                ->required(),
+            Forms\Components\Select::make('otp_service_id')
+                ->label('Layanan OTP Pilihan')
+                ->relationship('otpService', 'name')
+                ->searchable()
+                ->preload()
+                ->nullable()
+                ->helperText('Pilih layanan spesifik yang dijual bot ini (contoh: Kopi Kenangan / Kopken Filter). Kosongkan untuk otomatis.'),
             Forms\Components\TextInput::make('otp_api_key')
-                ->label('OTP Provider API Key')
+                ->label('OTP Provider API Key (Ninja OTP)')
                 ->password()
                 ->revealable()
                 ->helperText('Per bot. Kosongkan saat simpan jika tidak ingin mengubah key yang sudah ada.')
+                ->dehydrated(fn (?string $state): bool => filled($state))
+                ->dehydrateStateUsing(fn (?string $state): ?string => filled($state) ? trim($state) : null),
+            Forms\Components\TextInput::make('otp_wahub_api_key')
+                ->label('OTP Provider API Key (WAHub)')
+                ->password()
+                ->revealable()
+                ->helperText('API key jika menggunakan provider WAHub.')
                 ->dehydrated(fn (?string $state): bool => filled($state))
                 ->dehydrateStateUsing(fn (?string $state): ?string => filled($state) ? trim($state) : null),
             Forms\Components\Select::make('otp_markup_type')

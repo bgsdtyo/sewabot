@@ -21,25 +21,25 @@ class BotDetailController extends Controller
     {
         $this->authorizeOwner($telegramBot);
 
-        $telegramBot->load('product');
-        $services = OtpService::sellable()
-            ->forProvider($telegramBot->activeOtpProvider())
+        $telegramBot->load(['product', 'otpService']);
+        $allServices = OtpService::sellable()
             ->orderBy('name')
             ->get();
+        $services = $allServices->where('provider', $telegramBot->activeOtpProvider())->values();
 
         if ($services->isEmpty() && $telegramBot->hasOtpConfigured()) {
             try {
-                $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $telegramBot);
-                $services = OtpService::sellable()
-                    ->forProvider($telegramBot->activeOtpProvider())
+                $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $telegramBot);
+                $allServices = OtpService::sellable()
                     ->orderBy('name')
                     ->get();
+                $services = $allServices->where('provider', $telegramBot->activeOtpProvider())->values();
             } catch (\Throwable $e) {
                 Log::warning('Auto-sync services on bot detail show: '.$e->getMessage());
             }
         }
 
-        return view('bots.show', compact('telegramBot', 'services'));
+        return view('bots.show', compact('telegramBot', 'services', 'allServices'));
     }
 
     public function updateSettings(Request $request, TelegramBot $telegramBot, OtpOrderService $otp, TelegramBotService $botService): RedirectResponse
@@ -50,6 +50,7 @@ class BotDetailController extends Controller
             'token' => ['nullable', 'string', 'max:255'],
             'status' => ['nullable', 'string', 'in:active,inactive'],
             'otp_provider' => ['nullable', 'string', 'in:kopken,wahub'],
+            'otp_service_id' => ['nullable', 'integer', 'exists:otp_services,id'],
             'otp_api_key' => ['nullable', 'string', 'max:500'],
             'otp_wahub_api_key' => ['nullable', 'string', 'max:500'],
             'otp_markup_type' => ['required', 'in:percent,flat'],
@@ -85,6 +86,7 @@ class BotDetailController extends Controller
 
         $updates = [
             'otp_provider' => $data['otp_provider'] ?? $telegramBot->activeOtpProvider(),
+            'otp_service_id' => ! empty($data['otp_service_id']) ? (int) $data['otp_service_id'] : null,
             'otp_markup_type' => $data['otp_markup_type'],
             'otp_markup_percent' => (int) $data['otp_markup_percent'],
             'min_provider_balance_alert' => $minAlert && $minAlert > 0 ? $minAlert : null,
@@ -216,7 +218,7 @@ class BotDetailController extends Controller
         $this->authorizeOwner($telegramBot);
 
         try {
-            $count = $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $telegramBot);
+            $count = $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $telegramBot);
             $providerName = $telegramBot->otpProviderName();
 
             return back()->with('success', "Sync layanan OTP berhasil ({$count} layanan) untuk {$providerName}.");

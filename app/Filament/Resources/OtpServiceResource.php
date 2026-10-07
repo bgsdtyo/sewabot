@@ -53,7 +53,7 @@ class OtpServiceResource extends Resource
                     ->label('Sync Kopi Kenangan / OTP')
                     ->action(function () {
                         try {
-                            $n = app(OtpOrderService::class)->syncServices(['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'WHATSAPP', 'WA']);
+                            $n = app(OtpOrderService::class)->syncServices(['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA']);
                             Notification::make()->title("Synced {$n}")->success()->send();
                         } catch (\Throwable $e) {
                             Notification::make()->title($e->getMessage())->danger()->send();

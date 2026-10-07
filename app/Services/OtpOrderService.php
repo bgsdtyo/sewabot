@@ -23,9 +23,9 @@ class OtpOrderService
     ) {}
 
     /**
-     * Sync services specifically for Kopi Kenangan / Kopken / WhatsApp from the active provider.
+     * Sync services specifically for Kopi Kenangan / Kopken / Kopken Filter / WhatsApp from the active provider.
      */
-    public function syncServices(?array $onlyNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'WHATSAPP', 'WA'], ?TelegramBot $usingBot = null, ?string $providerName = null): int
+    public function syncServices(?array $onlyNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'], ?TelegramBot $usingBot = null, ?string $providerName = null): int
     {
         $targetProvider = $usingBot
             ? $usingBot->activeOtpProvider()
@@ -38,10 +38,10 @@ class OtpOrderService
         $items = $client->getServices();
         Log::info("Syncing services for provider [{$targetProvider}] - items count: ".count($items), ['items' => $items]);
 
-        // Cek apakah provider memiliki layanan spesifik 'KOPI KENANGAN' / 'KOPKEN'
+        // Cek apakah provider memiliki layanan spesifik 'KOPI KENANGAN' / 'KOPKEN' / 'FILTER'
         $hasKopkenSpecific = collect($items)->contains(function ($item) {
             $n = strtoupper(trim((string) ($item['name'] ?? '')));
-            return str_contains($n, 'KOPI') || str_contains($n, 'KENANGAN') || str_contains($n, 'KOPKEN');
+            return str_contains($n, 'KOPI') || str_contains($n, 'KENANGAN') || str_contains($n, 'KOPKEN') || str_contains($n, 'FILTER');
         });
 
         $matchedProviderServiceIds = [];
@@ -52,8 +52,8 @@ class OtpOrderService
 
             $isMatched = false;
             if ($hasKopkenSpecific) {
-                // Hanya ambil layanan Kopi Kenangan / Kopken (jangan ambil Gopay atau layanan lain)
-                if (str_contains($nameUpper, 'KOPI') || str_contains($nameUpper, 'KENANGAN') || str_contains($nameUpper, 'KOPKEN')) {
+                // Ambil layanan Kopi Kenangan / Kopken / Kopken Filter (jangan ambil Gopay atau layanan lain)
+                if (str_contains($nameUpper, 'KOPI') || str_contains($nameUpper, 'KENANGAN') || str_contains($nameUpper, 'KOPKEN') || str_contains($nameUpper, 'FILTER')) {
                     $isMatched = true;
                 }
             } else {

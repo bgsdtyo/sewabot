@@ -15,6 +15,7 @@ class TelegramBot extends Model
         'username',
         'token',
         'otp_provider',
+        'otp_service_id',
         'otp_api_key',
         'otp_wahub_api_key',
         'provider_balance',
@@ -42,6 +43,7 @@ class TelegramBot extends Model
     protected function casts(): array
     {
         return [
+            'otp_service_id' => 'integer',
             'provider_balance' => 'integer',
             'provider_balance_checked_at' => 'datetime',
             'min_provider_balance_alert' => 'integer',
@@ -103,6 +105,39 @@ class TelegramBot extends Model
     public function hasOtpConfigured(): bool
     {
         return filled($this->activeOtpApiKey());
+    }
+
+    public function otpService(): BelongsTo
+    {
+        return $this->belongsTo(OtpService::class, 'otp_service_id');
+    }
+
+    public function activeOtpService(): ?OtpService
+    {
+        if ($this->otp_service_id) {
+            $service = OtpService::sellable()
+                ->forProvider($this->activeOtpProvider())
+                ->whereKey($this->otp_service_id)
+                ->first();
+
+            if ($service) {
+                return $service;
+            }
+        }
+
+        return OtpService::sellable()
+            ->kopiKenangan($this->activeOtpProvider())
+            ->first()
+            ?? OtpService::sellable()->kopken($this->activeOtpProvider())->first()
+            ?? OtpService::sellable()->forProvider($this->activeOtpProvider())->first()
+            ?? OtpService::sellable()->first();
+    }
+
+    public function activeOtpServiceName(): string
+    {
+        $service = $this->activeOtpService();
+
+        return $service ? $service->name : 'Kopi Kenangan';
     }
 
     public function user(): BelongsTo

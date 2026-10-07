@@ -1,9 +1,20 @@
 @php
     $activeProvider = $telegramBot->activeOtpProvider();
-    $kopken = $services->first(fn ($s) => in_array(strtoupper(trim($s->name)), ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'WHATSAPP', 'WA']) || str_contains(strtoupper($s->name), 'KOPI') || str_contains(strtoupper($s->name), 'KENANGAN') || str_contains(strtoupper($s->name), 'KOPKEN')) ?? $services->first();
+    $activeService = $telegramBot->activeOtpService();
     $isBotRunning = $telegramBot->isRunning();
     $hasToken = $telegramBot->hasValidToken();
     $providerName = $telegramBot->otpProviderName();
+
+    $servicesJson = $allServices->map(function ($s) {
+        return [
+            'id' => $s->id,
+            'name' => $s->name,
+            'provider' => $s->provider,
+            'provider_price' => (int) $s->provider_price,
+            'stock' => (int) $s->stock,
+            'formatted_price' => $s->formattedProviderPrice(),
+        ];
+    })->values()->toJson();
 @endphp
 
 <x-app-layout>
@@ -123,12 +134,12 @@
                 </div>
                 <div class="mt-2 flex items-baseline justify-between">
                     <p class="text-lg font-black text-emerald-700">
-                        {{ $kopken ? $telegramBot->formattedSellPriceFor($kopken->provider_price) : '-' }}
+                        {{ $activeService ? $telegramBot->formattedSellPriceFor($activeService->provider_price) : '-' }}
                     </p>
                     <span class="text-[11px] font-bold text-brand-600">Markup: {{ $telegramBot->markupLabel() }}</span>
                 </div>
                 <p class="mt-1 text-[11px] text-brand-500 truncate">
-                    Modal: {{ $kopken ? $kopken->formattedProviderPrice() : '-' }} · Stok: {{ $kopken && $kopken->stock > 0 ? number_format($kopken->stock, 0, ',', '.') : '0' }}
+                    {{ $activeService ? $activeService->name : 'Kopi Kenangan' }} · Modal: {{ $activeService ? $activeService->formattedProviderPrice() : '-' }}
                 </p>
             </div>
         </div>
@@ -137,14 +148,28 @@
         <form method="POST" action="{{ route('bots.settings', $telegramBot) }}"
               x-data="{
                   activeProvider: '{{ old('otp_provider', $activeProvider) }}',
+                  selectedServiceId: '{{ old('otp_service_id', (string) ($telegramBot->otp_service_id ?? '')) }}',
+                  allServices: {!! $servicesJson !!},
                   botStatus: '{{ old('status', $telegramBot->status === 'active' ? 'active' : 'inactive') }}',
                   markupType: '{{ old('otp_markup_type', $telegramBot->otp_markup_type ?? 'percent') }}',
                   markupValue: {{ (int) old('otp_markup_percent', $telegramBot->otp_markup_percent ?? 50) }},
-                  modalPrice: {{ (int) ($kopken->provider_price ?? 1650) }},
                   reminderEnabled: {{ ($telegramBot->min_provider_balance_alert && $telegramBot->min_provider_balance_alert > 0) ? 'true' : 'false' }},
                   reminderAmount: {{ (int) old('min_provider_balance_alert', $telegramBot->min_provider_balance_alert ?? 10000) }},
                   forceSubEnabled: {{ old('force_subscribe_enabled', $telegramBot->force_subscribe_enabled) ? 'true' : 'false' }},
 
+                  get availableServices() {
+                      return this.allServices.filter(s => s.provider === this.activeProvider);
+                  },
+                  get currentSelectedService() {
+                      if (this.selectedServiceId) {
+                          const found = this.availableServices.find(s => String(s.id) === String(this.selectedServiceId));
+                          if (found) return found;
+                      }
+                      return this.availableServices[0] || null;
+                  },
+                  get modalPrice() {
+                      return this.currentSelectedService ? this.currentSelectedService.provider_price : {{ (int) ($activeService->provider_price ?? 1650) }};
+                  },
                   get sellPrice() {
                       if (this.markupType === 'flat') return this.modalPrice + Number(this.markupValue || 0);
                       return Math.ceil(this.modalPrice * (100 + Number(this.markupValue || 0)) / 100);
@@ -381,6 +406,37 @@
                                 @error('otp_wahub_api_key')
                                     <p class="mt-1 text-xs text-red-600 font-semibold">{{ $message }}</p>
                                 @enderror
+                            </div>
+
+                            {{-- Pilihan Layanan OTP yang Dijual Bot --}}
+                            <div class="border-t border-brand-100 pt-4 space-y-3">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <label class="block text-xs font-bold text-brand-900">Pilih Layanan OTP Bot</label>
+                                        <p class="text-[11px] text-brand-400">Tentukan layanan yang akan dijual oleh bot ini (misal: Reguler vs Filter)</p>
+                                    </div>
+                                    <template x-if="currentSelectedService">
+                                        <span class="inline-flex items-center gap-1 rounded-md bg-brand-50 border border-brand-200 px-2 py-0.5 text-[10px] font-bold text-brand-700">
+                                            Stok Live: <span x-text="currentSelectedService.stock > 0 ? (currentSelectedService.stock + ' nomor') : 'Kosong'" :class="currentSelectedService.stock > 0 ? 'text-emerald-700 font-bold' : 'text-rose-600 font-bold'"></span>
+                                        </span>
+                                    </template>
+                                </div>
+
+                                <div class="space-y-2">
+                                    <select name="otp_service_id" x-model="selectedServiceId"
+                                            class="w-full rounded-xl border-brand-200 text-xs font-bold text-brand-900 focus:border-brand-900 focus:ring-brand-900 bg-white py-2.5">
+                                        <option value="">⚙️ Otomatis / Default (Kopi Kenangan Reguler)</option>
+                                        <template x-for="svc in availableServices" :key="svc.id">
+                                            <option :value="svc.id" x-text="svc.name + ' — Modal ' + svc.formatted_price + ' (' + (svc.stock > 0 ? svc.stock + ' stok' : 'Stok Kosong') + ')'"></option>
+                                        </template>
+                                    </select>
+                                    @error('otp_service_id')
+                                        <p class="mt-1 text-xs text-red-600 font-semibold">{{ $message }}</p>
+                                    @enderror
+                                    <p class="text-[11px] text-brand-500 leading-relaxed">
+                                        💡 <i>Tersedia opsi <b>Kopi Kenangan</b>, <b>Kopken Filter</b>, atau layanan lain sesuai provider aktif. Bot akan otomatis menggunakan tarif & stok dari layanan yang dipilih.</i>
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </div>

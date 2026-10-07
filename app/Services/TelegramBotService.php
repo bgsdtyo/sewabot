@@ -962,24 +962,26 @@ class TelegramBotService
     protected function welcomeText(TelegramBot $bot, $member): string
     {
         $service = $this->kopkenService($bot);
+        $serviceLabel = $service ? strtoupper(e($service->name)) : 'KOPKEN';
         $price = $service ? $bot->formattedSellPriceFor($service->provider_price) : '-';
         $name = e($bot->name);
 
         return "<b>Selamat datang di {$name}</b>\n\n"
             ."Layanan OTP WhatsApp profesional untuk kebutuhan verifikasi akun Anda.\n\n"
             ."Saldo tersedia: <b>{$member->formattedAvailable()}</b>\n"
-            ."Tarif KOPKEN: <b>{$price}</b>\n\n"
+            ."Tarif {$serviceLabel}: <b>{$price}</b>\n\n"
             .'Silakan pilih menu di bawah untuk memulai.';
     }
 
     protected function helpText(TelegramBot $bot, $member): string
     {
         $service = $this->kopkenService($bot);
+        $serviceLabel = $service ? strtoupper(e($service->name)) : 'KOPKEN';
         $price = $service ? $bot->formattedSellPriceFor($service->provider_price) : '-';
 
         return "<b>Panduan Penggunaan</b>\n\n"
             ."Saldo tersedia: <b>{$member->formattedAvailable()}</b>\n"
-            ."Tarif KOPKEN: <b>{$price}</b>\n\n"
+            ."Tarif {$serviceLabel}: <b>{$price}</b>\n\n"
             ."<b>Menu Utama</b>\n"
             ."• 📱 Order OTP — Pesan nomor baru\n"
             ."• 💰 Saldo — Cek sisa saldo akun Anda\n"
@@ -992,6 +994,13 @@ class TelegramBotService
 
     protected function kopkenService(?TelegramBot $bot = null): ?OtpService
     {
+        if ($bot) {
+            $service = $bot->activeOtpService();
+            if ($service) {
+                return $service;
+            }
+        }
+
         $provider = $bot ? $bot->activeOtpProvider() : null;
 
         // 1. Prioritaskan layanan Kopi Kenangan / Kopken spesifik untuk provider aktif
