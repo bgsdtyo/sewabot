@@ -571,15 +571,21 @@
                             <div class="space-y-4">
                                 {{-- 1. Status Akun (Full Ban) --}}
                                 <div class="rounded-2xl border border-brand-200 p-4 transition" :class="isActive ? 'bg-white' : 'bg-rose-50/70 border-rose-200'">
-                                    <div class="flex items-center justify-between">
+                                    <div class="flex items-center justify-between gap-4">
                                         <div>
                                             <p class="text-sm font-bold text-brand-900">Status Akun (Akses Bot)</p>
                                             <p class="text-xs text-brand-500" x-text="isActive ? 'Member dapat mengakses seluruh menu bot secara normal.' : '⛔ Member DIBANNED TOTAL dari seluruh fungsi bot.'"></p>
                                         </div>
-                                        <label class="relative inline-flex cursor-pointer items-center">
-                                            <input type="checkbox" name="is_active" value="1" x-model="isActive" class="peer sr-only">
-                                            <div class="h-6 w-11 rounded-full bg-slate-200 peer-focus:outline-none peer-checked:bg-emerald-500 after:absolute after:top-[2px] after:left-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
-                                        </label>
+                                        <button type="button"
+                                                role="switch"
+                                                :aria-checked="isActive"
+                                                @click="isActive = !isActive"
+                                                class="relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+                                                :class="isActive ? 'bg-emerald-500' : 'bg-slate-300'">
+                                            <span class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out"
+                                                  :class="isActive ? 'translate-x-5' : 'translate-x-0'"></span>
+                                        </button>
+                                        <input type="hidden" name="is_active" :value="isActive ? 1 : 0">
                                     </div>
 
                                     {{-- Ban Reason Input (jika diban) --}}
@@ -592,29 +598,41 @@
 
                                 {{-- 2. Izin Order OTP --}}
                                 <div class="rounded-2xl border border-brand-200 p-4 bg-white transition" :class="{'opacity-50 pointer-events-none': !isActive}">
-                                    <div class="flex items-center justify-between">
+                                    <div class="flex items-center justify-between gap-4">
                                         <div>
                                             <p class="text-sm font-bold text-brand-900">Izin Order OTP</p>
                                             <p class="text-xs text-brand-500" x-text="canOrder ? 'Member diizinkan membuat pesanan OTP baru.' : '🚫 Member diblokir dari pembuatan pesanan OTP.'"></p>
                                         </div>
-                                        <label class="relative inline-flex cursor-pointer items-center">
-                                            <input type="checkbox" name="can_order" value="1" x-model="canOrder" :disabled="!isActive" class="peer sr-only">
-                                            <div class="h-6 w-11 rounded-full bg-slate-200 peer-focus:outline-none peer-checked:bg-emerald-500 after:absolute after:top-[2px] after:left-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
-                                        </label>
+                                        <button type="button"
+                                                role="switch"
+                                                :aria-checked="canOrder"
+                                                @click="if (isActive) canOrder = !canOrder"
+                                                class="relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+                                                :class="canOrder ? 'bg-emerald-500' : 'bg-slate-300'">
+                                            <span class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out"
+                                                  :class="canOrder ? 'translate-x-5' : 'translate-x-0'"></span>
+                                        </button>
+                                        <input type="hidden" name="can_order" :value="canOrder ? 1 : 0">
                                     </div>
                                 </div>
 
                                 {{-- 3. Notifikasi & Broadcast --}}
                                 <div class="rounded-2xl border border-brand-200 p-4 bg-white transition" :class="{'opacity-50 pointer-events-none': !isActive}">
-                                    <div class="flex items-center justify-between">
+                                    <div class="flex items-center justify-between gap-4">
                                         <div>
                                             <p class="text-sm font-bold text-brand-900">Broadcast & Notifikasi</p>
                                             <p class="text-xs text-brand-500" x-text="canBroadcast ? 'Member menerima pesan siaran/broadcast dan notifikasi restock.' : '🔕 Member dimute dari broadcast/notifikasi pengumuman.'"></p>
                                         </div>
-                                        <label class="relative inline-flex cursor-pointer items-center">
-                                            <input type="checkbox" name="can_receive_broadcast" value="1" x-model="canBroadcast" :disabled="!isActive" class="peer sr-only">
-                                            <div class="h-6 w-11 rounded-full bg-slate-200 peer-focus:outline-none peer-checked:bg-emerald-500 after:absolute after:top-[2px] after:left-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
-                                        </label>
+                                        <button type="button"
+                                                role="switch"
+                                                :aria-checked="canBroadcast"
+                                                @click="if (isActive) canBroadcast = !canBroadcast"
+                                                class="relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+                                                :class="canBroadcast ? 'bg-emerald-500' : 'bg-slate-300'">
+                                            <span class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out"
+                                                  :class="canBroadcast ? 'translate-x-5' : 'translate-x-0'"></span>
+                                        </button>
+                                        <input type="hidden" name="can_receive_broadcast" :value="canBroadcast ? 1 : 0">
                                     </div>
                                 </div>
                             </div>
