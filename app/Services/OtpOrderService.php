@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\BotMember;
 use App\Models\OtpOrder;
 use App\Models\OtpService;
+use App\Models\OtpStockAlert;
 use App\Models\Setting;
 use App\Models\TelegramBot;
 use Illuminate\Support\Facades\Cache;
@@ -84,7 +85,7 @@ class OtpOrderService
             $matchedProviderServiceIds[] = (int) $item['id'];
             $providerPrice = (int) ($item['price'] ?? 0);
 
-            OtpService::updateOrCreate(
+            $savedService = OtpService::updateOrCreate(
                 [
                     'provider' => $targetProvider,
                     'provider_service_id' => (int) $item['id'],
@@ -101,6 +102,11 @@ class OtpOrderService
                 ]
             );
 
+            $newStock = (int) ($item['stock'] ?? 0);
+            if ($newStock > 0) {
+                $this->dispatchRestockAlerts($savedService, $newStock);
+            }
+
             $count++;
         }
 
@@ -112,6 +118,66 @@ class OtpOrderService
         }
 
         return $count;
+    }
+
+    public function dispatchRestockAlerts(OtpService $service, int $stock): void
+    {
+        if ($stock <= 0) {
+            return;
+        }
+
+        $alerts = OtpStockAlert::query()
+            ->where('otp_service_id', $service->id)
+            ->with(['telegramBot', 'botMember', 'otpService'])
+            ->get();
+
+        if ($alerts->isEmpty()) {
+            return;
+        }
+
+        foreach ($alerts as $alert) {
+            $bot = $alert->telegramBot;
+            $member = $alert->botMember;
+
+            if (! $bot || ! $bot->token || $bot->status !== 'active') {
+                continue;
+            }
+
+            if (! $member || ! $member->is_active || ! $member->can_receive_broadcast || ! $member->telegram_chat_id) {
+                $alert->delete();
+                continue;
+            }
+
+            $unitPrice = $bot->sellPriceFor($service->provider_price);
+            $formattedPrice = 'Rp '.number_format($unitPrice, 0, ',', '.');
+            $stockFormatted = number_format($stock, 0, ',', '.').' nomor';
+
+            $text = "🔔 <b>STOK KEMBALI TERSEDIA!</b> 📦\n\n"
+                ."Kabar baik! Stok nomor untuk layanan yang Anda tunggu telah masuk:\n\n"
+                ."❏ Layanan: <b>".e($service->name)."</b>\n"
+                ."├  Stok Tersedia: <b>{$stockFormatted}</b>\n"
+                ."├  Harga: <b>{$formattedPrice}</b>\n"
+                ."└  Saldo Anda: <b>".$member->formattedAvailable()."</b>\n\n"
+                ."<i>Segera buat pesanan sekarang sebelum kuota stok habis kembali!</i>";
+
+            $keyboard = [
+                'inline_keyboard' => [
+                    [
+                        ['text' => '📲 Pesan Sekarang', 'callback_data' => 'otp_check_stock:'.$service->id],
+                    ],
+                ],
+            ];
+
+            try {
+                $this->telegram->sendMessage($bot, $member->telegram_chat_id, $text, replyMarkup: $keyboard);
+            } catch (\Throwable $e) {
+                Log::warning("Gagal mengirim restock alert ke {$member->telegram_chat_id}: ".$e->getMessage());
+            }
+
+            $alert->delete();
+
+            usleep(40000);
+        }
     }
 
     public function getServiceStock(OtpService $service, ?TelegramBot $bot = null, bool $forceFresh = false): int

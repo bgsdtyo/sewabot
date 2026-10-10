@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\BotMember;
 use App\Models\OtpOrder;
 use App\Models\OtpService;
+use App\Models\OtpStockAlert;
 use App\Models\TelegramBot;
 use App\Models\WalletTransaction;
 use Illuminate\Support\Carbon;
@@ -1693,6 +1694,9 @@ class TelegramBotService
 
         $otpOrderService = app(OtpOrderService::class);
         $stock = $otpOrderService->getServiceStock($service, $bot, $forceFreshStock);
+        if ($forceFreshStock && $stock > 0) {
+            $otpOrderService->dispatchRestockAlerts($service, $stock);
+        }
         $stockFormatted = $stock > 0 ? number_format($stock, 0, ',', '.').' nomor' : '0 (Habis)';
         $formattedUnitPrice = 'Rp '.number_format($unitPrice, 0, ',', '.');
         $formattedTotalHold = 'Rp '.number_format($totalPrice, 0, ',', '.');
@@ -1729,6 +1733,16 @@ class TelegramBotService
         }
 
         if ($stock <= 0) {
+            $hasAlert = OtpStockAlert::query()
+                ->where('telegram_bot_id', $bot->id)
+                ->where('bot_member_id', $member->id)
+                ->where('otp_service_id', $service->id)
+                ->exists();
+
+            $alertButton = $hasAlert
+                ? ['text' => '🔕 Batalkan Pengingat Stok', 'callback_data' => 'otp_unalert_stock:'.$service->id]
+                : ['text' => '🔔 Ingatkan Saya Saat Stok Ada', 'callback_data' => 'otp_alert_stock:'.$service->id];
+
             $text = "<b>Stok Nomor Habis</b> ⚠️\n\n"
                 ."❏ Layanan: <b>".e($service->name)."</b>\n"
                 ."├  Harga: <b>{$formattedUnitPrice}</b>\n"
@@ -1736,9 +1750,11 @@ class TelegramBotService
                 ."├  Cek Terakhir: <b>{$checkTime} WIB</b>\n"
                 ."├  Saldo Tersedia: <b>".$member->formattedAvailable()."</b>\n"
                 ."└  Status: <b>Stok Kosong</b>\n\n"
-                ."<i>Stok nomor untuk layanan ini saat ini sedang habis. Silakan klik Cek Stok Lagi untuk cek ulang atau coba lagi nanti.</i>";
+                .($hasAlert ? "🔔 <i>Pengingat aktif! Bot akan otomatis mengirim notifikasi ketika nomor kembali tersedia.</i>\n\n" : "")
+                ."<i>Stok nomor untuk layanan ini saat ini sedang habis. Klik tombol di bawah untuk mendapatkan notifikasi otomatis saat restock.</i>";
 
             $buttons = [
+                [$alertButton],
                 [
                     ['text' => '🔄 Cek Stok Lagi', 'callback_data' => 'otp_check_stock:'.$service->id],
                     ['text' => '❌ Tutup', 'callback_data' => 'otp_preview_cancel'],
@@ -1777,6 +1793,64 @@ class TelegramBotService
         $this->replyOrSend($bot, $chatId, $editMessageId, $text, inlineKeyboard: [
             'inline_keyboard' => $buttons,
         ]);
+    }
+
+    protected function toggleRestockAlert(
+        TelegramBot $bot,
+        $member,
+        int|string $chatId,
+        int $serviceId,
+        bool $subscribe,
+        ?int $messageId = null,
+        ?string $callbackId = null
+    ): void {
+        $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService($bot);
+        if (! $service) {
+            if ($callbackId) {
+                $this->answerCallbackToast($bot, $callbackId, 'Layanan tidak ditemukan.');
+            }
+
+            return;
+        }
+
+        if ($subscribe) {
+            if (! $member->canReceiveBroadcast()) {
+                if ($callbackId) {
+                    $this->answerCallbackToast($bot, $callbackId, 'Akun Anda dinonaktifkan dari penerimaan notifikasi oleh admin.', true);
+                }
+
+                return;
+            }
+
+            OtpStockAlert::updateOrCreate([
+                'telegram_bot_id' => $bot->id,
+                'bot_member_id' => $member->id,
+                'otp_service_id' => $service->id,
+            ]);
+
+            if ($callbackId) {
+                $this->answerCallbackToast($bot, $callbackId, "🔔 Pengingat aktif! Bot akan memberitahu Anda otomatis begitu nomor {$service->name} tersedia.");
+            }
+        } else {
+            OtpStockAlert::where('telegram_bot_id', $bot->id)
+                ->where('bot_member_id', $member->id)
+                ->where('otp_service_id', $service->id)
+                ->delete();
+
+            if ($callbackId) {
+                $this->answerCallbackToast($bot, $callbackId, "🔕 Pengingat stok {$service->name} dibatalkan.");
+            }
+        }
+
+        $this->startOrderForService(
+            $bot,
+            $member,
+            $chatId,
+            $service->id,
+            $messageId,
+            forceFreshStock: false,
+            callbackId: null
+        );
     }
 
     protected function confirmKopkenOrder(
@@ -3476,6 +3550,20 @@ class TelegramBotService
                 forceFreshStock: true,
                 callbackId: $callbackId
             );
+
+            return;
+        }
+
+        if (str_starts_with($data, 'otp_alert_stock:')) {
+            $serviceId = (int) substr($data, strlen('otp_alert_stock:'));
+            $this->toggleRestockAlert($bot, $member, $chatId, $serviceId, true, $messageId ? (int) $messageId : null, $callbackId);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'otp_unalert_stock:')) {
+            $serviceId = (int) substr($data, strlen('otp_unalert_stock:'));
+            $this->toggleRestockAlert($bot, $member, $chatId, $serviceId, false, $messageId ? (int) $messageId : null, $callbackId);
 
             return;
         }
