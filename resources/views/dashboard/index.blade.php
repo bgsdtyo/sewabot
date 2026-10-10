@@ -212,98 +212,95 @@
                      x-transition:enter-end="opacity-100 translate-y-0"
                      class="space-y-3">
                     @forelse ($members as $member)
-                        <div class="rounded-2xl border border-brand-200 bg-white p-4 sm:p-5 shadow-soft transition hover:border-brand-300">
-                            <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                                {{-- 1. Member Profile & Badge --}}
-                                <div class="flex items-center gap-3.5 min-w-0">
+                        <div class="rounded-2xl border border-brand-200 bg-white px-5 py-4 shadow-soft transition hover:border-brand-300">
+                            <div class="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-center">
+                                {{-- 1. Member Profile & Badge (Col 1-4) --}}
+                                <div class="flex items-center gap-3 md:col-span-4 min-w-0">
                                     <div @class([
-                                        'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-xs',
+                                        'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border shadow-xs',
                                         'bg-rose-50 text-rose-500 border-rose-200' => ! $member->is_active,
                                         'bg-amber-50 text-amber-500 border-amber-200' => $member->is_active && (! $member->can_order || ! $member->can_receive_broadcast),
                                         'bg-sky-50 text-sky-500 border-sky-100' => $member->is_active && $member->can_order && $member->can_receive_broadcast,
                                     ])>
-                                        <svg class="h-6 w-6" viewBox="0 0 24 24" fill="currentColor">
+                                        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
                                             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
                                         </svg>
                                     </div>
-                                    <div class="min-w-0">
-                                        <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                                            <p class="font-bold text-brand-900 truncate max-w-[160px] sm:max-w-[220px]">{{ $member->displayName() }}</p>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex items-center gap-1.5">
+                                            <p class="font-bold text-brand-900 text-sm truncate" title="{{ $member->displayName() }}">{{ $member->displayName() }}</p>
                                             @if (! $member->is_active)
-                                                <span class="inline-flex shrink-0 items-center gap-1 rounded-md bg-rose-50 px-2 py-0.5 text-[11px] font-extrabold text-rose-700 border border-rose-200">
+                                                <span class="inline-flex shrink-0 items-center gap-1 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-extrabold text-rose-700 border border-rose-200">
                                                     <span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
                                                     Banned
                                                 </span>
                                             @elseif (! $member->can_order && ! $member->can_receive_broadcast)
-                                                <span class="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800 border border-amber-200">
+                                                <span class="inline-flex shrink-0 items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-200">
                                                     <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
-                                                    Blokir & Muted
+                                                    Restricted
                                                 </span>
                                             @elseif (! $member->can_order)
-                                                <span class="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800 border border-amber-200">
+                                                <span class="inline-flex shrink-0 items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-200">
                                                     <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
-                                                    Blokir Order
+                                                    No Order
                                                 </span>
                                             @elseif (! $member->can_receive_broadcast)
-                                                <span class="inline-flex shrink-0 items-center gap-1 rounded-md bg-slate-50 px-2 py-0.5 text-[11px] font-bold text-slate-700 border border-slate-200">
+                                                <span class="inline-flex shrink-0 items-center gap-1 rounded bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold text-slate-700 border border-slate-200">
                                                     <span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span>
-                                                    Mute Notif
+                                                    Muted
                                                 </span>
                                             @else
-                                                <span class="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-800 border border-emerald-200">
+                                                <span class="inline-flex shrink-0 items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200">
                                                     <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
                                                     Aktif
                                                 </span>
                                             @endif
                                         </div>
-                                        <p class="text-xs text-brand-500 mt-0.5">
-                                            ID <span class="font-mono font-medium">{{ $member->telegram_chat_id }}</span>
+                                        <p class="text-[11px] text-brand-400 font-mono mt-0.5 truncate">
+                                            ID {{ $member->telegram_chat_id }}
                                             @if(! $member->is_active && filled($member->ban_reason))
-                                                · <span class="italic text-rose-600 font-medium">Alasan: {{ $member->ban_reason }}</span>
+                                                · <span class="text-rose-600 font-sans font-medium">({{ $member->ban_reason }})</span>
                                             @endif
                                         </p>
                                     </div>
                                 </div>
 
-                                {{-- 2. Saldo Stats & Action Buttons --}}
-                                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:justify-end lg:gap-6 border-t border-brand-100 pt-3 lg:border-t-0 lg:pt-0">
-                                    {{-- Saldo Stats --}}
-                                    <div class="grid grid-cols-3 gap-3 text-left sm:text-right shrink-0">
-                                        <div class="min-w-[65px]">
-                                            <p class="text-[11px] font-semibold text-brand-400 uppercase tracking-wider">Saldo</p>
-                                            <p class="mt-0.5 font-semibold text-brand-900 text-sm whitespace-nowrap">{{ $member->formattedBalance() }}</p>
-                                        </div>
-                                        <div class="min-w-[65px]">
-                                            <p class="text-[11px] font-semibold text-brand-400 uppercase tracking-wider">Hold</p>
-                                            <p class="mt-0.5 font-semibold text-brand-900 text-sm whitespace-nowrap">Rp{{ number_format($member->held_balance, 0, ',', '.') }}</p>
-                                        </div>
-                                        <div class="min-w-[75px]">
-                                            <p class="text-[11px] font-semibold text-brand-400 uppercase tracking-wider">Tersedia</p>
-                                            <p class="mt-0.5 font-bold text-emerald-600 text-sm whitespace-nowrap">{{ $member->formattedAvailable() }}</p>
-                                        </div>
+                                {{-- 2. Saldo Stats (Col 5-8) --}}
+                                <div class="grid grid-cols-3 gap-2 text-center md:col-span-4 border-y border-brand-100 py-2 md:border-0 md:py-0">
+                                    <div>
+                                        <p class="text-[10px] font-bold text-brand-400 uppercase tracking-wider">Saldo</p>
+                                        <p class="font-semibold text-brand-900 text-xs sm:text-sm whitespace-nowrap">{{ $member->formattedBalance() }}</p>
                                     </div>
-
-                                    {{-- Action Buttons --}}
-                                    <div class="flex items-center gap-2 shrink-0">
-                                        <button type="button"
-                                                @click="openPermsModal('{{ $member->id }}', '{{ addslashes($member->displayName()) }}', '{{ $member->telegram_chat_id }}', {{ $member->is_active ? 'true' : 'false' }}, {{ $member->can_order ? 'true' : 'false' }}, {{ $member->can_receive_broadcast ? 'true' : 'false' }}, '{{ addslashes($member->ban_reason ?? '') }}', '{{ route('bots.members.permissions', ['telegramBot' => $bot, 'botMember' => $member]) }}')"
-                                                class="inline-flex items-center justify-center gap-1.5 rounded-xl border border-brand-200 bg-white px-3.5 py-2.5 text-xs font-bold text-brand-800 shadow-xs transition hover:bg-brand-50 hover:border-brand-300 active:scale-95 whitespace-nowrap"
-                                                title="Kelola Izin & Ban Member">
-                                            <svg class="h-4 w-4 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
-                                            </svg>
-                                            <span>Kelola Akses</span>
-                                        </button>
-
-                                        <button type="button"
-                                                @click="openModal('{{ $member->id }}', '{{ addslashes($member->displayName()) }}', '{{ $member->telegram_chat_id }}', '{{ $member->formattedAvailable() }}', '{{ route('bots.members.topup', ['telegramBot' => $bot, 'botMember' => $member]) }}')"
-                                                class="inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-900 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-brand-700 active:scale-95 whitespace-nowrap">
-                                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
-                                            </svg>
-                                            <span>Topup Saldo</span>
-                                        </button>
+                                    <div>
+                                        <p class="text-[10px] font-bold text-brand-400 uppercase tracking-wider">Hold</p>
+                                        <p class="font-semibold text-brand-900 text-xs sm:text-sm whitespace-nowrap">Rp{{ number_format($member->held_balance, 0, ',', '.') }}</p>
                                     </div>
+                                    <div>
+                                        <p class="text-[10px] font-bold text-brand-400 uppercase tracking-wider">Tersedia</p>
+                                        <p class="font-bold text-emerald-600 text-xs sm:text-sm whitespace-nowrap">{{ $member->formattedAvailable() }}</p>
+                                    </div>
+                                </div>
+
+                                {{-- 3. Action Buttons (Col 9-12) --}}
+                                <div class="flex items-center justify-end gap-2 md:col-span-4">
+                                    <button type="button"
+                                            @click="openPermsModal('{{ $member->id }}', '{{ addslashes($member->displayName()) }}', '{{ $member->telegram_chat_id }}', {{ $member->is_active ? 'true' : 'false' }}, {{ $member->can_order ? 'true' : 'false' }}, {{ $member->can_receive_broadcast ? 'true' : 'false' }}, '{{ addslashes($member->ban_reason ?? '') }}', '{{ route('bots.members.permissions', ['telegramBot' => $bot, 'botMember' => $member]) }}')"
+                                            class="inline-flex items-center justify-center gap-1.5 rounded-xl border border-brand-200 bg-white px-3 py-2 text-xs font-bold text-brand-800 shadow-2xs transition hover:bg-brand-50 hover:border-brand-300 active:scale-95 whitespace-nowrap"
+                                            title="Kelola Izin & Ban Member">
+                                        <svg class="h-3.5 w-3.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                                        </svg>
+                                        <span>Kelola Akses</span>
+                                    </button>
+
+                                    <button type="button"
+                                            @click="openModal('{{ $member->id }}', '{{ addslashes($member->displayName()) }}', '{{ $member->telegram_chat_id }}', '{{ $member->formattedAvailable() }}', '{{ route('bots.members.topup', ['telegramBot' => $bot, 'botMember' => $member]) }}')"
+                                            class="inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-900 px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-brand-700 active:scale-95 whitespace-nowrap">
+                                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
+                                        </svg>
+                                        <span>Topup Saldo</span>
+                                    </button>
                                 </div>
                             </div>
                         </div>
