@@ -269,6 +269,30 @@ class BotDetailController extends Controller
             ->with('success', 'Saldo '.$botMember->displayName().' ditambah Rp'.number_format($data['amount'], 0, ',', '.'));
     }
 
+    public function updateMemberPermissions(Request $request, TelegramBot $telegramBot, BotMember $botMember): RedirectResponse
+    {
+        $this->authorizeOwner($telegramBot);
+        abort_unless((int) $botMember->telegram_bot_id === (int) $telegramBot->id, 404);
+
+        $data = $request->validate([
+            'is_active' => ['required', 'boolean'],
+            'can_order' => ['required', 'boolean'],
+            'can_receive_broadcast' => ['required', 'boolean'],
+            'ban_reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $botMember->update([
+            'is_active' => $request->boolean('is_active'),
+            'can_order' => $request->boolean('can_order'),
+            'can_receive_broadcast' => $request->boolean('can_receive_broadcast'),
+            'ban_reason' => filled($data['ban_reason'] ?? null) ? trim($data['ban_reason']) : null,
+        ]);
+
+        return redirect()
+            ->route('dashboard')
+            ->with('success', 'Hak akses member '.$botMember->displayName().' berhasil diperbarui ('.$botMember->restrictionStatusLabel().').');
+    }
+
     protected function authorizeOwner(TelegramBot $bot): void
     {
         abort_unless(

@@ -166,6 +166,18 @@ class TelegramBotService
         $this->currentBot = $bot;
         $this->currentFromId = $fromId;
 
+        // —— Full Ban Gate ——
+        if (! $member->is_active && ! $bot->isTelegramAdmin($fromId)) {
+            $reason = filled($member->ban_reason) ? "\nAlasan: <i>".e($member->ban_reason).'</i>' : '';
+            $this->sendMessage(
+                $bot,
+                $chatId,
+                "⛔ <b>Akses Dinonaktifkan</b>\n\nAkun Anda telah dinonaktifkan/dibanned oleh admin bot.{$reason}\n\nSilakan hubungi admin bot jika Anda memerlukan bantuan."
+            );
+
+            return;
+        }
+
         // —— Force Subscribe Channel Gate ——
         // Admin bot dikecualikan dari pengecekan
         if ($bot->isForceSubscribeActive() && ! $bot->isTelegramAdmin($fromId)) {
@@ -307,13 +319,22 @@ class TelegramBotService
     {
         $cmd = strtolower(strtok($text, ' ') ?: '');
 
-        return in_array($cmd, ['/admin', '/rekap', '/cek', '/adddeposit', '/menuadmin', '/broadcast', '/bc'], true)
+        return in_array($cmd, [
+            '/admin', '/rekap', '/cek', '/adddeposit', '/menuadmin', '/broadcast', '/bc',
+            '/ban', '/unban', '/mute', '/unmute', '/blockorder', '/unblockorder',
+        ], true)
             || str_starts_with(strtolower($text), '/cek@')
             || str_starts_with(strtolower($text), '/admin@')
             || str_starts_with(strtolower($text), '/rekap@')
             || str_starts_with(strtolower($text), '/adddeposit@')
             || str_starts_with(strtolower($text), '/broadcast@')
-            || str_starts_with(strtolower($text), '/bc@');
+            || str_starts_with(strtolower($text), '/bc@')
+            || str_starts_with(strtolower($text), '/ban@')
+            || str_starts_with(strtolower($text), '/unban@')
+            || str_starts_with(strtolower($text), '/mute@')
+            || str_starts_with(strtolower($text), '/unmute@')
+            || str_starts_with(strtolower($text), '/blockorder@')
+            || str_starts_with(strtolower($text), '/unblockorder@');
     }
 
     protected function handleAdminCommand(TelegramBot $bot, int|string $chatId, string $text, string $fromId): void
@@ -341,6 +362,79 @@ class TelegramBotService
                 return;
             }
             $this->sendAdminUserCheck($bot, $chatId, $targetId);
+
+            return;
+        }
+
+        if ($cmd === '/ban') {
+            $targetId = $parts[1] ?? null;
+            if (! $targetId) {
+                $this->sendMessage($bot, $chatId, 'Format: <code>/ban &lt;telegram_id&gt; [alasan]</code>', $this->adminKeyboard());
+
+                return;
+            }
+            $reason = count($parts) > 2 ? trim(implode(' ', array_slice($parts, 2))) : 'Dibanned oleh admin';
+            $this->adminSetMemberRestriction($bot, $chatId, $targetId, 'ban', true, $reason);
+
+            return;
+        }
+
+        if ($cmd === '/unban') {
+            $targetId = $parts[1] ?? null;
+            if (! $targetId) {
+                $this->sendMessage($bot, $chatId, 'Format: <code>/unban &lt;telegram_id&gt;</code>', $this->adminKeyboard());
+
+                return;
+            }
+            $this->adminSetMemberRestriction($bot, $chatId, $targetId, 'unban', true);
+
+            return;
+        }
+
+        if ($cmd === '/mute') {
+            $targetId = $parts[1] ?? null;
+            if (! $targetId) {
+                $this->sendMessage($bot, $chatId, 'Format: <code>/mute &lt;telegram_id&gt;</code>', $this->adminKeyboard());
+
+                return;
+            }
+            $this->adminSetMemberRestriction($bot, $chatId, $targetId, 'mute_notif', true);
+
+            return;
+        }
+
+        if ($cmd === '/unmute') {
+            $targetId = $parts[1] ?? null;
+            if (! $targetId) {
+                $this->sendMessage($bot, $chatId, 'Format: <code>/unmute &lt;telegram_id&gt;</code>', $this->adminKeyboard());
+
+                return;
+            }
+            $this->adminSetMemberRestriction($bot, $chatId, $targetId, 'unmute_notif', true);
+
+            return;
+        }
+
+        if ($cmd === '/blockorder') {
+            $targetId = $parts[1] ?? null;
+            if (! $targetId) {
+                $this->sendMessage($bot, $chatId, 'Format: <code>/blockorder &lt;telegram_id&gt;</code>', $this->adminKeyboard());
+
+                return;
+            }
+            $this->adminSetMemberRestriction($bot, $chatId, $targetId, 'block_order', true);
+
+            return;
+        }
+
+        if ($cmd === '/unblockorder') {
+            $targetId = $parts[1] ?? null;
+            if (! $targetId) {
+                $this->sendMessage($bot, $chatId, 'Format: <code>/unblockorder &lt;telegram_id&gt;</code>', $this->adminKeyboard());
+
+                return;
+            }
+            $this->adminSetMemberRestriction($bot, $chatId, $targetId, 'unblock_order', true);
 
             return;
         }
@@ -588,13 +682,14 @@ class TelegramBotService
         $totalMembers = BotMember::query()
             ->where('telegram_bot_id', $bot->id)
             ->where('is_active', true)
+            ->where('can_receive_broadcast', true)
             ->whereNotNull('telegram_chat_id')
             ->count();
 
         $this->setAdminPending($bot, $chatId, ['action' => 'broadcast_input']);
 
         $text = "📢 <b>Broadcast ke Seluruh Member</b>\n\n"
-            ."Total member aktif terdaftar: <b>{$totalMembers}</b> orang.\n\n"
+            ."Total member aktif (tidak dimute): <b>{$totalMembers}</b> orang.\n\n"
             ."Silakan kirim pesan yang ingin disiarkan sekarang.\n"
             ."Mendukung format HTML (<b>tebal</b>, <i>miring</i>, <code>kode</code>, link, emoji).\n\n"
             ."Ketik /bataladmin untuk membatalkan.";
@@ -607,6 +702,7 @@ class TelegramBotService
         $totalMembers = BotMember::query()
             ->where('telegram_bot_id', $bot->id)
             ->where('is_active', true)
+            ->where('can_receive_broadcast', true)
             ->whereNotNull('telegram_chat_id')
             ->count();
 
@@ -616,7 +712,7 @@ class TelegramBotService
         ]);
 
         $previewText = "📢 <b>Pratinjau Pesan Broadcast</b>\n\n"
-            ."Target: <b>{$totalMembers} member aktif</b>\n"
+            ."Target: <b>{$totalMembers} member aktif</b> (tidak dimute)\n"
             ."────────────────────\n"
             ."{$broadcastText}\n"
             ."────────────────────\n\n"
@@ -650,6 +746,7 @@ class TelegramBotService
         $members = BotMember::query()
             ->where('telegram_bot_id', $bot->id)
             ->where('is_active', true)
+            ->where('can_receive_broadcast', true)
             ->whereNotNull('telegram_chat_id')
             ->get();
 
@@ -755,7 +852,63 @@ class TelegramBotService
         $this->sendMessage($bot, $chatId, $text, $this->adminKeyboard());
     }
 
-    protected function sendAdminUserCheck(TelegramBot $bot, int|string $chatId, string $targetId): void
+    protected function buildAdminUserCheckData(TelegramBot $bot, BotMember $target): array
+    {
+        $orders = OtpOrder::query()->where('bot_member_id', $target->id)->count();
+        $ordersToday = OtpOrder::query()
+            ->where('bot_member_id', $target->id)
+            ->whereDate('created_at', Carbon::today(config('app.timezone', 'Asia/Jakarta')))
+            ->count();
+        $tz = config('app.timezone', 'Asia/Jakarta');
+        $joined = $target->created_at?->timezone($tz)->format('d-m-Y H:i') ?? '-';
+        $username = $target->telegram_username ? '@'.ltrim($target->telegram_username, '@') : '-';
+
+        $statusBan = $target->is_active ? '🟢 Aktif' : '⛔ BANNED TOTAL';
+        $statusOrder = $target->can_order ? '🟢 Diizinkan' : '🚫 Diblokir';
+        $statusNotif = $target->can_receive_broadcast ? '🔔 Aktif' : '🔕 Muted';
+
+        $text = "<b>Detail & Kontrol Akses Member</b> 👤\n\n"
+            ."❏ <b>Informasi Akun</b>\n"
+            ."├  Nama: <b>".e($target->telegram_name ?: '-')."</b>\n"
+            ."├  Username: <b>".e($username)."</b>\n"
+            ."├  Telegram ID: <code>".e((string) $target->telegram_chat_id)."</code>\n"
+            ."├  Terdaftar: {$joined}\n"
+            ."├  Saldo Total: <b>".$target->formattedBalance()."</b>\n"
+            ."├  Saldo Tersedia: <b>".$target->formattedAvailable()."</b>\n"
+            ."└  Order OTP: <b>{$orders}</b> (Hari ini: <b>{$ordersToday}</b>)\n\n"
+            ."❏ <b>Status Hak Akses</b>\n"
+            ."├  Status Akun: <b>{$statusBan}</b>\n"
+            ."├  Akses Order OTP: <b>{$statusOrder}</b>\n"
+            ."├  Notif Broadcast: <b>{$statusNotif}</b>\n"
+            .(! $target->is_active && filled($target->ban_reason) ? "└  Alasan Ban: <i>".e($target->ban_reason)."</i>\n\n" : "\n")
+            ."<i>Gunakan tombol kontrol di bawah untuk mengubah izin:</i>";
+
+        $targetId = (string) $target->telegram_chat_id;
+
+        $btnBanText = $target->is_active ? '⛔ Ban Akun' : '✅ Unban Akun';
+        $btnOrderText = $target->can_order ? '🚫 Blokir Order' : '🟢 Izinkan Order';
+        $btnNotifText = $target->can_receive_broadcast ? '🔕 Mute Notif' : '🔔 Unmute Notif';
+
+        $keyboard = [
+            'inline_keyboard' => [
+                [
+                    ['text' => $btnNotifText, 'callback_data' => "adm_tog_notif:{$targetId}"],
+                    ['text' => $btnOrderText, 'callback_data' => "adm_tog_order:{$targetId}"],
+                ],
+                [
+                    ['text' => $btnBanText, 'callback_data' => "adm_tog_ban:{$targetId}"],
+                    ['text' => '♻️ Reset Normal', 'callback_data' => "adm_reset_perm:{$targetId}"],
+                ],
+            ],
+        ];
+
+        return [
+            'text' => $text,
+            'keyboard' => $keyboard,
+        ];
+    }
+
+    protected function sendAdminUserCheck(TelegramBot $bot, int|string $chatId, string $targetId, ?int $editMessageId = null): void
     {
         $id = preg_replace('/\D+/', '', $targetId) ?: '';
         $target = BotMember::query()
@@ -769,27 +922,147 @@ class TelegramBotService
             return;
         }
 
-        $orders = OtpOrder::query()->where('bot_member_id', $target->id)->count();
-        $ordersToday = OtpOrder::query()
-            ->where('bot_member_id', $target->id)
-            ->whereDate('created_at', Carbon::today(config('app.timezone', 'Asia/Jakarta')))
-            ->count();
-        $tz = config('app.timezone', 'Asia/Jakarta');
-        $joined = $target->created_at?->timezone($tz)->format('d-m-Y H:i') ?? '-';
-        $username = $target->telegram_username ? '@'.ltrim($target->telegram_username, '@') : '-';
+        $data = $this->buildAdminUserCheckData($bot, $target);
 
-        $text = "<b>Data Member</b> 👤\n\n"
-            ."❏ User: <b>".e($target->telegram_name ?: '-')."</b>\n"
-            ."├  Username: <b>".e($username)."</b>\n"
-            ."├  Telegram ID: <code>".e((string) $target->telegram_chat_id)."</code>\n"
-            ."├  Status: <b>".($target->is_active ? 'Aktif' : 'Nonaktif')."</b>\n"
-            ."├  Terdaftar: {$joined}\n"
-            ."├  Saldo Total: <b>".$target->formattedBalance()."</b>\n"
-            ."├  Saldo Tersedia: <b>".$target->formattedAvailable()."</b>\n"
-            ."├  Saldo Ditahan: <b>Rp".number_format($target->held_balance, 0, ',', '.')."</b>\n"
-            ."└  Order OTP: <b>{$orders}</b> (Hari ini: <b>{$ordersToday}</b>)";
+        if ($editMessageId) {
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $editMessageId,
+                $data['text'],
+                replyMarkup: $data['keyboard']
+            );
+        } else {
+            $this->sendMessage($bot, $chatId, $data['text'], $this->adminKeyboard(), $data['keyboard']);
+        }
+    }
 
-        $this->sendMessage($bot, $chatId, $text, $this->adminKeyboard());
+    protected function adminSetMemberRestriction(
+        TelegramBot $bot,
+        int|string $chatId,
+        string $targetId,
+        string $action,
+        bool $viaCommand = false,
+        ?string $reason = null,
+        ?int $editMessageId = null,
+        ?string $callbackId = null
+    ): void {
+        $id = preg_replace('/\D+/', '', $targetId) ?: '';
+        $target = BotMember::query()
+            ->where('telegram_bot_id', $bot->id)
+            ->where('telegram_chat_id', $id)
+            ->first();
+
+        if (! $target) {
+            if ($callbackId) {
+                $this->answerCallbackToast($bot, $callbackId, 'Member tidak ditemukan!');
+            }
+            $this->sendMessage($bot, $chatId, "Member tidak ditemukan.\nID: <code>{$id}</code>", $this->adminKeyboard());
+
+            return;
+        }
+
+        $toastMessage = '';
+
+        switch ($action) {
+            case 'ban':
+            case 'toggle_ban':
+                if ($action === 'toggle_ban') {
+                    $target->is_active = ! $target->is_active;
+                    if (! $target->is_active) {
+                        $target->ban_reason = $reason ?? 'Dinonaktifkan oleh admin';
+                    } else {
+                        $target->ban_reason = null;
+                    }
+                } else {
+                    $target->is_active = false;
+                    $target->ban_reason = $reason ?? 'Dinonaktifkan oleh admin';
+                }
+                $toastMessage = $target->is_active ? 'Member berhasil di-unban' : 'Member berhasil dibanned';
+                break;
+
+            case 'unban':
+                $target->is_active = true;
+                $target->ban_reason = null;
+                $toastMessage = 'Member berhasil di-unban';
+                break;
+
+            case 'mute_notif':
+            case 'toggle_notif':
+                if ($action === 'toggle_notif') {
+                    $target->can_receive_broadcast = ! $target->can_receive_broadcast;
+                } else {
+                    $target->can_receive_broadcast = false;
+                }
+                $toastMessage = $target->can_receive_broadcast ? 'Notif broadcast diaktifkan' : 'Notif broadcast dimute';
+                break;
+
+            case 'unmute_notif':
+                $target->can_receive_broadcast = true;
+                $toastMessage = 'Notif broadcast diaktifkan';
+                break;
+
+            case 'block_order':
+            case 'toggle_order':
+                if ($action === 'toggle_order') {
+                    $target->can_order = ! $target->can_order;
+                } else {
+                    $target->can_order = false;
+                }
+                $toastMessage = $target->can_order ? 'Akses order diizinkan' : 'Akses order diblokir';
+                break;
+
+            case 'unblock_order':
+                $target->can_order = true;
+                $toastMessage = 'Akses order diizinkan';
+                break;
+
+            case 'reset':
+                $target->is_active = true;
+                $target->can_order = true;
+                $target->can_receive_broadcast = true;
+                $target->ban_reason = null;
+                $toastMessage = 'Hak akses direset normal';
+                break;
+        }
+
+        $target->save();
+
+        if ($callbackId) {
+            $this->answerCallbackToast($bot, $callbackId, $toastMessage);
+        }
+
+        if ($editMessageId) {
+            $this->sendAdminUserCheck($bot, $chatId, $id, $editMessageId);
+        } else {
+            $statusLabel = $target->restrictionStatusLabel();
+            $this->sendMessage(
+                $bot,
+                $chatId,
+                "✅ <b>Perubahan Izin Disimpan</b>\n\n"
+                ."Member: <b>".e($target->displayName())."</b> (<code>{$id}</code>)\n"
+                ."Status Saat Ini: <b>{$statusLabel}</b>"
+                .(! $target->is_active && filled($target->ban_reason) ? "\nAlasan: <i>".e($target->ban_reason).'</i>' : ''),
+                $this->adminKeyboard()
+            );
+        }
+    }
+
+    protected function answerCallbackToast(TelegramBot $bot, string $callbackId, string $text = '', bool $showAlert = false): void
+    {
+        if (! $bot->token || ! $callbackId) {
+            return;
+        }
+
+        try {
+            Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                'callback_query_id' => $callbackId,
+                'text' => $text,
+                'show_alert' => $showAlert,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('answerCallbackToast error: '.$e->getMessage());
+        }
     }
 
     protected function adminAddDeposit(
@@ -1287,6 +1560,18 @@ class TelegramBotService
         ?string $callbackId = null,
         int $quantity = 1
     ): void {
+        if (! $member->canOrder()) {
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $editMessageId,
+                "🚫 <b>Akses Order Dibatasi</b>\n\nAkun Anda saat ini tidak diizinkan untuk membuat pesanan OTP baru. Silakan hubungi admin bot jika Anda memerlukan bantuan.",
+                $this->mainKeyboard()
+            );
+
+            return;
+        }
+
         $quantity = max(1, min(5, $quantity));
         $service = ($serviceId ? OtpService::sellable()->whereKey($serviceId)->first() : null) ?? $this->kopkenService($bot);
 
@@ -1502,6 +1787,18 @@ class TelegramBotService
         int $quantity = 1,
         ?int $previewMessageId = null
     ): void {
+        if (! $member->canOrder()) {
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $previewMessageId,
+                "🚫 <b>Akses Order Dibatasi</b>\n\nAkun Anda saat ini tidak diizinkan untuk membuat pesanan OTP baru.",
+                removeInlineKeyboard: true
+            );
+
+            return;
+        }
+
         $quantity = max(1, min(5, $quantity));
         $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService($bot);
 
@@ -3315,6 +3612,42 @@ class TelegramBotService
             if ($data === 'admin_user_menu') {
                 $this->clearAdminPending($bot, $chatId);
                 $this->sendMessage($bot, $chatId, "<b>Menu User</b>\n\nSilakan pilih menu di bawah.", $this->mainKeyboard());
+            }
+        }
+
+        if (str_starts_with($data, 'adm_')) {
+            if (! $bot->isTelegramAdmin($fromId)) {
+                $this->sendMessage($bot, $chatId, 'Akses admin ditolak.', $this->mainKeyboard());
+
+                return;
+            }
+
+            if (str_starts_with($data, 'adm_tog_notif:')) {
+                $targetId = substr($data, strlen('adm_tog_notif:'));
+                $this->adminSetMemberRestriction($bot, $chatId, $targetId, 'toggle_notif', false, null, $messageId ? (int) $messageId : null, $callbackId);
+
+                return;
+            }
+
+            if (str_starts_with($data, 'adm_tog_order:')) {
+                $targetId = substr($data, strlen('adm_tog_order:'));
+                $this->adminSetMemberRestriction($bot, $chatId, $targetId, 'toggle_order', false, null, $messageId ? (int) $messageId : null, $callbackId);
+
+                return;
+            }
+
+            if (str_starts_with($data, 'adm_tog_ban:')) {
+                $targetId = substr($data, strlen('adm_tog_ban:'));
+                $this->adminSetMemberRestriction($bot, $chatId, $targetId, 'toggle_ban', false, 'Dibanned via Panel Admin Bot', $messageId ? (int) $messageId : null, $callbackId);
+
+                return;
+            }
+
+            if (str_starts_with($data, 'adm_reset_perm:')) {
+                $targetId = substr($data, strlen('adm_reset_perm:'));
+                $this->adminSetMemberRestriction($bot, $chatId, $targetId, 'reset', false, null, $messageId ? (int) $messageId : null, $callbackId);
+
+                return;
             }
         }
     }

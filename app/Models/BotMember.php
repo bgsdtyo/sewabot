@@ -16,6 +16,9 @@ class BotMember extends Model
         'balance',
         'held_balance',
         'is_active',
+        'can_order',
+        'can_receive_broadcast',
+        'ban_reason',
     ];
 
     protected function casts(): array
@@ -24,7 +27,45 @@ class BotMember extends Model
             'balance' => 'integer',
             'held_balance' => 'integer',
             'is_active' => 'boolean',
+            'can_order' => 'boolean',
+            'can_receive_broadcast' => 'boolean',
         ];
+    }
+
+    public function isBanned(): bool
+    {
+        return ! $this->is_active;
+    }
+
+    public function canOrder(): bool
+    {
+        return $this->is_active && $this->can_order;
+    }
+
+    public function canReceiveBroadcast(): bool
+    {
+        return $this->is_active && $this->can_receive_broadcast;
+    }
+
+    public function restrictionStatusLabel(): string
+    {
+        if (! $this->is_active) {
+            return 'Banned Total';
+        }
+
+        if (! $this->can_order && ! $this->can_receive_broadcast) {
+            return 'Order & Notif Diblokir';
+        }
+
+        if (! $this->can_order) {
+            return 'Order Diblokir';
+        }
+
+        if (! $this->can_receive_broadcast) {
+            return 'Notif Dimute';
+        }
+
+        return 'Aktif Normal';
     }
 
     public function telegramBot(): BelongsTo

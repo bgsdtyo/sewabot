@@ -60,6 +60,9 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/bots/{telegramBot}/members/{botMember}/topup', [BotDetailController::class, 'topup'])
         ->scopeBindings()
         ->name('bots.members.topup');
+    Route::post('/bots/{telegramBot}/members/{botMember}/permissions', [BotDetailController::class, 'updateMemberPermissions'])
+        ->scopeBindings()
+        ->name('bots.members.permissions');
 
     Route::get('/checkout/{product}/select-bot', [CheckoutController::class, 'selectBot'])->name('checkout.select-bot');
     Route::post('/checkout/{product}/duration', [CheckoutController::class, 'saveDuration'])->name('checkout.duration');

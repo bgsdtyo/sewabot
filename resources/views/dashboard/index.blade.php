@@ -125,6 +125,7 @@
             <div x-data="{
                 activeTab: '{{ request()->has('otp_page') ? 'otp' : 'members' }}',
                 openTopup: false,
+                openPerms: false,
                 memberId: null,
                 memberName: '',
                 memberChatId: '',
@@ -132,6 +133,11 @@
                 amount: '',
                 note: '',
                 formAction: '',
+                permsAction: '',
+                isActive: true,
+                canOrder: true,
+                canBroadcast: true,
+                banReason: '',
                 isSubmitting: false,
                 setAmount(val) {
                     this.amount = val;
@@ -153,6 +159,18 @@
                     this.$nextTick(() => {
                         this.$refs.amountInput?.focus();
                     });
+                },
+                openPermsModal(id, name, chatId, isActive, canOrder, canBroadcast, banReason, actionUrl) {
+                    this.memberId = id;
+                    this.memberName = name;
+                    this.memberChatId = chatId;
+                    this.isActive = Boolean(isActive);
+                    this.canOrder = Boolean(canOrder);
+                    this.canBroadcast = Boolean(canBroadcast);
+                    this.banReason = banReason || '';
+                    this.permsAction = actionUrl;
+                    this.isSubmitting = false;
+                    this.openPerms = true;
                 }
             }" class="space-y-6">
 
@@ -160,7 +178,7 @@
                 <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-brand-200 pb-4">
                     <div>
                         <h2 class="text-xl font-extrabold text-brand-900" x-text="activeTab === 'members' ? 'Member & Saldo' : 'Riwayat Transaksi OTP'"></h2>
-                        <p class="mt-1 text-sm text-brand-500" x-text="activeTab === 'members' ? 'Kelola saldo & topup member bot Telegram Anda.' : 'Pantau riwayat pembelian nomor dan kode OTP member.'"></p>
+                        <p class="mt-1 text-sm text-brand-500" x-text="activeTab === 'members' ? 'Kelola saldo, izin akses & ban member bot Telegram Anda.' : 'Pantau riwayat pembelian nomor dan kode OTP member.'"></p>
                     </div>
 
                     {{-- Tab Switcher Pills --}}
@@ -197,14 +215,32 @@
                         <div class="rounded-2xl border border-brand-200 bg-white p-5 shadow-soft transition hover:border-brand-300">
                             <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                                 <div class="flex items-center gap-3">
-                                    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-500 border border-sky-100 shadow-sm">
+                                    <div @class([
+                                        'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-sm',
+                                        'bg-rose-50 text-rose-500 border-rose-200' => ! $member->is_active,
+                                        'bg-amber-50 text-amber-500 border-amber-200' => $member->is_active && (! $member->can_order || ! $member->can_receive_broadcast),
+                                        'bg-sky-50 text-sky-500 border-sky-100' => $member->is_active && $member->can_order && $member->can_receive_broadcast,
+                                    ])>
                                         <svg class="h-6 w-6" viewBox="0 0 24 24" fill="currentColor">
                                             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
                                         </svg>
                                     </div>
                                     <div>
-                                        <p class="font-bold text-brand-900">{{ $member->displayName() }}</p>
-                                        <p class="text-xs text-brand-500">ID {{ $member->telegram_chat_id }}</p>
+                                        <div class="flex items-center gap-2">
+                                            <p class="font-bold text-brand-900">{{ $member->displayName() }}</p>
+                                            @if (! $member->is_active)
+                                                <span class="inline-flex items-center rounded-md bg-rose-100 px-2 py-0.5 text-[10px] font-extrabold text-rose-700">⛔ Banned</span>
+                                            @elseif (! $member->can_order && ! $member->can_receive_broadcast)
+                                                <span class="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">🚫 Blokir & Muted</span>
+                                            @elseif (! $member->can_order)
+                                                <span class="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">🚫 Blokir Order</span>
+                                            @elseif (! $member->can_receive_broadcast)
+                                                <span class="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">🔕 Mute Notif</span>
+                                            @else
+                                                <span class="inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">🟢 Aktif</span>
+                                            @endif
+                                        </div>
+                                        <p class="text-xs text-brand-500">ID {{ $member->telegram_chat_id }} @if(! $member->is_active && filled($member->ban_reason)) · <span class="italic text-rose-600">Alasan: {{ $member->ban_reason }}</span> @endif</p>
                                     </div>
                                 </div>
 
@@ -224,14 +260,26 @@
                                         </div>
                                     </div>
 
-                                    <button type="button"
-                                            @click="openModal('{{ $member->id }}', '{{ addslashes($member->displayName()) }}', '{{ $member->telegram_chat_id }}', '{{ $member->formattedAvailable() }}', '{{ route('bots.members.topup', ['telegramBot' => $bot, 'botMember' => $member]) }}')"
-                                            class="inline-flex items-center gap-1.5 rounded-xl bg-brand-900 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-brand-700 active:scale-95 sm:shrink-0">
-                                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
-                                        </svg>
-                                        <span>Topup Saldo</span>
-                                    </button>
+                                    <div class="flex items-center gap-2">
+                                        <button type="button"
+                                                @click="openPermsModal('{{ $member->id }}', '{{ addslashes($member->displayName()) }}', '{{ $member->telegram_chat_id }}', {{ $member->is_active ? 'true' : 'false' }}, {{ $member->can_order ? 'true' : 'false' }}, {{ $member->can_receive_broadcast ? 'true' : 'false' }}, '{{ addslashes($member->ban_reason ?? '') }}', '{{ route('bots.members.permissions', ['telegramBot' => $bot, 'botMember' => $member]) }}')"
+                                                class="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-white px-3.5 py-2.5 text-xs font-bold text-brand-800 shadow-xs transition hover:bg-brand-50 hover:border-brand-300 active:scale-95 sm:shrink-0"
+                                                title="Kelola Izin & Ban Member">
+                                            <svg class="h-4 w-4 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                                            </svg>
+                                            <span>Kelola Akses</span>
+                                        </button>
+
+                                        <button type="button"
+                                                @click="openModal('{{ $member->id }}', '{{ addslashes($member->displayName()) }}', '{{ $member->telegram_chat_id }}', '{{ $member->formattedAvailable() }}', '{{ route('bots.members.topup', ['telegramBot' => $bot, 'botMember' => $member]) }}')"
+                                                class="inline-flex items-center gap-1.5 rounded-xl bg-brand-900 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-brand-700 active:scale-95 sm:shrink-0">
+                                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
+                                            </svg>
+                                            <span>Topup Saldo</span>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -437,6 +485,132 @@
                                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                     </svg>
                                     <span x-text="isSubmitting ? 'Memproses...' : 'Konfirmasi Topup'"></span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                {{-- Modal Kelola Hak Akses & Ban Pop-up --}}
+                <div x-cloak x-show="openPerms"
+                     class="fixed inset-0 z-50 flex items-center justify-center p-4"
+                     role="dialog" aria-modal="true">
+                    {{-- Backdrop --}}
+                    <div x-show="openPerms"
+                         x-transition:enter="ease-out duration-200"
+                         x-transition:enter-start="opacity-0"
+                         x-transition:enter-end="opacity-100"
+                         x-transition:leave="ease-in duration-150"
+                         x-transition:leave-start="opacity-100"
+                         x-transition:leave-end="opacity-0"
+                         @click="openPerms = false"
+                         class="fixed inset-0 bg-brand-900/60 backdrop-blur-sm"></div>
+
+                    {{-- Modal Body --}}
+                    <div x-show="openPerms"
+                         x-transition:enter="ease-out duration-200"
+                         x-transition:enter-start="opacity-0 scale-95"
+                         x-transition:enter-end="opacity-100 scale-100"
+                         x-transition:leave="ease-in duration-150"
+                         x-transition:leave-start="opacity-100 scale-100"
+                         x-transition:leave-end="opacity-0 scale-95"
+                         class="relative w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl">
+                        {{-- Modal Header --}}
+                        <div class="flex items-center justify-between border-b border-brand-100 px-6 py-5">
+                            <div>
+                                <h3 class="text-lg font-extrabold text-brand-900">Kelola Akses & Pembatasan</h3>
+                                <p class="text-xs text-brand-500">Atur izin penggunaan bot secara spesifik untuk member ini.</p>
+                            </div>
+                            <button type="button" @click="openPerms = false" class="rounded-xl p-1.5 text-brand-400 hover:bg-brand-100 hover:text-brand-900">
+                                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        {{-- Modal Form --}}
+                        <form :action="permsAction" method="POST" @submit="isSubmitting = true" class="p-6">
+                            @csrf
+
+                            {{-- Target Member Card --}}
+                            <div class="mb-5 rounded-2xl border border-brand-100 bg-brand-50/80 p-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-900 text-white shadow-xs">
+                                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <p class="font-bold text-brand-900 text-sm" x-text="memberName"></p>
+                                        <p class="text-xs text-brand-500">Telegram Chat ID: <span class="font-mono font-bold text-brand-800" x-text="memberChatId"></span></p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="space-y-4">
+                                {{-- 1. Status Akun (Full Ban) --}}
+                                <div class="rounded-2xl border border-brand-200 p-4 transition" :class="isActive ? 'bg-white' : 'bg-rose-50/70 border-rose-200'">
+                                    <div class="flex items-center justify-between">
+                                        <div>
+                                            <p class="text-sm font-bold text-brand-900">Status Akun (Akses Bot)</p>
+                                            <p class="text-xs text-brand-500" x-text="isActive ? 'Member dapat mengakses seluruh menu bot secara normal.' : '⛔ Member DIBANNED TOTAL dari seluruh fungsi bot.'"></p>
+                                        </div>
+                                        <label class="relative inline-flex cursor-pointer items-center">
+                                            <input type="checkbox" name="is_active" value="1" x-model="isActive" class="peer sr-only">
+                                            <div class="h-6 w-11 rounded-full bg-slate-200 peer-focus:outline-none peer-checked:bg-emerald-500 after:absolute after:top-[2px] after:left-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
+                                        </label>
+                                    </div>
+
+                                    {{-- Ban Reason Input (jika diban) --}}
+                                    <div x-show="!isActive" x-transition class="mt-3 border-t border-rose-200 pt-3">
+                                        <label class="block text-xs font-bold text-rose-800 mb-1">Alasan Ban (Ditampilkan ke user saat kirim pesan)</label>
+                                        <input type="text" name="ban_reason" x-model="banReason" placeholder="Contoh: Terdeteksi spam / melanggar ToS"
+                                               class="w-full rounded-xl border-rose-300 text-xs text-rose-900 placeholder:text-rose-400 focus:border-rose-500 focus:ring-rose-500">
+                                    </div>
+                                </div>
+
+                                {{-- 2. Izin Order OTP --}}
+                                <div class="rounded-2xl border border-brand-200 p-4 bg-white transition" :class="{'opacity-50 pointer-events-none': !isActive}">
+                                    <div class="flex items-center justify-between">
+                                        <div>
+                                            <p class="text-sm font-bold text-brand-900">Izin Order OTP</p>
+                                            <p class="text-xs text-brand-500" x-text="canOrder ? 'Member diizinkan membuat pesanan OTP baru.' : '🚫 Member diblokir dari pembuatan pesanan OTP.'"></p>
+                                        </div>
+                                        <label class="relative inline-flex cursor-pointer items-center">
+                                            <input type="checkbox" name="can_order" value="1" x-model="canOrder" :disabled="!isActive" class="peer sr-only">
+                                            <div class="h-6 w-11 rounded-full bg-slate-200 peer-focus:outline-none peer-checked:bg-emerald-500 after:absolute after:top-[2px] after:left-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                {{-- 3. Notifikasi & Broadcast --}}
+                                <div class="rounded-2xl border border-brand-200 p-4 bg-white transition" :class="{'opacity-50 pointer-events-none': !isActive}">
+                                    <div class="flex items-center justify-between">
+                                        <div>
+                                            <p class="text-sm font-bold text-brand-900">Broadcast & Notifikasi</p>
+                                            <p class="text-xs text-brand-500" x-text="canBroadcast ? 'Member menerima pesan siaran/broadcast dan notifikasi restock.' : '🔕 Member dimute dari broadcast/notifikasi pengumuman.'"></p>
+                                        </div>
+                                        <label class="relative inline-flex cursor-pointer items-center">
+                                            <input type="checkbox" name="can_receive_broadcast" value="1" x-model="canBroadcast" :disabled="!isActive" class="peer sr-only">
+                                            <div class="h-6 w-11 rounded-full bg-slate-200 peer-focus:outline-none peer-checked:bg-emerald-500 after:absolute after:top-[2px] after:left-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {{-- Action Buttons --}}
+                            <div class="flex items-center justify-end gap-3 pt-6 border-t border-brand-100 mt-6">
+                                <button type="button" @click="openPerms = false"
+                                        class="rounded-xl border border-brand-200 px-5 py-2.5 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition">
+                                    Batal
+                                </button>
+                                <button type="submit" :disabled="isSubmitting"
+                                        class="inline-flex items-center gap-2 rounded-xl bg-brand-900 px-6 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <svg x-show="isSubmitting" class="h-4 w-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <span x-text="isSubmitting ? 'Menyimpan...' : 'Simpan Hak Akses'"></span>
                                 </button>
                             </div>
                         </form>
