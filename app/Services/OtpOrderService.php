@@ -104,7 +104,18 @@ class OtpOrderService
 
             $newStock = (int) ($item['stock'] ?? 0);
             if ($newStock > 0) {
-                $this->dispatchRestockAlerts($savedService, $newStock);
+                // 1. Process active auto orders first (snipers get priority)
+                try {
+                    $orderedCount = app(OtpAutoOrderService::class)->processAutoOrdersForService($savedService, $newStock);
+                    $newStock = max(0, $newStock - $orderedCount);
+                } catch (\Throwable $e) {
+                    Log::warning('Process auto orders in syncServices failed: '.$e->getMessage());
+                }
+
+                // 2. If there is still stock left, send restock notification to members with reminders
+                if ($newStock > 0) {
+                    $this->dispatchRestockAlerts($savedService, $newStock);
+                }
             }
 
             $count++;
@@ -139,7 +150,7 @@ class OtpOrderService
             $bot = $alert->telegramBot;
             $member = $alert->botMember;
 
-            if (! $bot || ! $bot->token || $bot->status !== 'active') {
+            if (! $bot || ! $bot->token || ! $bot->isRunning()) {
                 continue;
             }
 
@@ -271,6 +282,11 @@ class OtpOrderService
     public function requestBulkOtp(TelegramBot $bot, BotMember $member, OtpService $service, int $quantity = 1): array
     {
         $quantity = max(1, min(5, $quantity));
+
+        if ($bot->status !== 'active' || ! $bot->hasActiveSubscription()) {
+            throw ValidationException::withMessages(['bot' => 'Layanan bot sedang dinonaktifkan atau masa sewa bot telah berakhir.']);
+        }
+
         $this->ensureBotApiKey($bot);
 
         if (! $service->is_enabled || ! $service->is_active) {
@@ -286,13 +302,13 @@ class OtpOrderService
             ]);
         }
 
-        $pending = OtpOrder::query()
+        $pendingCount = OtpOrder::query()
             ->where('bot_member_id', $member->id)
             ->where('status', 'pending')
-            ->exists();
+            ->count();
 
-        if ($pending) {
-            throw ValidationException::withMessages(['order' => 'Masih ada OTP pending. Batalkan dulu atau tunggu selesai.']);
+        if ($pendingCount >= 50) {
+            throw ValidationException::withMessages(['order' => 'Maksimal 50 nomor pending aktif secara bersamaan. Selesaikan beberapa nomor terlebih dahulu.']);
         }
 
         $batchId = $quantity > 1 ? (string) Str::uuid() : null;

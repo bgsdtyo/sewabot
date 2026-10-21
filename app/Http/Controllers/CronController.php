@@ -26,7 +26,7 @@ class CronController extends Controller
         $expiredSubscriptions = Subscription::query()
             ->where('status', 'active')
             ->where('expires_at', '<=', now())
-            ->with('telegramBot')
+            ->with(['telegramBot.user'])
             ->get();
 
         $expiredSubCount = 0;
@@ -36,33 +36,23 @@ class CronController extends Controller
             $subscription->update(['status' => 'expired']);
             $expiredSubCount++;
 
-            if ($subscription->telegramBot) {
-                // Check if this bot has any other active, valid subscription
-                $hasOtherActive = $subscription->telegramBot->subscriptions()
-                    ->where('id', '!=', $subscription->id)
-                    ->where('status', 'active')
-                    ->where('expires_at', '>', now())
-                    ->exists();
-
-                if (! $hasOtherActive) {
-                    $telegramBotService->deactivate($subscription->telegramBot);
-                    $suspendedBotCount++;
-                }
+            if ($subscription->telegramBot && ! $subscription->telegramBot->hasActiveSubscription()) {
+                $telegramBotService->deactivate($subscription->telegramBot);
+                $suspendedBotCount++;
             }
         }
 
         // Also ensure any bot currently marked 'active' without ANY active subscription is suspended
-        $botsWithoutActiveSub = TelegramBot::query()
+        $activeBots = TelegramBot::query()
             ->where('status', 'active')
-            ->whereDoesntHave('subscriptions', function ($q) {
-                $q->where('status', 'active')
-                    ->where('expires_at', '>', now());
-            })
+            ->with(['subscriptions', 'user'])
             ->get();
 
-        foreach ($botsWithoutActiveSub as $bot) {
-            $telegramBotService->deactivate($bot);
-            $suspendedBotCount++;
+        foreach ($activeBots as $bot) {
+            if (! $bot->hasActiveSubscription()) {
+                $telegramBotService->deactivate($bot);
+                $suspendedBotCount++;
+            }
         }
 
         return response()->json([

@@ -83,6 +83,11 @@ class BotMember extends Model
         return $this->hasMany(OtpOrder::class);
     }
 
+    public function otpAutoOrders(): HasMany
+    {
+        return $this->hasMany(OtpAutoOrder::class);
+    }
+
     public function availableBalance(): int
     {
         return max(0, (int) $this->balance - (int) $this->held_balance);

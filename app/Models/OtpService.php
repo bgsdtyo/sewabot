@@ -51,6 +51,11 @@ class OtpService extends Model
         return $this->hasMany(OtpOrder::class);
     }
 
+    public function otpAutoOrders(): HasMany
+    {
+        return $this->hasMany(OtpAutoOrder::class);
+    }
+
     public function formattedSellPrice(): string
     {
         return 'Rp'.number_format($this->sell_price, 0, ',', '.');

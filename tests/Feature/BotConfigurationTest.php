@@ -189,4 +189,126 @@ class BotConfigurationTest extends TestCase
         $response->assertSessionHasErrors('status');
         $this->assertEquals('inactive', $bot->fresh()->status);
     }
+
+    public function test_expired_bot_is_not_running_and_webhook_update_is_blocked_and_auto_deactivates(): void
+    {
+        [$user, $bot, $product, $subscription] = $this->createBotWithUser();
+
+        // Subscription expires in the past
+        $subscription->update([
+            'status' => 'active',
+            'expires_at' => now()->subHours(2),
+        ]);
+
+        // Even if status in DB is active, isRunning() must return false
+        $this->assertFalse($bot->isRunning());
+        $this->assertFalse($bot->hasActiveSubscription());
+        $this->assertTrue($bot->isExpired());
+
+        Http::fake([
+            'https://api.telegram.org/bot*' => Http::response(['ok' => true, 'result' => true], 200),
+        ]);
+
+        // Simulate incoming webhook from Telegram
+        $secret = config('services.telegram.webhook_secret', 'test-secret');
+        config(['services.telegram.webhook_secret' => $secret]);
+
+        $response = $this->post(route('telegram.webhook', [
+            'telegramBot' => $bot,
+            'secret' => $secret,
+        ]), [
+            'message' => [
+                'chat' => ['id' => 123456],
+                'from' => ['id' => 123456, 'first_name' => 'John'],
+                'text' => '/start',
+            ],
+        ]);
+
+        $response->assertStatus(200);
+
+        // Bot should have been auto-deactivated and subscription marked expired
+        $freshBot = $bot->fresh();
+        $this->assertEquals('suspended', $freshBot->status);
+        $this->assertNull($freshBot->webhook_url);
+        $this->assertEquals('expired', $subscription->fresh()->status);
+
+        // Verify deleteWebhook was called to detach Telegram webhook
+        Http::assertSent(function ($request) use ($bot) {
+            return str_contains($request->url(), "https://api.telegram.org/bot{$bot->token}/deleteWebhook");
+        });
+
+        // Verify user was told the bot is inactive/expired
+        Http::assertSent(function ($request) use ($bot) {
+            return str_contains($request->url(), "https://api.telegram.org/bot{$bot->token}/sendMessage")
+                && str_contains($request->data()['text'], 'Masa Sewa Bot Berakhir');
+        });
+    }
+
+    public function test_expire_subscriptions_command_deactivates_expired_bots(): void
+    {
+        [$user, $bot, $product, $subscription] = $this->createBotWithUser();
+
+        $subscription->update([
+            'status' => 'active',
+            'expires_at' => now()->subDay(),
+        ]);
+
+        Http::fake([
+            'https://api.telegram.org/bot*' => Http::response(['ok' => true, 'result' => true], 200),
+        ]);
+
+        $this->artisan('subscriptions:expire')
+            ->assertSuccessful();
+
+        $this->assertEquals('expired', $subscription->fresh()->status);
+        $this->assertEquals('suspended', $bot->fresh()->status);
+    }
+
+    public function test_cannot_place_otp_order_when_bot_is_expired(): void
+    {
+        [$user, $bot, $product, $subscription] = $this->createBotWithUser();
+
+        // Expire subscription
+        $subscription->update([
+            'status' => 'expired',
+            'expires_at' => now()->subDay(),
+        ]);
+
+        $service = \App\Models\OtpService::create([
+            'provider' => 'kopken',
+            'provider_service_id' => '1',
+            'name' => 'WhatsApp',
+            'provider_price' => 2000,
+            'is_active' => true,
+            'is_enabled' => true,
+        ]);
+
+        $member = \App\Models\BotMember::create([
+            'telegram_bot_id' => $bot->id,
+            'telegram_chat_id' => '12345678',
+            'balance' => 50000,
+        ]);
+
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        app(\App\Services\OtpOrderService::class)->requestBulkOtp($bot, $member, $service, 1);
+    }
+
+    public function test_dashboard_auto_deactivates_expired_active_bot(): void
+    {
+        [$user, $bot, $product, $subscription] = $this->createBotWithUser();
+
+        $subscription->update([
+            'status' => 'active',
+            'expires_at' => now()->subDay(),
+        ]);
+
+        Http::fake([
+            'https://api.telegram.org/bot*' => Http::response(['ok' => true, 'result' => true], 200),
+        ]);
+
+        $response = $this->actingAs($user)->get(route('dashboard'));
+        $response->assertStatus(200);
+
+        $this->assertEquals('suspended', $bot->fresh()->status);
+    }
 }

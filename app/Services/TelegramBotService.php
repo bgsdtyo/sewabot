@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\BotMember;
+use App\Models\OtpAutoOrder;
 use App\Models\OtpOrder;
 use App\Models\OtpService;
 use App\Models\OtpStockAlert;
@@ -22,6 +23,10 @@ class TelegramBotService
 
     public function activate(TelegramBot $bot): TelegramBot
     {
+        if (! $bot->hasActiveSubscription()) {
+            return $this->deactivate($bot);
+        }
+
         $bot->syncWebhookUrl();
         $bot->update(['status' => 'active']);
 
@@ -34,7 +39,10 @@ class TelegramBotService
 
     public function deactivate(TelegramBot $bot): TelegramBot
     {
-        $bot->update(['status' => 'suspended']);
+        $bot->update([
+            'status' => 'suspended',
+            'webhook_url' => null,
+        ]);
 
         if ($bot->token) {
             $this->deleteWebhook($bot);
@@ -47,22 +55,14 @@ class TelegramBotService
     {
         $subscription->update(['status' => 'expired']);
 
-        if ($subscription->telegramBot) {
-            $hasOtherActive = $subscription->telegramBot->subscriptions()
-                ->where('id', '!=', $subscription->id)
-                ->where('status', 'active')
-                ->where('expires_at', '>', now())
-                ->exists();
-
-            if (! $hasOtherActive) {
-                $this->deactivate($subscription->telegramBot);
-            }
+        if ($subscription->telegramBot && ! $subscription->telegramBot->hasActiveSubscription()) {
+            $this->deactivate($subscription->telegramBot);
         }
     }
 
     public function setWebhook(TelegramBot $bot): bool
     {
-        if (! $bot->token) {
+        if (! $bot->token || ! $bot->hasActiveSubscription()) {
             return false;
         }
 
@@ -102,6 +102,10 @@ class TelegramBotService
                 'drop_pending_updates' => true,
             ]);
 
+            if ($response->successful()) {
+                $bot->update(['webhook_url' => null]);
+            }
+
             return $response->successful();
         } catch (\Throwable $e) {
             Log::error('Telegram deleteWebhook error: '.$e->getMessage());
@@ -120,23 +124,44 @@ class TelegramBotService
         $callback = $update['callback_query'] ?? null;
         $chatId = $message['chat']['id'] ?? $callback['message']['chat']['id'] ?? null;
 
-        // If bot is suspended or inactive, inform the user and block operations
-        if ($bot->status !== 'active') {
+        // If bot is suspended, inactive, or subscription has expired:
+        // inform user, ensure bot is deactivated & webhook dropped, and block operations!
+        if ($bot->status !== 'active' || ! $bot->hasActiveSubscription()) {
+            if ($bot->status === 'active') {
+                $this->deactivate($bot);
+                $bot->subscriptions()
+                    ->where('status', 'active')
+                    ->where('expires_at', '<=', now())
+                    ->update(['status' => 'expired']);
+                $bot->refresh();
+            }
+
+            $isExpired = ! $bot->hasActiveSubscription();
+
             if ($callback && isset($callback['id'])) {
+                $alertText = $isExpired
+                    ? '⚠️ Masa sewa bot ini telah berakhir.'
+                    : '⚠️ Layanan bot sedang dinonaktifkan sementara oleh pemilik.';
+
                 try {
                     Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
                         'callback_query_id' => $callback['id'],
-                        'text' => '⚠️ Layanan bot sedang dinonaktifkan sementara oleh pemilik atau masa sewa berakhir.',
+                        'text' => $alertText,
                         'show_alert' => true,
                     ]);
                 } catch (\Throwable $e) {
                     // ignore
                 }
             } elseif ($chatId) {
+                $title = $isExpired ? 'Masa Sewa Bot Berakhir' : 'Layanan Bot Dinonaktifkan';
+                $reason = $isExpired
+                    ? 'Bot ini sedang dinonaktifkan karena masa aktif sewa bot telah berakhir / kedaluwarsa.'
+                    : 'Bot ini sedang dinonaktifkan sementara oleh pemilik bot.';
+
                 $this->sendMessage(
                     $bot,
                     $chatId,
-                    "⚠️ <b>Layanan Bot Dinonaktifkan</b>\n\nBot ini sedang dinonaktifkan sementara oleh pemilik atau masa aktif sewa telah berakhir.\n\nSilakan hubungi pemilik bot atau login ke website dashboard untuk mengaktifkan kembali."
+                    "⚠️ <b>{$title}</b>\n\n{$reason}\n\nSilakan hubungi pemilik bot atau login ke website dashboard untuk memperpanjang masa aktif sewa bot."
                 );
             }
 
@@ -191,6 +216,11 @@ class TelegramBotService
 
         // Wizard admin (setelah klik tombol Cek / Add Deposit)
         if ($bot->isTelegramAdmin($fromId) && $this->handleAdminPendingInput($bot, $chatId, $text, $fromId)) {
+            return;
+        }
+
+        // Auto order custom target input
+        if ($this->handleAutoOrderPendingInput($bot, $member, $chatId, $text)) {
             return;
         }
 
@@ -304,6 +334,12 @@ class TelegramBotService
 
         if (str_starts_with($text, '/aktif') || $this->isButton($text, 'Order Aktif')) {
             $this->showActiveOrders($bot, $member, $chatId);
+
+            return;
+        }
+
+        if (str_starts_with($text, '/auto') || $this->isButton($text, 'Auto Order')) {
+            $this->showAutoOrderMenu($bot, $member, $chatId);
 
             return;
         }
@@ -1131,10 +1167,10 @@ class TelegramBotService
     protected function mainKeyboard(): array
     {
         $rows = [
-            [['text' => '📱 Order OTP'], ['text' => '💰 Saldo']],
-            [['text' => '➕ Deposit'], ['text' => '👤 Akun']],
+            [['text' => '📱 Order OTP'], ['text' => '⚡ Auto Order']],
+            [['text' => '💰 Saldo'], ['text' => '➕ Deposit']],
             [['text' => '📦 Order Aktif'], ['text' => '📋 Riwayat']],
-            [['text' => '❓ Bantuan'], ['text' => '📡 Ping']],
+            [['text' => '👤 Akun'], ['text' => '❓ Bantuan']],
         ];
 
         if ($this->currentBot && $this->currentFromId && $this->currentBot->isTelegramAdmin($this->currentFromId)) {
@@ -1257,11 +1293,13 @@ class TelegramBotService
             ."Saldo tersedia: <b>{$member->formattedAvailable()}</b>\n"
             ."Tarif {$serviceLabel}: <b>{$price}</b>\n\n"
             ."<b>Menu Utama</b>\n"
-            ."• 📱 Order OTP — Pesan nomor baru\n"
+            ."• 📱 Order OTP — Pesan nomor baru (hingga 5x bulk)\n"
+            ."• ⚡ Auto Order — Sistem otomatis pesan nomor saat stok ready\n"
+            ."• 📦 Order Aktif — Lihat daftar nomor yang sedang berjalan\n"
             ."• 💰 Saldo — Cek sisa saldo akun Anda\n"
-            ."• 💳 Top Up — Isi ulang saldo instan via QRIS / Bank\n"
+            ."• ➕ Deposit — Info & konfirmasi deposit saldo\n"
             ."• 📋 Riwayat — 5 transaksi terakhir\n"
-            ."• 📡 Ping — Cek kecepatan server bot & provider OTP\n"
+            ."• 👤 Akun — Informasi akun & status member\n"
             ."• ❓ Bantuan — Panduan penggunaan ini\n\n"
             ."<i>Aksi pesanan (Ganti Nomor, Ulang OTP, Batalkan) dapat langsung dilakukan melalui tombol pada bubble transaksi masing-masing.</i>";
     }
@@ -1588,76 +1626,23 @@ class TelegramBotService
             return;
         }
 
-        $pending = OtpOrder::query()
+        $pendingCount = OtpOrder::query()
             ->where('bot_member_id', $member->id)
             ->where('status', 'pending')
-            ->latest()
-            ->first();
+            ->count();
 
-        // Auto-refresh dari provider: pastikan order yg sudah selesai di provider
-        // tidak terus memblokir user akibat status stale di database kita.
-        if ($pending) {
-            $otpRefreshService = app(OtpOrderService::class);
-            try {
-                if ($pending->isPartOfBatch()) {
-                    foreach ($pending->getBatchOrders() as $bOrder) {
-                        if ($bOrder->status === 'pending' && $bOrder->provider_order_id) {
-                            $otpRefreshService->refreshOrder($bOrder);
-                        }
-                    }
-                } elseif ($pending->provider_order_id) {
-                    $otpRefreshService->refreshOrder($pending);
-                }
-            } catch (\Throwable) {}
-
-            // Re-query setelah refresh — jika sudah selesai, lanjut ke order baru
-            $pending = OtpOrder::query()
-                ->where('bot_member_id', $member->id)
-                ->where('status', 'pending')
-                ->latest()
-                ->first();
-        }
-
-        if ($pending) {
-            if ($pending->isPartOfBatch()) {
-                $batchOrders = collect($pending->getBatchOrders());
-                $numIcons = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣'];
-
-                $lines = ["<b>Masih Ada Order Aktif ⚠️</b>\n"];
-                foreach ($batchOrders as $idx => $bOrder) {
-                    $icon = $numIcons[$idx] ?? ('#'.($idx + 1));
-                    $phone = $this->formatPhoneNumber($bOrder->phone_number);
-                    $phoneStr = $phone !== '' ? '<code>'.e($phone).'</code>' : '<i>Menunggu nomor...</i>';
-                    $lines[] = "{$icon} {$phoneStr} — Status: Pending";
-                }
-                $lines[] = "\n<i>Selesaikan / batalkan order ini dulu sebelum membuat order baru.</i>";
-                $text = implode("\n", $lines);
-
-                // Tombol per order — tidak ada lagi "Batalkan Semua" / "Cek Status Semua"
-                $buttons = [];
-                foreach ($batchOrders as $idx => $bOrder) {
-                    $slotNum = $idx + 1;
-                    $buttons[] = [
-                        ['text' => "🔀 Ganti #{$slotNum}", 'callback_data' => 'otp_change:'.$bOrder->id],
-                        ['text' => "❌ Batalkan #{$slotNum}", 'callback_data' => 'otp_cancel:'.$bOrder->id],
-                    ];
-                }
-                $kb = ['inline_keyboard' => $buttons];
-            } else {
-                $text = $this->formatOrderCard(
-                    $pending,
-                    title: 'Masih Ada Order Aktif ⚠️',
-                    footer: 'Selesaikan / batalkan order ini dulu sebelum membuat order baru.'
-                );
-                $kb = $this->orderActionKeyboard($pending);
-            }
-
+        if ($pendingCount >= 50) {
             $this->replyOrSend(
                 $bot,
                 $chatId,
                 $editMessageId,
-                $text,
-                inlineKeyboard: $kb
+                "⚠️ <b>Batas Maksimal Order Aktif Tercapai</b>\n\nKamu memiliki <b>{$pendingCount} nomor aktif</b> yang sedang berjalan. Tunggu beberapa nomor selesai atau batalkan sebelum memesan nomor baru.",
+                $this->mainKeyboard(),
+                inlineKeyboard: [
+                    'inline_keyboard' => [
+                        [['text' => '📦 Lihat Order Aktif', 'callback_data' => 'active_orders']],
+                    ],
+                ]
             );
 
             return;
@@ -1755,6 +1740,9 @@ class TelegramBotService
 
             $buttons = [
                 [$alertButton],
+                [
+                    ['text' => '⚡ Pasang Auto Order', 'callback_data' => 'auto_order_menu'],
+                ],
                 [
                     ['text' => '🔄 Cek Stok Lagi', 'callback_data' => 'otp_check_stock:'.$service->id],
                     ['text' => '❌ Tutup', 'callback_data' => 'otp_preview_cancel'],
@@ -2821,7 +2809,7 @@ class TelegramBotService
         return (bool) $newMsgId;
     }
 
-    protected function rememberOrderMessage(OtpOrder $order, ?int $messageId): void
+    public function rememberOrderMessage(OtpOrder $order, ?int $messageId): void
     {
         if (! $messageId) {
             return;
@@ -3512,6 +3500,70 @@ class TelegramBotService
         $this->currentFromId = $fromId;
         $member = app(OtpOrderService::class)->findOrRegisterMember($bot, $from);
 
+        if ($data === 'active_orders') {
+            $this->showActiveOrders($bot, $member, $chatId);
+
+            return;
+        }
+
+        if ($data === 'auto_order_menu') {
+            $this->showAutoOrderMenu($bot, $member, $chatId, $messageId ? (int) $messageId : null);
+
+            return;
+        }
+
+        if ($data === 'auto_order_close') {
+            if ($messageId) {
+                $this->deleteMessage($bot, $chatId, $messageId);
+            }
+
+            return;
+        }
+
+        if (str_starts_with($data, 'auto_order_prompt:')) {
+            $serviceId = (int) substr($data, strlen('auto_order_prompt:'));
+            Cache::put("auto_order_prompt_{$bot->id}_{$member->id}", [
+                'service_id' => $serviceId,
+            ], now()->addMinutes(5));
+
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $messageId ? (int) $messageId : null,
+                "⚡ <b>Custom Target Auto Order</b>\n\nSilakan ketik jumlah target nomor yang Anda inginkan (misal: <code>10</code> atau <code>25</code>):\n\n<i>Maksimal 100 nomor per antrean. Ketik <b>batal</b> untuk membatalkan.</i>",
+                $this->mainKeyboard()
+            );
+
+            return;
+        }
+
+        if (str_starts_with($data, 'auto_order_cancel:')) {
+            $serviceId = (int) substr($data, strlen('auto_order_cancel:'));
+            $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService($bot);
+            if ($service) {
+                app(OtpAutoOrderService::class)->cancelAutoOrder($bot, $member, $service);
+            }
+
+            $this->showAutoOrderMenu($bot, $member, $chatId, $messageId ? (int) $messageId : null, notice: '❌ Auto Order berhasil dibatalkan.');
+
+            return;
+        }
+
+        if (str_starts_with($data, 'auto_order_set:')) {
+            $parts = explode(':', substr($data, strlen('auto_order_set:')));
+            $serviceId = (int) ($parts[0] ?? 0);
+            $qty = (int) ($parts[1] ?? 1);
+            $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService($bot);
+
+            if ($service) {
+                app(OtpAutoOrderService::class)->setAutoOrder($bot, $member, $service, $qty);
+            }
+
+            $this->showAutoOrderMenu($bot, $member, $chatId, $messageId ? (int) $messageId : null, notice: "✅ Auto Order berhasil disetel untuk target <b>{$qty} nomor</b>!");
+
+            return;
+        }
+
         if ($data === 'deposit') {
             if ($messageId) {
                 $this->deleteMessage($bot, $chatId, $messageId);
@@ -4070,5 +4122,159 @@ class TelegramBotService
                 'error' => $e->getMessage(),
             ];
         }
+    }
+
+    public function sendOrderCard(TelegramBot $bot, OtpOrder $order, int|string $chatId): ?int
+    {
+        $service = e($order->otpService?->name ?? 'Kopken');
+        $slot = $order->isPartOfBatch() ? $order->batchSlotNumber() : null;
+        $title = $slot ? "Order {$service} #{$slot} 📲" : "Order {$service} 📲";
+
+        $text = $this->formatOrderCard(
+            $order,
+            title: $title,
+            footer: "⚡ <b>Order Otomatis Dieksekusi!</b>\nSaldo ditahan. OTP masuk otomatis — bubble ini akan diupdate."
+        );
+
+        $msgId = $this->sendMessage($bot, $chatId, $text, null, $this->orderActionKeyboard($order));
+        if ($msgId) {
+            $this->rememberOrderMessage($order, $msgId);
+        }
+
+        return $msgId;
+    }
+
+    public function showAutoOrderMenu(
+        TelegramBot $bot,
+        BotMember $member,
+        int|string $chatId,
+        ?int $editMessageId = null,
+        ?int $serviceId = null,
+        ?string $notice = null
+    ): void {
+        $service = ($serviceId ? OtpService::sellable()->whereKey($serviceId)->first() : null) ?? $this->kopkenService($bot);
+
+        if (! $service) {
+            $this->replyOrSend($bot, $chatId, $editMessageId, 'Layanan belum tersedia.', $this->mainKeyboard());
+
+            return;
+        }
+
+        $autoOrderService = app(OtpAutoOrderService::class);
+        $activeAuto = $autoOrderService->getActiveForMember($bot, $member, $service);
+
+        $unitPrice = $bot->sellPriceFor($service->provider_price);
+        $formattedUnitPrice = 'Rp '.number_format($unitPrice, 0, ',', '.');
+        $formattedAvailable = $member->formattedAvailable();
+
+        $lines = [];
+        if ($notice) {
+            $lines[] = "{$notice}\n";
+        }
+
+        $lines[] = "⚡ <b>Sistem Auto Order (Sniping)</b> 🎯\n";
+        $lines[] = "❏ Layanan: <b>".e($service->name)."</b>";
+        $lines[] = "├  Harga: <b>{$formattedUnitPrice} / nomor</b>";
+        $lines[] = "├  Saldo Tersedia: <b>{$formattedAvailable}</b>";
+
+        $buttons = [];
+
+        if ($activeAuto) {
+            $remaining = $activeAuto->remainingQuantity();
+            $lines[] = "├  Target Order: <b>{$activeAuto->target_quantity} nomor</b>";
+            $lines[] = "├  Sudah Didapat: <b>{$activeAuto->ordered_quantity} nomor</b>";
+            $lines[] = "├  Sisa Antrean: <b>{$remaining} nomor</b>";
+            $lines[] = "└  Status: 🟢 <b>Aktif (Menunggu Stok)</b>\n";
+            $lines[] = "<i>Sistem akan otomatis mengeksekusi order begitu provider restock nomor.</i>";
+
+            // Tombol batalkan
+            $buttons[] = [
+                ['text' => '❌ Batalkan Auto Order', 'callback_data' => 'auto_order_cancel:'.$service->id],
+            ];
+            // Opsi ubah target
+            $buttons[] = [
+                ['text' => 'Ubah: 1x', 'callback_data' => "auto_order_set:{$service->id}:1"],
+                ['text' => '3x', 'callback_data' => "auto_order_set:{$service->id}:3"],
+                ['text' => '5x', 'callback_data' => "auto_order_set:{$service->id}:5"],
+                ['text' => '10x', 'callback_data' => "auto_order_set:{$service->id}:10"],
+            ];
+            $buttons[] = [
+                ['text' => '✍️ Ubah Custom', 'callback_data' => 'auto_order_prompt:'.$service->id],
+                ['text' => '🔄 Refresh', 'callback_data' => 'auto_order_menu'],
+                ['text' => '❌ Tutup', 'callback_data' => 'auto_order_close'],
+            ];
+        } else {
+            $lines[] = "└  Status: ⚪ <b>Tidak Aktif</b>\n";
+            $lines[] = "Sistem akan otomatis memesan nomor untuk Anda begitu stok tersedia di server provider, tanpa perlu menunggu atau klik manual.\n";
+            $lines[] = "Pilih target jumlah nomor yang ingin di-order otomatis:";
+
+            // Preset rows
+            $buttons[] = [
+                ['text' => '1x', 'callback_data' => "auto_order_set:{$service->id}:1"],
+                ['text' => '3x', 'callback_data' => "auto_order_set:{$service->id}:3"],
+                ['text' => '5x', 'callback_data' => "auto_order_set:{$service->id}:5"],
+                ['text' => '10x', 'callback_data' => "auto_order_set:{$service->id}:10"],
+                ['text' => '20x', 'callback_data' => "auto_order_set:{$service->id}:20"],
+            ];
+            $buttons[] = [
+                ['text' => '✍️ Jumlah Custom (bebas)', 'callback_data' => 'auto_order_prompt:'.$service->id],
+            ];
+            $buttons[] = [
+                ['text' => '❌ Tutup', 'callback_data' => 'auto_order_close'],
+            ];
+        }
+
+        $this->replyOrSend(
+            $bot,
+            $chatId,
+            $editMessageId,
+            implode("\n", $lines),
+            inlineKeyboard: ['inline_keyboard' => $buttons]
+        );
+    }
+
+    protected function handleAutoOrderPendingInput(TelegramBot $bot, BotMember $member, int|string $chatId, string $text): bool
+    {
+        $cacheKey = "auto_order_prompt_{$bot->id}_{$member->id}";
+        $data = Cache::get($cacheKey);
+        if (! $data || ! is_array($data)) {
+            return false;
+        }
+
+        if (in_array(strtolower(trim($text)), ['/batal', 'batal', 'cancel'], true)) {
+            Cache::forget($cacheKey);
+            $this->sendMessage($bot, $chatId, '❌ Input custom target Auto Order dibatalkan.', $this->mainKeyboard());
+
+            return true;
+        }
+
+        $serviceId = (int) ($data['service_id'] ?? 0);
+        $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService($bot);
+
+        if (! $service) {
+            Cache::forget($cacheKey);
+            $this->sendMessage($bot, $chatId, 'Layanan tidak ditemukan.', $this->mainKeyboard());
+
+            return true;
+        }
+
+        $qty = (int) preg_replace('/\D+/', '', $text);
+        if ($qty < 1 || $qty > 100) {
+            $this->sendMessage(
+                $bot,
+                $chatId,
+                "⚠️ Jumlah target harus berupa angka antara <b>1</b> sampai <b>100</b>.\n\nSilakan ketik ulang jumlah target, atau ketik <b>batal</b> untuk membatalkan."
+            );
+
+            return true;
+        }
+
+        Cache::forget($cacheKey);
+        $autoOrderService = app(OtpAutoOrderService::class);
+        $autoOrderService->setAutoOrder($bot, $member, $service, $qty);
+
+        $this->showAutoOrderMenu($bot, $member, $chatId, notice: "✅ Auto Order berhasil disetel untuk target <b>{$qty} nomor</b>!");
+
+        return true;
     }
 }

@@ -58,9 +58,57 @@ class TelegramBot extends Model
         'otp_wahub_api_key',
     ];
 
+    public function hasActiveSubscription(): bool
+    {
+        // Owner admin has unlimited access to their bots
+        $isAdmin = $this->relationLoaded('user')
+            ? (bool) ($this->user?->is_admin ?? false)
+            : (bool) ($this->user()->value('is_admin') ?? false);
+
+        if ($isAdmin) {
+            return true;
+        }
+
+        // Direct subscription on this bot
+        $hasDirect = $this->subscriptions()
+            ->where('status', 'active')
+            ->where(function ($q) {
+                $q->whereNull('expires_at')
+                    ->orWhere('expires_at', '>', now());
+            })
+            ->exists();
+
+        if ($hasDirect) {
+            return true;
+        }
+
+        // Fallback: subscription for this user (if telegram_bot_id was unassigned or matched)
+        if ($this->user_id) {
+            return Subscription::query()
+                ->where('user_id', $this->user_id)
+                ->where(function ($q) {
+                    $q->where('telegram_bot_id', $this->id)
+                        ->orWhereNull('telegram_bot_id');
+                })
+                ->where('status', 'active')
+                ->where(function ($q) {
+                    $q->whereNull('expires_at')
+                        ->orWhere('expires_at', '>', now());
+                })
+                ->exists();
+        }
+
+        return false;
+    }
+
+    public function isExpired(): bool
+    {
+        return ! $this->hasActiveSubscription();
+    }
+
     public function isRunning(): bool
     {
-        return $this->status === 'active';
+        return $this->status === 'active' && $this->hasActiveSubscription();
     }
 
     public function hasValidToken(): bool
@@ -163,6 +211,11 @@ class TelegramBot extends Model
     public function otpOrders(): HasMany
     {
         return $this->hasMany(OtpOrder::class);
+    }
+
+    public function otpAutoOrders(): HasMany
+    {
+        return $this->hasMany(OtpAutoOrder::class);
     }
 
     public function telegramUrl(): ?string

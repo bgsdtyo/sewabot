@@ -43,6 +43,11 @@ class DashboardController extends Controller
             }
         }
 
+        if ($bot && $bot->status === 'active' && ! $bot->hasActiveSubscription()) {
+            app(\App\Services\TelegramBotService::class)->deactivate($bot);
+            $bot->refresh();
+        }
+
         $notifications = $user->unreadNotifications()->latest()->take(5)->get();
 
         $members = null;

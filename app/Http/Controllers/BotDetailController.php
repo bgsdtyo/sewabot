@@ -21,6 +21,11 @@ class BotDetailController extends Controller
     {
         $this->authorizeOwner($telegramBot);
 
+        if ($telegramBot->status === 'active' && ! $telegramBot->hasActiveSubscription()) {
+            app(TelegramBotService::class)->deactivate($telegramBot);
+            $telegramBot->refresh();
+        }
+
         $telegramBot->load(['product', 'otpService']);
         $allServices = OtpService::sellable()
             ->orderBy('name')
@@ -149,12 +154,7 @@ class BotDetailController extends Controller
                     ->withErrors(['status' => 'Status bot tidak dapat diaktifkan karena Token BotFather masih kosong. Silakan masukkan token terlebih dahulu.']);
             }
 
-            $hasActiveSub = $telegramBot->subscriptions()
-                ->where('status', 'active')
-                ->where('expires_at', '>', now())
-                ->exists();
-
-            if (! $hasActiveSub && ! (auth()->user()?->is_admin ?? false)) {
+            if (! $telegramBot->hasActiveSubscription()) {
                 return back()
                     ->withInput()
                     ->withErrors(['status' => 'Status bot tidak dapat diaktifkan karena masa sewa bot ini telah kedaluwarsa. Silakan lakukan perpanjangan langganan.']);

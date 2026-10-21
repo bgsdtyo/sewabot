@@ -13,7 +13,7 @@
                 <nav class="flex items-center gap-2 text-xs font-semibold text-brand-400 mb-1">
                     <a href="{{ route('dashboard') }}" class="hover:text-brand-900 transition">Dashboard</a>
                     <span>/</span>
-                    <span class="text-brand-700">Bot Manager</span>
+                    <span class="text-brand-700">Konfigurasi Bot</span>
                 </nav>
                 <div class="flex flex-wrap items-center gap-3">
                     <h1 class="text-2xl font-black tracking-tight text-brand-900">{{ $telegramBot->name }}</h1>
@@ -28,7 +28,7 @@
                     @endif
                     <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-black tracking-wider uppercase {{ $isBotRunning ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-200' }}">
                         <span class="h-2 w-2 rounded-full {{ $isBotRunning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400' }}"></span>
-                        {{ $isBotRunning ? 'Running' : 'Nonaktif' }}
+                        {{ $isBotRunning ? 'RUNNING' : 'NONAKTIF' }}
                     </span>
                 </div>
             </div>
@@ -161,7 +161,8 @@
                             </div>
 
                             {{-- Status Operasional Switch --}}
-                            <div class="flex items-center gap-2 bg-brand-50 rounded-xl p-1 border border-brand-200/60">
+                            <div class="flex items-center gap-2 bg-brand-50 rounded-xl p-1 border border-brand-200/60" title="Status Operasional Bot">
+                                <span class="sr-only">Status Operasional Bot</span>
                                 <button type="button"
                                         @click="botStatus = 'active'"
                                         :class="botStatus === 'active' ? 'bg-emerald-600 text-white shadow-xs font-bold' : 'text-brand-600 hover:text-brand-900 font-medium'"
@@ -182,7 +183,7 @@
                         <div>
                             <div class="mb-1.5 flex items-center justify-between">
                                 <label class="block text-xs font-bold text-brand-900">
-                                    Token Bot Telegram <span class="text-rose-500">*</span>
+                                    Token Bot Telegram (BotFather) <span class="text-rose-500">*</span>
                                 </label>
                                 <span class="text-[11px] font-bold {{ $hasToken ? 'text-emerald-700' : 'text-amber-600' }}">
                                     {{ $hasToken ? '✓ Terhubung' : '⚠ Belum Ada' }}
