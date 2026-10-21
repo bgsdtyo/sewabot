@@ -216,8 +216,16 @@ class OtpAutoOrderService
                     Log::warning("Auto order failed for member #{$member->id}: ".$e->getMessage());
                     $autoOrder->update(['last_error' => $e->getMessage()]);
 
-                    if (str_contains(strtolower($e->getMessage()), 'stok') || str_contains(strtolower($e->getMessage()), 'stock')) {
-                        // Provider stock exhausted
+                    $errMsg = strtolower($e->getMessage());
+                    if (
+                        str_contains($errMsg, 'stok')
+                        || str_contains($errMsg, 'stock')
+                        || str_contains($errMsg, 'saldo server')
+                        || str_contains($errMsg, 'saldo pusat')
+                        || str_contains($errMsg, 'insufficient')
+                        || str_contains($errMsg, 'tidak dapat diproses')
+                    ) {
+                        // Provider stock or provider balance exhausted
                         break;
                     }
                 }
