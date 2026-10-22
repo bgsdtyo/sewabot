@@ -273,44 +273,51 @@ class OtpAutoOrderService
                 }
 
                 $unitPrice = $bot->sellPriceFor($service->provider_price);
-                $availableBalance = $member->availableBalance();
 
-                if ($availableBalance < $unitPrice) {
-                    $autoOrder->update([
-                        'status' => 'paused',
-                        'last_error' => 'Saldo tidak mencukupi untuk melanjutkan pemesanan',
-                    ]);
+                while ($availableStock > 0 && $autoOrder->remainingQuantity() > 0) {
+                    $availableBalance = $member->availableBalance();
 
-                    $text = "⚠️ <b>Auto Order Dijeda: Saldo Tidak Cukup</b>\n\n"
-                        ."Stok untuk layanan <b>".e($service->name)."</b> saat ini sedang tersedia, tetapi saldo Anda (".$member->formattedAvailable().") tidak mencukupi untuk harga per nomor (Rp".number_format($unitPrice, 0, ',', '.').").\n\n"
-                        ."Silakan deposit saldo terlebih dahulu, lalu aktifkan kembali Auto Order.";
+                    if ($availableBalance < $unitPrice) {
+                        if ($autoOrder->ordered_quantity === 0) {
+                            $autoOrder->update([
+                                'status' => 'paused',
+                                'last_error' => 'Saldo tidak mencukupi untuk melanjutkan pemesanan',
+                            ]);
 
-                    $this->telegramBotService->sendMessage(
-                        $bot,
-                        $member->telegram_chat_id,
-                        $text,
-                        replyMarkup: [
-                            'inline_keyboard' => [
-                                [['text' => '➕ Deposit Saldo', 'callback_data' => 'deposit']],
-                            ],
-                        ]
-                    );
+                            $text = "⚠️ <b>Auto Order Dijeda: Saldo Tidak Cukup</b>\n\n"
+                                ."Stok untuk layanan <b>".e($service->name)."</b> saat ini sedang tersedia, tetapi saldo Anda (".$member->formattedAvailable().") tidak mencukupi untuk harga per nomor (Rp".number_format($unitPrice, 0, ',', '.').").\n\n"
+                                ."Silakan deposit saldo terlebih dahulu, lalu aktifkan kembali Auto Order.";
 
-                    continue;
-                }
+                            $this->telegramBotService->sendMessage(
+                                $bot,
+                                $member->telegram_chat_id,
+                                $text,
+                                replyMarkup: [
+                                    'inline_keyboard' => [
+                                        [['text' => '➕ Deposit Saldo', 'callback_data' => 'deposit']],
+                                    ],
+                                ]
+                            );
+                        }
 
-                $remainingNeeded = $autoOrder->remainingQuantity();
-                $canAffordCount = (int) floor($availableBalance / $unitPrice);
+                        break;
+                    }
 
-                // Batch up to 5 at a time, limited by needed, affordable, and available stock
-                $batchQuantity = max(1, min($remainingNeeded, $canAffordCount, 5, $availableStock));
+                    $remainingNeeded = $autoOrder->remainingQuantity();
+                    $canAffordCount = (int) floor($availableBalance / $unitPrice);
 
-                try {
-                    $result = $this->otpOrderService->requestBulkOtp($bot, $member, $service, $batchQuantity);
-                    $createdOrders = array_values($result['orders'] ?? []);
-                    $countCreated = count($createdOrders);
+                    // Batch up to 5 at a time, limited by needed, affordable, and available stock
+                    $batchQuantity = max(1, min($remainingNeeded, $canAffordCount, 5, $availableStock));
 
-                    if ($countCreated > 0) {
+                    try {
+                        $result = $this->otpOrderService->requestBulkOtp($bot, $member, $service, $batchQuantity);
+                        $createdOrders = array_values($result['orders'] ?? []);
+                        $countCreated = count($createdOrders);
+
+                        if ($countCreated === 0) {
+                            break;
+                        }
+
                         $totalExecuted += $countCreated;
                         $availableStock -= $countCreated;
 
@@ -362,21 +369,27 @@ class OtpAutoOrderService
                                 $this->telegramBotService->rememberOrderMessage($ord, $msgId);
                             }
                         }
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning("Auto order failed for member #{$member->id}: ".$e->getMessage());
-                    $autoOrder->update(['last_error' => $e->getMessage()]);
 
-                    $errMsg = strtolower($e->getMessage());
-                    if (
-                        str_contains($errMsg, 'stok')
-                        || str_contains($errMsg, 'stock')
-                        || str_contains($errMsg, 'saldo server')
-                        || str_contains($errMsg, 'saldo pusat')
-                        || str_contains($errMsg, 'insufficient')
-                        || str_contains($errMsg, 'tidak dapat diproses')
-                    ) {
-                        // Provider stock or provider balance exhausted
+                        if ($autoOrder->ordered_quantity >= $autoOrder->target_quantity) {
+                            break;
+                        }
+                    } catch (\Throwable $e) {
+                        Log::warning("Auto order failed for member #{$member->id}: ".$e->getMessage());
+                        $autoOrder->update(['last_error' => $e->getMessage()]);
+
+                        $errMsg = strtolower($e->getMessage());
+                        if (
+                            str_contains($errMsg, 'stok')
+                            || str_contains($errMsg, 'stock')
+                            || str_contains($errMsg, 'saldo server')
+                            || str_contains($errMsg, 'saldo pusat')
+                            || str_contains($errMsg, 'insufficient')
+                            || str_contains($errMsg, 'tidak dapat diproses')
+                        ) {
+                            // Provider stock or provider balance exhausted
+                            $availableStock = 0;
+                        }
+
                         break;
                     }
                 }

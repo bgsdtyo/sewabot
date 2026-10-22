@@ -233,6 +233,32 @@ class OtpAutoOrderTest extends TestCase
         $this->assertEquals(12000, $member->fresh()->held_balance);
     }
 
+    public function test_auto_order_executes_multiple_batches_for_large_target_in_single_run(): void
+    {
+        Http::fake([
+            'https://api.telegram.org/bot*' => Http::response(['ok' => true, 'result' => ['message_id' => 205]], 200),
+        ]);
+
+        [$bot, $member, $service] = $this->setupBotAndMember(balance: 100000);
+        $this->mockProviderForOrders();
+
+        $autoService = app(OtpAutoOrderService::class);
+
+        // Target 12 numbers (more than single 5-batch cap)
+        $autoOrder = $autoService->setAutoOrder($bot, $member, $service, 12);
+
+        // Stock arrives: 50 numbers
+        $executed = $autoService->processAutoOrdersForService($service, 50);
+
+        // Must execute all 12 numbers in single run (5 + 5 + 2)
+        $this->assertEquals(12, $executed);
+        $autoOrder->refresh();
+        $this->assertEquals(12, $autoOrder->ordered_quantity);
+        $this->assertEquals('completed', $autoOrder->status);
+        $this->assertEquals(0, $autoOrder->remainingQuantity());
+        $this->assertEquals(12, OtpOrder::where('bot_member_id', $member->id)->where('status', 'pending')->count());
+    }
+
     public function test_auto_order_executes_partially_when_stock_is_less_than_target(): void
     {
         Http::fake([

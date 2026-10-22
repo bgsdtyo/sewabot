@@ -36,13 +36,13 @@ class SyncOtpStockCommand extends Command
         $countWahub = 0;
 
         try {
-            $countKopken = $otpOrderService->syncServices(['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'WHATSAPP', 'WA'], $activeKopkenBot, 'kopken');
+            $countKopken = $otpOrderService->syncServices(['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'], $activeKopkenBot, 'kopken');
         } catch (\Throwable $e) {
             Log::warning('Console syncStock Kopken warning: '.$e->getMessage());
         }
 
         try {
-            $countWahub = $otpOrderService->syncServices(['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'WHATSAPP', 'WA'], $activeWahubBot, 'wahub');
+            $countWahub = $otpOrderService->syncServices(['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'], $activeWahubBot, 'wahub');
         } catch (\Throwable $e) {
             Log::warning('Console syncStock WAHub warning: '.$e->getMessage());
         }
