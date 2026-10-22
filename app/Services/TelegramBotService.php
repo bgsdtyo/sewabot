@@ -3522,6 +3522,13 @@ class TelegramBotService
 
         if (str_starts_with($data, 'auto_order_prompt:')) {
             $serviceId = (int) substr($data, strlen('auto_order_prompt:'));
+            $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService($bot);
+            $autoOrderService = app(OtpAutoOrderService::class);
+            $providerBalance = $autoOrderService->getEffectiveProviderBalance($bot);
+            $modalPrice = (int) ($service?->provider_price ?? 0);
+            $maxCapacity = ($providerBalance !== null && $modalPrice > 0) ? (int) floor($providerBalance / $modalPrice) : 100;
+            $maxLimit = max(1, min(100, $maxCapacity));
+
             Cache::put("auto_order_prompt_{$bot->id}_{$member->id}", [
                 'service_id' => $serviceId,
             ], now()->addMinutes(5));
@@ -3530,7 +3537,7 @@ class TelegramBotService
                 $bot,
                 $chatId,
                 $messageId ? (int) $messageId : null,
-                "⚡ <b>Custom Target Auto Order</b>\n\nSilakan ketik jumlah target nomor yang Anda inginkan (misal: <code>10</code> atau <code>25</code>):\n\n<i>Maksimal 100 nomor per antrean. Ketik <b>batal</b> untuk membatalkan.</i>",
+                "⚡ <b>Custom Target Auto Order</b>\n\nSilakan ketik jumlah target nomor yang Anda inginkan (1 s/d {$maxLimit}):\n\n<i>Kapasitas server pusat saat ini: <b>{$maxLimit} nomor</b>. Ketik <b>batal</b> untuk membatalkan.</i>",
                 $this->mainKeyboard()
             );
 
@@ -3556,10 +3563,18 @@ class TelegramBotService
             $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService($bot);
 
             if ($service) {
-                app(OtpAutoOrderService::class)->setAutoOrder($bot, $member, $service, $qty);
+                try {
+                    app(OtpAutoOrderService::class)->setAutoOrder($bot, $member, $service, $qty);
+                    $this->showAutoOrderMenu($bot, $member, $chatId, $messageId ? (int) $messageId : null, notice: "✅ Auto Order berhasil disetel untuk target <b>{$qty} nomor</b>!");
+                } catch (ValidationException $e) {
+                    $err = collect($e->errors())->flatten()->first() ?? 'Gagal pasang auto order.';
+                    $this->replyOrSend($bot, $chatId, $messageId ? (int) $messageId : null, $err, inlineKeyboard: [
+                        'inline_keyboard' => [
+                            [['text' => '🔙 Kembali ke Menu Auto Order', 'callback_data' => 'auto_order_menu']],
+                        ],
+                    ]);
+                }
             }
-
-            $this->showAutoOrderMenu($bot, $member, $chatId, $messageId ? (int) $messageId : null, notice: "✅ Auto Order berhasil disetel untuk target <b>{$qty} nomor</b>!");
 
             return;
         }
@@ -4166,6 +4181,9 @@ class TelegramBotService
         $unitPrice = $bot->sellPriceFor($service->provider_price);
         $formattedUnitPrice = 'Rp '.number_format($unitPrice, 0, ',', '.');
         $formattedAvailable = $member->formattedAvailable();
+        $providerBalance = $autoOrderService->getEffectiveProviderBalance($bot);
+        $modalPrice = (int) ($service->provider_price ?? 0);
+        $maxCapacity = ($providerBalance !== null && $modalPrice > 0) ? (int) floor($providerBalance / $modalPrice) : null;
 
         $lines = [];
         if ($notice) {
@@ -4176,6 +4194,9 @@ class TelegramBotService
         $lines[] = "❏ Layanan: <b>".e($service->name)."</b>";
         $lines[] = "├  Harga: <b>{$formattedUnitPrice} / nomor</b>";
         $lines[] = "├  Saldo Tersedia: <b>{$formattedAvailable}</b>";
+        if ($maxCapacity !== null) {
+            $lines[] = "├  Kapasitas Server: <b>maks. {$maxCapacity} nomor</b>";
+        }
 
         $buttons = [];
 
@@ -4269,11 +4290,17 @@ class TelegramBotService
             return true;
         }
 
-        Cache::forget($cacheKey);
         $autoOrderService = app(OtpAutoOrderService::class);
-        $autoOrderService->setAutoOrder($bot, $member, $service, $qty);
-
-        $this->showAutoOrderMenu($bot, $member, $chatId, notice: "✅ Auto Order berhasil disetel untuk target <b>{$qty} nomor</b>!");
+        try {
+            $autoOrderService->setAutoOrder($bot, $member, $service, $qty);
+            Cache::forget($cacheKey);
+            $this->showAutoOrderMenu($bot, $member, $chatId, notice: "✅ Auto Order berhasil disetel untuk target <b>{$qty} nomor</b>!");
+        } catch (ValidationException $e) {
+            $err = collect($e->errors())->flatten()->first() ?? 'Gagal pasang auto order.';
+            $this->sendMessage($bot, $chatId, $err."\n\n<i>Silakan ketik ulang jumlah target yang diinginkan, atau ketik <b>batal</b> untuk membatalkan.</i>", $this->mainKeyboard());
+        } catch (\Throwable $e) {
+            $this->sendMessage($bot, $chatId, "⚠️ Gagal pasang auto order: ".$e->getMessage(), $this->mainKeyboard());
+        }
 
         return true;
     }

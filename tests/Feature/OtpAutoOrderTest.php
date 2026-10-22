@@ -95,6 +95,13 @@ class OtpAutoOrderTest extends TestCase
             ],
         ]);
 
+        $mockDriver->shouldReceive('getBalance')->andReturn([
+            'balance' => 100000,
+            'available' => 100000,
+            'reserved' => 0,
+            'currency' => 'IDR',
+        ]);
+
         $counter = 0;
         $mockDriver->shouldReceive('createOrder')->andReturnUsing(function () use (&$counter) {
             $counter++;
@@ -144,11 +151,12 @@ class OtpAutoOrderTest extends TestCase
 
     public function test_member_can_set_and_cancel_auto_order(): void
     {
-        [$bot, $member, $service] = $this->setupBotAndMember();
+        [$bot, $member, $service] = $this->setupBotAndMember(balance: 50000);
+        $this->mockProviderForOrders();
 
         $autoService = app(OtpAutoOrderService::class);
 
-        // 1. Set auto order for 10 numbers
+        // 1. Set auto order for 10 numbers (10 * 3000 = 30000, within 50000 balance and within provider balance)
         $autoOrder = $autoService->setAutoOrder($bot, $member, $service, 10);
 
         $this->assertInstanceOf(OtpAutoOrder::class, $autoOrder);
@@ -167,6 +175,33 @@ class OtpAutoOrderTest extends TestCase
         $this->assertTrue($cancelled);
         $this->assertEquals('cancelled', $autoOrder->fresh()->status);
         $this->assertNull($autoService->getActiveForMember($bot, $member, $service));
+    }
+
+    public function test_auto_order_is_rejected_when_target_exceeds_provider_capacity(): void
+    {
+        [$bot, $member, $service] = $this->setupBotAndMember(balance: 1000000);
+
+        $mockDriver = Mockery::mock(OtpProviderInterface::class);
+        $mockDriver->shouldReceive('withApiKey')->andReturnSelf();
+        $mockDriver->shouldReceive('forBot')->andReturnSelf();
+        // Provider center only has Rp 28.219 (modal: 2000 => max 14 numbers)
+        $mockDriver->shouldReceive('getBalance')->andReturn([
+            'balance' => 28219,
+            'available' => 28219,
+            'reserved' => 0,
+            'currency' => 'IDR',
+        ]);
+
+        $manager = Mockery::mock(OtpProviderManager::class);
+        $manager->shouldReceive('driver')->andReturn($mockDriver);
+        $manager->shouldReceive('forBot')->andReturn($mockDriver);
+        $this->app->instance(OtpProviderManager::class, $manager);
+
+        $autoService = app(OtpAutoOrderService::class);
+
+        // Trying to set target 25 numbers MUST be rejected directly!
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        $autoService->setAutoOrder($bot, $member, $service, 25);
     }
 
     public function test_auto_order_automatically_executes_when_stock_becomes_available(): void

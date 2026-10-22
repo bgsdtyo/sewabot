@@ -6,6 +6,7 @@ use App\Models\BotMember;
 use App\Models\OtpAutoOrder;
 use App\Models\OtpService;
 use App\Models\TelegramBot;
+use App\Services\OtpProviderManager;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -16,6 +17,24 @@ class OtpAutoOrderService
         protected OtpOrderService $otpOrderService,
         protected TelegramBotService $telegramBotService
     ) {}
+
+    public function getEffectiveProviderBalance(TelegramBot $bot): ?int
+    {
+        try {
+            $client = app(OtpProviderManager::class)->forBot($bot);
+            $data = $client->getBalance();
+            $balance = (int) ($data['available'] ?? $data['balance'] ?? 0);
+            $bot->update([
+                'provider_balance' => $balance,
+                'provider_balance_currency' => (string) ($data['currency'] ?? 'IDR'),
+                'provider_balance_checked_at' => now(),
+            ]);
+
+            return $balance;
+        } catch (\Throwable $e) {
+            return $bot->provider_balance !== null ? (int) $bot->provider_balance : null;
+        }
+    }
 
     public function getActiveForMember(TelegramBot $bot, BotMember $member, int|OtpService|null $service = null): ?OtpAutoOrder
     {
@@ -38,10 +57,43 @@ class OtpAutoOrderService
         $targetQuantity = max(1, min(100, $targetQuantity));
 
         $unitPrice = $bot->sellPriceFor($service->provider_price);
+        $totalMemberCost = $unitPrice * $targetQuantity;
+
+        // 1. Validasi saldo member
         if ($member->availableBalance() < $unitPrice) {
             throw ValidationException::withMessages([
                 'balance' => 'Saldo Anda tidak mencukupi untuk memesan minimal 1 nomor (Harga: Rp'.number_format($unitPrice, 0, ',', '.').'). Silakan deposit saldo terlebih dahulu.',
             ]);
+        }
+
+        $maxByMember = (int) floor($member->availableBalance() / $unitPrice);
+        if ($targetQuantity > $maxByMember) {
+            $formattedTotalCost = number_format($totalMemberCost, 0, ',', '.');
+            throw ValidationException::withMessages([
+                'balance' => "⚠️ <b>Saldo Tidak Mencukupi</b>\n\nSaldo Anda (".$member->formattedAvailable().") tidak mencukupi untuk target <b>{$targetQuantity} nomor</b> (Total: Rp{$formattedTotalCost}).\n\nMaksimal target yang dapat Anda pasang saat ini adalah <b>{$maxByMember} nomor</b>.",
+            ]);
+        }
+
+        // 2. Validasi saldo pusat / modal provider (Dehuy / Kopken / Ninja)
+        $modalPerNumber = (int) ($service->provider_price ?? 0);
+        if ($modalPerNumber > 0) {
+            $providerBalance = $this->getEffectiveProviderBalance($bot);
+            if ($providerBalance !== null) {
+                $maxByProvider = (int) floor($providerBalance / $modalPerNumber);
+                if ($maxByProvider < 1) {
+                    throw ValidationException::withMessages([
+                        'provider_balance' => '⚠️ <b>Saldo Server Pusat Tidak Mencukupi</b>\n\nSaat ini saldo server pusat sedang kosong atau tidak mencukupi untuk pemesanan nomor baru (Tersedia: Rp'.number_format($providerBalance, 0, ',', '.').', modal: Rp'.number_format($modalPerNumber, 0, ',', '.').'/nomor).\n\nSilakan hubungi admin bot untuk isi ulang saldo server.',
+                    ]);
+                }
+
+                if ($targetQuantity > $maxByProvider) {
+                    $formattedProviderBalance = number_format($providerBalance, 0, ',', '.');
+                    $formattedModal = number_format($modalPerNumber, 0, ',', '.');
+                    throw ValidationException::withMessages([
+                        'provider_balance' => "⚠️ <b>Target Melebihi Kapasitas Server</b>\n\nSaldo pusat (modal) saat ini hanya mencukupi untuk antrean maksimal <b>{$maxByProvider} nomor</b> (Tersedia: Rp{$formattedProviderBalance}, modal: Rp{$formattedModal}/nomor).\n\nSilakan pasang target maksimal <b>{$maxByProvider} nomor</b> atau hubungi admin untuk isi ulang saldo pusat.",
+                    ]);
+                }
+            }
         }
 
         return OtpAutoOrder::updateOrCreate(
