@@ -145,6 +145,15 @@ class PollOtpOrdersCommand extends Command
         $this->info('Polled cycles finished. Total checks: '.$totalPolled);
 
         try {
+            $reminded = app(\App\Services\TelegramBotService::class)->sendExpiringOrderReminders();
+            if ($reminded > 0) {
+                $this->info('Expiring H-5 reminders sent: '.$reminded);
+            }
+        } catch (\Throwable $e) {
+            $this->warn('H-5 reminder failed: '.$e->getMessage());
+        }
+
+        try {
             $stripped = app(\App\Services\TelegramBotService::class)->stripExpiredResendButtons();
             $this->info('Resend buttons stripped: '.$stripped);
         } catch (\Throwable $e) {

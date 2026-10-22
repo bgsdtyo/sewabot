@@ -242,6 +242,11 @@ class CronController extends Controller
                 }
             }
 
+            try {
+                app(\App\Services\TelegramBotService::class)->sendExpiringOrderReminders();
+            } catch (\Throwable) {
+            }
+
             return $results;
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('cron otp poll: '.$e->getMessage());

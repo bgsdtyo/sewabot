@@ -16,6 +16,7 @@ use App\Services\OtpOrderService;
 use App\Services\OtpProviderManager;
 use App\Services\TelegramBotService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Mockery;
 use Tests\TestCase;
@@ -358,5 +359,53 @@ class OtpAutoOrderTest extends TestCase
 
         $updated = app(OtpAutoOrderService::class)->getActiveForMember($bot, $member, $service);
         $this->assertEquals(15, $updated->target_quantity);
+    }
+
+    public function test_send_expiring_order_reminders_at_h5(): void
+    {
+        Http::fake([
+            'https://api.telegram.org/bot*' => Http::response(['ok' => true, 'result' => ['message_id' => 999]], 200),
+        ]);
+
+        [$bot, $member, $service] = $this->setupBotAndMember(balance: 50000);
+
+        // 1. Create pending order that is 16 minutes old (4 minutes left until 20 min expiration)
+        $order = OtpOrder::create([
+            'idempotency_key' => 'idemp_test_h5',
+            'telegram_bot_id' => $bot->id,
+            'bot_member_id' => $member->id,
+            'otp_service_id' => $service->id,
+            'provider' => 'kopken',
+            'provider_order_id' => 'prov_test_h5',
+            'phone_number' => '628123456789',
+            'status' => 'pending',
+            'provider_price' => 2300,
+            'sell_price' => 4400,
+            'provider_expire_at' => now()->addMinutes(4),
+        ]);
+        // Explicitly set created_at to 16 minutes ago
+        $order->created_at = now()->subMinutes(16);
+        $order->save();
+
+        $this->assertFalse(Cache::has("otp_h5_reminded:{$order->id}"));
+
+        // 2. Run reminder
+        $tgService = app(TelegramBotService::class);
+        $count = $tgService->sendExpiringOrderReminders();
+
+        $this->assertEquals(1, $count);
+        $this->assertTrue(Cache::has("otp_h5_reminded:{$order->id}"));
+
+        // Verify Telegram message was sent with reminder text
+        Http::assertSent(function ($request) {
+            $data = $request->data();
+            return isset($data['text'])
+                && str_contains($data['text'], 'Peringatan: Masa Aktif Nomor Sisa')
+                && str_contains($data['text'], '8123456789');
+        });
+
+        // 3. Second run should skip because of Cache lock
+        $count2 = $tgService->sendExpiringOrderReminders();
+        $this->assertEquals(0, $count2);
     }
 }

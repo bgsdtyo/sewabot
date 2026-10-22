@@ -2737,6 +2737,77 @@ class TelegramBotService
         return $stripped;
     }
 
+    public function sendExpiringOrderReminders(): int
+    {
+        $pendingOrders = OtpOrder::query()
+            ->where('status', 'pending')
+            ->whereNotNull('phone_number')
+            ->where('phone_number', '!=', '')
+            ->where('created_at', '>=', now()->subMinutes(25))
+            ->with(['telegramBot', 'botMember', 'otpService'])
+            ->get();
+
+        $sentCount = 0;
+        foreach ($pendingOrders as $order) {
+            $lockKey = "otp_h5_reminded:{$order->id}";
+            if (Cache::has($lockKey)) {
+                continue;
+            }
+
+            $expiresAt = $order->otpWindowExpiresAt();
+            if (! $expiresAt || ! $expiresAt->isFuture()) {
+                continue;
+            }
+
+            $remainingSeconds = now()->diffInSeconds($expiresAt, false);
+            // Sisa waktu <= 5 menit (300 detik) dan > 30 detik
+            if ($remainingSeconds <= 300 && $remainingSeconds > 30) {
+                $bot = $order->telegramBot;
+                $member = $order->botMember;
+                if (! $bot || ! $member || ! $member->telegram_chat_id) {
+                    continue;
+                }
+
+                $minsLeft = max(1, (int) ceil($remainingSeconds / 60));
+                $serviceName = e($order->otpService?->name ?? 'Kopken');
+                $phone = $this->formatPhoneNumber($order->phone_number);
+                $phoneStr = $phone !== '' ? '<code>'.e($phone).'</code>' : '-';
+
+                $slot = $order->isPartOfBatch() ? $order->batchSlotNumber() : null;
+                $slotPrefix = $slot ? " #{$slot}" : '';
+
+                $text = "⏳ <b>Peringatan: Masa Aktif Nomor Sisa {$minsLeft} Menit!</b> ⚠️\n\n"
+                    ."Nomor Anda untuk pesanan <b>{$serviceName}{$slotPrefix}</b> akan segera kedaluwarsa dalam <b>±{$minsLeft} menit</b> dari provider:\n\n"
+                    ."❏ Nomor: {$phoneStr}\n"
+                    ."├  Sisa Waktu: <b>±{$minsLeft} Menit</b>\n"
+                    ."└  Status: <b>Menunggu OTP</b>\n\n"
+                    ."🔔 <i>Segera minta kode verifikasi WhatsApp ke nomor ini sebelum batas waktu 20 menit habis dan nomor hangus dari provider!</i>";
+
+                $keyboard = [
+                    'inline_keyboard' => [
+                        [
+                            ['text' => '🔍 Cek OTP', 'callback_data' => 'otp_status:'.$order->id],
+                            ['text' => '🔀 Ganti Nomor', 'callback_data' => 'otp_change:'.$order->id],
+                        ],
+                        [
+                            ['text' => '❌ Batalkan (Refund)', 'callback_data' => 'otp_cancel:'.$order->id],
+                        ],
+                    ],
+                ];
+
+                try {
+                    $this->sendMessage($bot, $member->telegram_chat_id, $text, null, $keyboard);
+                    Cache::put($lockKey, 1, now()->addHours(2));
+                    $sentCount++;
+                } catch (\Throwable $e) {
+                    Log::warning("Failed sending H-5 reminder for order #{$order->id}: ".$e->getMessage());
+                }
+            }
+        }
+
+        return $sentCount;
+    }
+
     public function notifyOrderCancelled(
         TelegramBot $bot,
         $member,
