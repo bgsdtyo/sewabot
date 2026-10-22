@@ -493,4 +493,9 @@ class NinjaProvider implements OtpProviderInterface
 
         throw new RuntimeException($message);
     }
+
+    public function rebuyOrder(string $providerOrderId, ?string $token = null): array
+    {
+        throw new RuntimeException('Fitur beli ulang nomor belum didukung oleh provider Ninja OTP.');
+    }
 }

@@ -93,4 +93,18 @@ interface OtpProviderInterface
      * Acknowledge / complete order on provider server.
      */
     public function doneOrder(string $providerOrderId, ?string $token = null): array;
+
+    /**
+     * Rebuy an OTP number from a previously successful order (if supported).
+     *
+     * @return array{
+     *     id: string|int,
+     *     token?: string|null,
+     *     phone_number: string|null,
+     *     status?: string,
+     *     expire_at?: int|null,
+     *     raw?: array
+     * }
+     */
+    public function rebuyOrder(string $providerOrderId, ?string $token = null): array;
 }

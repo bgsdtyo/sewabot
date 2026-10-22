@@ -274,6 +274,75 @@ class OtpOrderService
         return $orders[0];
     }
 
+    public function rebuyOtp(TelegramBot $bot, BotMember $member, OtpOrder $oldOrder): OtpOrder
+    {
+        if ($oldOrder->status !== 'completed') {
+            throw ValidationException::withMessages(['order' => 'Hanya pesanan yang sudah berhasil menerima OTP yang dapat dibeli ulang.']);
+        }
+
+        if ($bot->status !== 'active' || ! $bot->hasActiveSubscription()) {
+            throw ValidationException::withMessages(['bot' => 'Layanan bot sedang dinonaktifkan atau masa sewa bot telah berakhir.']);
+        }
+
+        $service = $oldOrder->otpService;
+        if (! $service) {
+            throw ValidationException::withMessages(['service' => 'Layanan untuk nomor ini tidak ditemukan.']);
+        }
+
+        $sellPrice = $bot->sellPriceFor($service->provider_price);
+        if ($member->availableBalance() < $sellPrice) {
+            throw ValidationException::withMessages([
+                'balance' => 'Saldo tidak cukup untuk membeli ulang nomor. Total: Rp '.number_format($sellPrice, 0, ',', '.').', tersedia: '.$member->formattedAvailable(),
+            ]);
+        }
+
+        $pendingCount = OtpOrder::query()
+            ->where('bot_member_id', $member->id)
+            ->where('status', 'pending')
+            ->count();
+
+        if ($pendingCount >= 50) {
+            throw ValidationException::withMessages(['order' => 'Maksimal 50 nomor pending aktif secara bersamaan. Selesaikan beberapa nomor terlebih dahulu.']);
+        }
+
+        $client = $this->providerManager->forOrder($oldOrder);
+        $providerOrderId = (string) ($oldOrder->provider_order_id ?: '');
+        $token = $oldOrder->provider_token;
+
+        $rebuyResult = $client->rebuyOrder($providerOrderId, $token);
+
+        return DB::transaction(function () use ($bot, $member, $service, $sellPrice, $rebuyResult, $oldOrder) {
+            $newOrder = OtpOrder::create([
+                'idempotency_key' => (string) Str::uuid(),
+                'telegram_bot_id' => $bot->id,
+                'bot_member_id' => $member->id,
+                'otp_service_id' => $service->id,
+                'provider' => $oldOrder->provider ?: $bot->activeOtpProvider(),
+                'provider_order_id' => (string) ($rebuyResult['id'] ?? ''),
+                'provider_token' => (string) ($rebuyResult['token'] ?? ''),
+                'phone_number' => $rebuyResult['phone_number'] ?? $oldOrder->phone_number,
+                'status' => 'pending',
+                'wallet_status' => 'none',
+                'provider_price' => (int) ($service->provider_price ?? 0),
+                'sell_price' => $sellPrice,
+                'provider_expire_at' => isset($rebuyResult['expire_at']) ? $this->parseExpireAt($rebuyResult['expire_at']) : now()->addMinutes(20),
+                'raw_payload' => $rebuyResult['raw'] ?? $rebuyResult,
+            ]);
+
+            $this->wallet->hold(
+                $member,
+                $sellPrice,
+                OtpOrder::class,
+                $newOrder->id,
+                'Tahan saldo Beli Ulang OTP '.$service->name
+            );
+
+            $newOrder->update(['wallet_status' => 'held']);
+
+            return $newOrder->fresh(['otpService', 'botMember', 'telegramBot']);
+        });
+    }
+
     /**
      * Create 1x - 5x bulk OTP orders under a single batch.
      *

@@ -2672,13 +2672,26 @@ class TelegramBotService
      */
     protected function completedOrderKeyboard(OtpOrder $order): array
     {
-        $buttons = [];
+        $rows = [];
+        $firstRow = [];
         if ($order->canResendOtp()) {
-            $buttons[] = ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id];
+            $firstRow[] = ['text' => '🔄 Minta Ulang OTP', 'callback_data' => 'otp_resend:'.$order->id];
         }
-        $buttons[] = ['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)];
 
-        return ['inline_keyboard' => [$buttons]];
+        $isWahub = $order->provider === 'wahub' || ($order->telegramBot?->activeOtpProvider() === 'wahub');
+        if ($isWahub && filled($order->provider_order_id)) {
+            $firstRow[] = ['text' => '🔁 Beli Ulang Nomor', 'callback_data' => 'otp_rebuy:'.$order->id];
+        }
+
+        if ($firstRow !== []) {
+            $rows[] = $firstRow;
+        }
+
+        $rows[] = [
+            ['text' => '📱 Pesan Lagi', 'callback_data' => 'otp_reorder:'.($order->otp_service_id ?: 0)],
+        ];
+
+        return ['inline_keyboard' => $rows];
     }
 
     /**
@@ -3356,6 +3369,76 @@ class TelegramBotService
         }
     }
 
+    protected function rebuyCompletedOrder(
+        TelegramBot $bot,
+        $member,
+        int|string $chatId,
+        int $orderId,
+        ?int $messageId = null,
+        ?string $callbackId = null
+    ): void {
+        $oldOrder = OtpOrder::query()
+            ->where('id', $orderId)
+            ->where('bot_member_id', $member->id)
+            ->with(['otpService', 'botMember', 'telegramBot'])
+            ->first();
+
+        if (! $oldOrder) {
+            if ($callbackId) {
+                try {
+                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                        'callback_query_id' => $callbackId,
+                        'text' => 'Pesanan tidak ditemukan.',
+                        'show_alert' => true,
+                    ]);
+                } catch (\Throwable) {}
+            }
+
+            return;
+        }
+
+        try {
+            $otpService = app(OtpOrderService::class);
+            $newOrder = $otpService->rebuyOtp($bot, $member, $oldOrder);
+
+            if ($callbackId) {
+                try {
+                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                        'callback_query_id' => $callbackId,
+                        'text' => '✅ Nomor berhasil dibeli ulang! Menunggu OTP...',
+                    ]);
+                } catch (\Throwable) {}
+            }
+
+            // Start watcher for new order
+            try {
+                app(\App\Services\OtpOrderWatcher::class)->startWatching($newOrder);
+            } catch (\Throwable $watchErr) {
+                Log::warning('OTP watcher failed to start on rebuy: '.$watchErr->getMessage());
+            }
+
+            // Send new order card
+            $newMsgId = $this->sendOrderCard($bot, $newOrder, $chatId);
+            if ($newMsgId) {
+                $this->rememberOrderMessage($newOrder, $newMsgId);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Failed to rebuy order: '.$e->getMessage());
+            $errMsg = $this->sanitizeErrorMessage($e->getMessage());
+            if ($callbackId) {
+                try {
+                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                        'callback_query_id' => $callbackId,
+                        'text' => 'Gagal beli ulang: '.$errMsg,
+                        'show_alert' => true,
+                    ]);
+                } catch (\Throwable) {}
+            }
+
+            $this->replyOrSend($bot, $chatId, null, "⚠️ <b>Gagal Beli Ulang Nomor:</b>\n{$errMsg}", $this->mainKeyboard());
+        }
+    }
+
     protected function statusPending(
         TelegramBot $bot,
         $member,
@@ -3502,7 +3585,7 @@ class TelegramBotService
         $fromId = (string) ($from['id'] ?? $chatId);
         $callbackId = $callback['id'] ?? null;
 
-        if ($callbackId && ! str_starts_with($data, 'otp_check_stock:') && ! str_starts_with($data, 'otp_status:') && ! str_starts_with($data, 'otp_resend:') && ! str_starts_with($data, 'otp_change:') && ! str_starts_with($data, 'otp_batch_status:') && $data !== 'force_subscribe_check') {
+        if ($callbackId && ! str_starts_with($data, 'otp_check_stock:') && ! str_starts_with($data, 'otp_status:') && ! str_starts_with($data, 'otp_resend:') && ! str_starts_with($data, 'otp_rebuy:') && ! str_starts_with($data, 'otp_change:') && ! str_starts_with($data, 'otp_batch_status:') && $data !== 'force_subscribe_check') {
             try {
                 Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
                     'callback_query_id' => $callbackId,
@@ -3835,6 +3918,13 @@ class TelegramBotService
         if (str_starts_with($data, 'otp_resend:')) {
             $orderId = (int) substr($data, strlen('otp_resend:'));
             $this->resendPending($bot, $member, $chatId, $orderId, $messageId ? (int) $messageId : null, $callbackId);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'otp_rebuy:')) {
+            $orderId = (int) substr($data, strlen('otp_rebuy:'));
+            $this->rebuyCompletedOrder($bot, $member, $chatId, $orderId, $messageId ? (int) $messageId : null, $callbackId);
 
             return;
         }

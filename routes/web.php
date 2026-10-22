@@ -10,6 +10,7 @@ use App\Http\Controllers\OtpWatchController;
 use App\Http\Controllers\PaymentHistoryController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\TelegramWebhookController;
+use App\Http\Controllers\WahubWebhookController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', LandingController::class)->name('landing');
@@ -29,6 +30,11 @@ Route::get('/cron/sync-whatsapp', [CronController::class, 'syncStock'])->name('c
 
 Route::post('/telegram/webhook/{telegramBot}', TelegramWebhookController::class)
     ->name('telegram.webhook');
+
+Route::post('/api/webhook/wahub/{telegramBot?}', [WahubWebhookController::class, 'handle'])
+    ->name('wahub.webhook');
+Route::post('/wahub-webhook/{telegramBot?}', [WahubWebhookController::class, 'handle'])
+    ->name('wahub.webhook.alt');
 
 Route::get('/internal/otp-watch/{order}', OtpWatchController::class)
     ->middleware('signed')

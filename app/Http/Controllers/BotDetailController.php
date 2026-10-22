@@ -196,6 +196,14 @@ class BotDetailController extends Controller
                     Log::warning('Auto-sync services after update settings: '.$e->getMessage());
                 }
             }
+
+            if ($freshBot->activeOtpProvider() === 'wahub' && filled($freshBot->activeOtpApiKey())) {
+                try {
+                    app(\App\Services\OtpProviders\WahubProvider::class)->registerWebhookForBot($freshBot);
+                } catch (\Throwable $whErr) {
+                    Log::warning('Auto-register WAHub webhook failed: '.$whErr->getMessage());
+                }
+            }
         } catch (\Throwable $e) {
             report($e);
 

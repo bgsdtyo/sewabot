@@ -338,6 +338,148 @@ class WahubProvider implements OtpProviderInterface
         return ['ok' => true];
     }
 
+    public function rebuyOrder(string $providerOrderId, ?string $token = null): array
+    {
+        $identifier = filled($providerOrderId) ? $providerOrderId : $token;
+        if (! filled($identifier)) {
+            throw new RuntimeException('ID atau token order lama diperlukan untuk beli ulang nomor.');
+        }
+
+        try {
+            // POST /api/order/{id} dengan action = rebuy
+            $response = $this->client(timeout: 30)->post('/api/order/'.$identifier, [
+                'action' => 'rebuy',
+            ]);
+
+            if (! $response->successful() && filled($token)) {
+                // Fallback ke POST /api/rent/{token}/rebuy
+                $fallbackRes = $this->client(timeout: 30)->post('/api/rent/'.$token.'/rebuy');
+                if ($fallbackRes->successful()) {
+                    $response = $fallbackRes;
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'beli ulang nomor');
+        }
+
+        $status = $response->status();
+        $data = $response->json() ?? [];
+
+        if (! in_array($status, [200, 201], true)) {
+            $rawMsg = (string) ($data['message'] ?? $data['error'] ?? '');
+
+            if (stripos($rawMsg, 'only a successful order') !== false) {
+                throw new RuntimeException('Hanya pesanan yang sudah berhasil menerima OTP yang dapat dibeli ulang.');
+            }
+            if (stripos($rawMsg, 'sold to another buyer') !== false) {
+                throw new RuntimeException('Nomor ini sudah disewa oleh pengguna lain untuk layanan yang sama.');
+            }
+            if (stripos($rawMsg, 'no longer available') !== false) {
+                throw new RuntimeException('Nomor sudah tidak tersedia lagi di provider.');
+            }
+            if (stripos($rawMsg, 'being woken up') !== false || stripos($rawMsg, 'offline') !== false) {
+                throw new RuntimeException('Nomor sedang offline dan sedang dihidupkan ulang oleh provider. Silakan coba lagi dalam 1 menit.');
+            }
+            if (stripos($rawMsg, 'currently in use') !== false) {
+                throw new RuntimeException('Nomor sedang digunakan, silakan coba beberapa saat lagi.');
+            }
+            if ($status === 402 || stripos($rawMsg, 'insufficient') !== false) {
+                throw new RuntimeException('Saldo server tidak mencukupi untuk membeli ulang nomor.');
+            }
+
+            $this->throwFromResponse($response, 'Gagal membeli ulang nomor');
+        }
+
+        if (isset($data['data']) && is_array($data['data'])) {
+            $data = array_merge($data, $data['data']);
+        }
+
+        $phone = (string) ($data['phone'] ?? $data['phone_number'] ?? '');
+        $phoneFormatted = $phone !== '' ? (str_starts_with($phone, '62') ? $phone : '62'.ltrim($phone, '0')) : null;
+
+        return [
+            'id' => (string) ($data['order_id'] ?? $data['id'] ?? ''),
+            'token' => (string) ($data['token'] ?? ''),
+            'phone_number' => $phoneFormatted,
+            'rebuy_of' => (string) ($data['rebuy_of'] ?? $providerOrderId),
+            'status' => 'pending',
+            'expire_at' => isset($data['expires_at']) ? (int) $data['expires_at'] : null,
+            'raw' => $data,
+        ];
+    }
+
+    public function registerWebhook(string $webhookUrl): array
+    {
+        try {
+            $response = $this->client(timeout: 15)->put('/api/webhook', [
+                'url' => $webhookUrl,
+            ]);
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'pasang webhook');
+        }
+
+        if (! $response->successful()) {
+            $this->throwFromResponse($response, 'Gagal memasang webhook');
+        }
+
+        $data = $response->json() ?? [];
+        $secret = (string) ($data['secret'] ?? '');
+
+        return [
+            'ok' => true,
+            'secret' => $secret,
+            'url' => $webhookUrl,
+            'raw' => $data,
+        ];
+    }
+
+    public function getWebhookStatus(): array
+    {
+        try {
+            $response = $this->client(timeout: 10)->get('/api/webhook');
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'cek status webhook');
+        }
+
+        if (! $response->successful()) {
+            $this->throwFromResponse($response, 'Gagal cek status webhook');
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function deleteWebhook(): array
+    {
+        try {
+            $response = $this->client(timeout: 10)->delete('/api/webhook');
+        } catch (\Throwable $e) {
+            $this->handleHttpException($e, 'hapus webhook');
+        }
+
+        if (! $response->successful()) {
+            $this->throwFromResponse($response, 'Gagal menghapus webhook');
+        }
+
+        return $response->json() ?? ['ok' => true];
+    }
+
+    public function registerWebhookForBot(TelegramBot $bot, ?string $customUrl = null): array
+    {
+        $appUrl = rtrim((string) (config('app.url') ?: env('APP_URL', 'https://sewabot.com')), '/');
+        $url = $customUrl ?: ($appUrl.'/api/webhook/wahub/'.$bot->id);
+
+        $result = $this->forBot($bot)->registerWebhook($url);
+
+        if (filled($result['secret'] ?? null)) {
+            $bot->update([
+                'wahub_webhook_secret' => $result['secret'],
+            ]);
+            Setting::set('wahub_webhook_secret', $result['secret']);
+        }
+
+        return $result;
+    }
+
     public function getBalance(): array
     {
         try {

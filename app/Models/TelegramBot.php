@@ -18,6 +18,7 @@ class TelegramBot extends Model
         'otp_service_id',
         'otp_api_key',
         'otp_wahub_api_key',
+        'wahub_webhook_secret',
         'provider_balance',
         'provider_balance_currency',
         'provider_balance_checked_at',
@@ -56,6 +57,7 @@ class TelegramBot extends Model
         'token',
         'otp_api_key',
         'otp_wahub_api_key',
+        'wahub_webhook_secret',
     ];
 
     public function hasActiveSubscription(): bool
