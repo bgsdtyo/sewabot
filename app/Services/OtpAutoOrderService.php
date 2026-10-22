@@ -74,7 +74,7 @@ class OtpAutoOrderService
             ]);
         }
 
-        // 2. Validasi saldo pusat / modal provider (Dehuy / Kopken / Ninja)
+        // 2. Validasi kapasitas antrean sistem (berdasarkan ketersediaan slot modal server)
         $modalPerNumber = (int) ($service->provider_price ?? 0);
         if ($modalPerNumber > 0) {
             $providerBalance = $this->getEffectiveProviderBalance($bot);
@@ -82,15 +82,13 @@ class OtpAutoOrderService
                 $maxByProvider = (int) floor($providerBalance / $modalPerNumber);
                 if ($maxByProvider < 1) {
                     throw ValidationException::withMessages([
-                        'provider_balance' => '⚠️ <b>Saldo Server Pusat Tidak Mencukupi</b>\n\nSaat ini saldo server pusat sedang kosong atau tidak mencukupi untuk pemesanan nomor baru (Tersedia: Rp'.number_format($providerBalance, 0, ',', '.').', modal: Rp'.number_format($modalPerNumber, 0, ',', '.').'/nomor).\n\nSilakan hubungi admin bot untuk isi ulang saldo server.',
+                        'provider_balance' => "⚠️ <b>Layanan Sedang Penuh</b>\n\nSaat ini antrean auto order untuk layanan ini sedang mencapai kapasitas maksimal sistem. Silakan coba beberapa saat lagi atau hubungi admin.",
                     ]);
                 }
 
                 if ($targetQuantity > $maxByProvider) {
-                    $formattedProviderBalance = number_format($providerBalance, 0, ',', '.');
-                    $formattedModal = number_format($modalPerNumber, 0, ',', '.');
                     throw ValidationException::withMessages([
-                        'provider_balance' => "⚠️ <b>Target Melebihi Kapasitas Server</b>\n\nSaldo pusat (modal) saat ini hanya mencukupi untuk antrean maksimal <b>{$maxByProvider} nomor</b> (Tersedia: Rp{$formattedProviderBalance}, modal: Rp{$formattedModal}/nomor).\n\nSilakan pasang target maksimal <b>{$maxByProvider} nomor</b> atau hubungi admin untuk isi ulang saldo pusat.",
+                        'provider_balance' => "⚠️ <b>Batas Maksimal Antrean</b>\n\nUntuk menjaga kelancaran dan kestabilan sistem, batas maksimal pemesanan otomatis untuk layanan ini adalah <b>{$maxByProvider} nomor</b> per antrean.\n\nSilakan masukkan jumlah target antara 1 sampai <b>{$maxByProvider} nomor</b>, atau hubungi admin jika Anda membutuhkan kuota lebih besar.",
                     ]);
                 }
             }

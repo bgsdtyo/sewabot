@@ -3537,7 +3537,7 @@ class TelegramBotService
                 $bot,
                 $chatId,
                 $messageId ? (int) $messageId : null,
-                "⚡ <b>Custom Target Auto Order</b>\n\nSilakan ketik jumlah target nomor yang Anda inginkan (1 s/d {$maxLimit}):\n\n<i>Kapasitas server pusat saat ini: <b>{$maxLimit} nomor</b>. Ketik <b>batal</b> untuk membatalkan.</i>",
+                "⚡ <b>Custom Target Auto Order</b>\n\nSilakan ketik jumlah target nomor yang Anda inginkan (1 s/d {$maxLimit}):\n\n<i>Batas antrean maksimal saat ini: <b>{$maxLimit} nomor</b>. Ketik <b>batal</b> untuk membatalkan.</i>",
                 $this->mainKeyboard()
             );
 
@@ -4194,8 +4194,8 @@ class TelegramBotService
         $lines[] = "❏ Layanan: <b>".e($service->name)."</b>";
         $lines[] = "├  Harga: <b>{$formattedUnitPrice} / nomor</b>";
         $lines[] = "├  Saldo Tersedia: <b>{$formattedAvailable}</b>";
-        if ($maxCapacity !== null) {
-            $lines[] = "├  Kapasitas Server: <b>maks. {$maxCapacity} nomor</b>";
+        if ($maxCapacity !== null && $maxCapacity > 0) {
+            $lines[] = "├  Batas Antrean: <b>maks. {$maxCapacity} nomor</b>";
         }
 
         $buttons = [];
