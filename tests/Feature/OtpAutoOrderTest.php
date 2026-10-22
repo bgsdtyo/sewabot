@@ -476,4 +476,84 @@ class OtpAutoOrderTest extends TestCase
         $this->expectException(\Illuminate\Validation\ValidationException::class);
         $autoService->addAutoOrderQuantity($bot, $member, $service, 5);
     }
+
+    public function test_switching_service_auto_order_cancels_previous_active_auto_orders(): void
+    {
+        [$bot, $member, $kopken] = $this->setupBotAndMember(balance: 500000);
+        $kopkenFilter = OtpService::create([
+            'provider' => 'kopken',
+            'provider_service_id' => 11,
+            'name' => 'Kopken Filter',
+            'slug' => 'kopken-filter',
+            'provider_price' => 3500,
+            'sell_price' => 3500,
+            'stock' => 0,
+            'is_active' => true,
+            'is_enabled' => true,
+        ]);
+
+        $mockDriver = Mockery::mock(OtpProviderInterface::class);
+        $mockDriver->shouldReceive('getBalance')->andReturn([
+            'balance' => 500000,
+            'available' => 500000,
+            'currency' => 'IDR',
+        ]);
+        $manager = Mockery::mock(OtpProviderManager::class);
+        $manager->shouldReceive('forBot')->andReturn($mockDriver);
+        $this->app->instance(OtpProviderManager::class, $manager);
+
+        $autoService = app(OtpAutoOrderService::class);
+
+        // 1. Member sets auto order for regular Kopken
+        $order1 = $autoService->setAutoOrder($bot, $member, $kopken, 10);
+        $this->assertEquals('active', $order1->status);
+
+        // 2. Member switches to Kopken Filter
+        $order2 = $autoService->setAutoOrder($bot, $member, $kopkenFilter, 34);
+        $this->assertEquals('active', $order2->status);
+
+        // 3. Previous auto order for regular Kopken must be cancelled
+        $order1Fresh = $order1->fresh();
+        $this->assertEquals('cancelled', $order1Fresh->status);
+        $this->assertStringContainsString('Kopken Filter', (string) $order1Fresh->last_error);
+    }
+
+    public function test_process_auto_orders_cancels_mismatched_service_if_bot_is_configured_for_another_service(): void
+    {
+        [$bot, $member, $kopken] = $this->setupBotAndMember(balance: 500000);
+        $kopkenFilter = OtpService::create([
+            'provider' => 'kopken',
+            'provider_service_id' => 11,
+            'name' => 'Kopken Filter',
+            'slug' => 'kopken-filter',
+            'provider_price' => 3500,
+            'sell_price' => 3500,
+            'stock' => 0,
+            'is_active' => true,
+            'is_enabled' => true,
+        ]);
+
+        // Bot is locked to Kopken Filter
+        $bot->update(['otp_service_id' => $kopkenFilter->id]);
+
+        // An old auto order row existed for regular Kopken
+        $oldOrder = OtpAutoOrder::create([
+            'telegram_bot_id' => $bot->id,
+            'bot_member_id' => $member->id,
+            'otp_service_id' => $kopken->id,
+            'target_quantity' => 10,
+            'ordered_quantity' => 0,
+            'status' => 'active',
+        ]);
+
+        $autoService = app(OtpAutoOrderService::class);
+
+        // Regular Kopken restocks 10 numbers
+        $executed = $autoService->processAutoOrdersForService($kopken, 10);
+
+        // Should not execute orders for regular Kopken on this bot
+        $this->assertEquals(0, $executed);
+        $this->assertEquals('cancelled', $oldOrder->fresh()->status);
+    }
 }
+

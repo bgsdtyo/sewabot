@@ -178,8 +178,21 @@ class BotDetailController extends Controller
         }
 
         try {
+            $oldServiceId = $telegramBot->otp_service_id;
             $telegramBot->update($updates);
             $freshBot = $telegramBot->fresh();
+
+            // Jika admin bot mengganti layanan yang dijual, batalkan seluruh antrean aktif layanan sebelumnya
+            if ($oldServiceId && $freshBot->otp_service_id && (int) $oldServiceId !== (int) $freshBot->otp_service_id) {
+                \App\Models\OtpAutoOrder::query()
+                    ->where('telegram_bot_id', $telegramBot->id)
+                    ->where('otp_service_id', $oldServiceId)
+                    ->where('status', 'active')
+                    ->update([
+                        'status' => 'cancelled',
+                        'last_error' => 'Dibatalkan: Admin bot mengganti pilihan layanan bot',
+                    ]);
+            }
 
             // Sync Webhook according to new status & token
             if ($freshBot->status === 'active' && filled($freshBot->token)) {
@@ -191,7 +204,7 @@ class BotDetailController extends Controller
 
             if ($freshBot->hasOtpConfigured()) {
                 try {
-                    $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $freshBot);
+                    $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $freshBot);
                 } catch (\Throwable $e) {
                     Log::warning('Auto-sync services after update settings: '.$e->getMessage());
                 }

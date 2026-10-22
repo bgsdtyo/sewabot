@@ -3767,9 +3767,8 @@ class TelegramBotService
         if (str_starts_with($data, 'auto_order_cancel:')) {
             $serviceId = (int) substr($data, strlen('auto_order_cancel:'));
             $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService($bot);
-            if ($service) {
-                app(OtpAutoOrderService::class)->cancelAutoOrder($bot, $member, $service);
-            }
+            // Batalkan semua antrean aktif member di bot ini agar bersih tuntas tanpa sisa antrean hantu di layanan lain
+            app(OtpAutoOrderService::class)->cancelAutoOrder($bot, $member, null);
 
             $this->showAutoOrderMenu($bot, $member, $chatId, $messageId ? (int) $messageId : null, notice: '❌ Auto Order berhasil dibatalkan.');
 

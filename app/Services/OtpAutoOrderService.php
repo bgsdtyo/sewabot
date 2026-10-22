@@ -147,6 +147,19 @@ class OtpAutoOrderService
             }
         }
 
+        // Pastikan hanya ada 1 antrean auto order aktif per member di bot ini.
+        // Jika sebelumnya ada antrean aktif di layanan lain (misal Kopken reguler), batalkan otomatis
+        // agar tidak terjadi eksekusi silang / salah layanan saat provider restock.
+        OtpAutoOrder::query()
+            ->where('telegram_bot_id', $bot->id)
+            ->where('bot_member_id', $member->id)
+            ->where('status', 'active')
+            ->where('otp_service_id', '!=', $service->id)
+            ->update([
+                'status' => 'cancelled',
+                'last_error' => 'Dibatalkan: Member beralih ke antrean layanan '.($service->name ?? '#'.$service->id),
+            ]);
+
         return OtpAutoOrder::updateOrCreate(
             [
                 'telegram_bot_id' => $bot->id,
@@ -269,6 +282,16 @@ class OtpAutoOrderService
                 }
 
                 if (! $member || ! $member->is_active || ! $member->can_order || ! $member->telegram_chat_id) {
+                    continue;
+                }
+
+                // Proteksi migrasi layanan: Jika bot dikonfigurasikan khusus untuk layanan tertentu (misal Kopken Filter),
+                // jangan eksekusi antrean layanan lama/berbeda pada bot ini.
+                if ($bot->otp_service_id && (int) $bot->otp_service_id !== (int) $service->id) {
+                    $autoOrder->update([
+                        'status' => 'cancelled',
+                        'last_error' => 'Dibatalkan: Layanan bot telah diubah ke layanan lain oleh pemilik bot',
+                    ]);
                     continue;
                 }
 

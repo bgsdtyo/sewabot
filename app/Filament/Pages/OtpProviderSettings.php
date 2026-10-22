@@ -114,7 +114,7 @@ class OtpProviderSettings extends Page implements HasForms
     {
         try {
             $bot = TelegramBot::query()->where('otp_provider', 'kopken')->whereNotNull('otp_api_key')->where('otp_api_key', '!=', '')->latest('id')->first();
-            $count = app(OtpOrderService::class)->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $bot, 'kopken');
+            $count = app(OtpOrderService::class)->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $bot, 'kopken');
             Notification::make()->title("Sync Provider 1 (Ninja OTP) OK: {$count} layanan")->success()->send();
         } catch (\Throwable $e) {
             Notification::make()->title('Sync Ninja OTP gagal')->body($e->getMessage())->danger()->send();
@@ -125,7 +125,7 @@ class OtpProviderSettings extends Page implements HasForms
     {
         try {
             $bot = TelegramBot::query()->where('otp_provider', 'wahub')->whereNotNull('otp_wahub_api_key')->where('otp_wahub_api_key', '!=', '')->latest('id')->first();
-            $count = app(OtpOrderService::class)->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $bot, 'wahub');
+            $count = app(OtpOrderService::class)->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $bot, 'wahub');
             Notification::make()->title("Sync Provider 2 (WAHub) OK: {$count} layanan")->success()->send();
         } catch (\Throwable $e) {
             Notification::make()->title('Sync WAHub gagal')->body($e->getMessage())->danger()->send();
