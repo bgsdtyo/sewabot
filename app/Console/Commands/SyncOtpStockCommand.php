@@ -15,6 +15,18 @@ class SyncOtpStockCommand extends Command
 
     public function handle(OtpOrderService $otpOrderService): int
     {
+        $allowedNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'];
+
+        // 1. Ambil bot-bot aktif yang memiliki antrean auto order aktif (prioritas tertinggi)
+        $autoOrderBots = TelegramBot::query()
+            ->where('status', 'active')
+            ->whereIn('id', OtpAutoOrder::query()
+                ->where('status', 'active')
+                ->whereColumn('ordered_quantity', '<', 'target_quantity')
+                ->select('telegram_bot_id'))
+            ->get();
+
+        // 2. Ambil bot representatif untuk tiap provider
         $activeKopkenBot = TelegramBot::query()
             ->where('status', 'active')
             ->where('otp_provider', 'kopken')
@@ -23,31 +35,45 @@ class SyncOtpStockCommand extends Command
 
         $activeWahubBot = TelegramBot::query()
             ->where('status', 'active')
-            ->where('otp_provider', 'wahub')
             ->where(function ($q) {
-                $q->whereNotNull('otp_wahub_api_key')->where('otp_wahub_api_key', '!=', '')
-                    ->orWhere(function ($q2) {
-                        $q2->whereNotNull('otp_api_key')->where('otp_api_key', '!=', '');
-                    });
+                $q->where('otp_provider', 'wahub')
+                    ->orWhereNotNull('otp_wahub_api_key');
             })
             ->first();
 
-        $countKopken = 0;
-        $countWahub = 0;
+        // Gabungkan semua bot yang perlu disinkronkan tanpa duplikasi
+        $botsToSync = collect([$activeKopkenBot, $activeWahubBot])
+            ->merge($autoOrderBots)
+            ->filter()
+            ->unique('id');
 
-        try {
-            $countKopken = $otpOrderService->syncServices(['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'], $activeKopkenBot, 'kopken');
-        } catch (\Throwable $e) {
-            Log::warning('Console syncStock Kopken warning: '.$e->getMessage());
+        $totalSynced = 0;
+        $syncedProviders = [];
+
+        foreach ($botsToSync as $bot) {
+            $provider = $bot->activeOtpProvider();
+            $syncedProviders[] = "{$bot->name} ({$provider})";
+
+            try {
+                $count = $otpOrderService->syncServices($allowedNames, $bot, $provider);
+                $totalSynced += $count;
+            } catch (\Throwable $e) {
+                Log::warning("Console syncStock for bot #{$bot->id} ({$provider}) warning: ".$e->getMessage());
+            }
         }
 
-        try {
-            $countWahub = $otpOrderService->syncServices(['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'], $activeWahubBot, 'wahub');
-        } catch (\Throwable $e) {
-            Log::warning('Console syncStock WAHub warning: '.$e->getMessage());
+        // Jika tidak ada bot terdaftar sama sekali, coba fallback driver default
+        if ($botsToSync->isEmpty()) {
+            try {
+                $totalSynced += $otpOrderService->syncServices($allowedNames, null, 'wahub');
+            } catch (\Throwable) {}
+            try {
+                $totalSynced += $otpOrderService->syncServices($allowedNames, null, 'kopken');
+            } catch (\Throwable) {}
         }
 
-        $this->info("Synced stock: Kopken ({$countKopken}), WAHub ({$countWahub})");
+        $botList = ! empty($syncedProviders) ? implode(', ', $syncedProviders) : 'Default/Global';
+        $this->info("Synced stock: {$totalSynced} services updated [{$botList}]");
 
         return self::SUCCESS;
     }
