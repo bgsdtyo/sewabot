@@ -408,4 +408,46 @@ class OtpAutoOrderTest extends TestCase
         $count2 = $tgService->sendExpiringOrderReminders();
         $this->assertEquals(0, $count2);
     }
+
+    public function test_member_can_add_to_existing_auto_order_and_capacity_is_safely_locked(): void
+    {
+        Http::fake([
+            'https://api.telegram.org/bot*' => Http::response(['ok' => true, 'result' => ['message_id' => 999]], 200),
+        ]);
+
+        [$bot, $member, $service] = $this->setupBotAndMember(balance: 100000);
+        $service->update(['provider_price' => 2300, 'sell_price' => 4400]);
+
+        // Mock provider balance = Rp 28.219 (Capacity = 12 numbers max)
+        $mockDriver = Mockery::mock(OtpProviderInterface::class);
+        $mockDriver->shouldReceive('getBalance')->andReturn([
+            'balance' => 28219,
+            'available' => 28219,
+            'currency' => 'IDR',
+        ]);
+        $manager = Mockery::mock(OtpProviderManager::class);
+        $manager->shouldReceive('forBot')->andReturn($mockDriver);
+        $this->app->instance(OtpProviderManager::class, $manager);
+
+        $autoService = app(OtpAutoOrderService::class);
+
+        // 1. Set initial auto order target: 5
+        $order = $autoService->setAutoOrder($bot, $member, $service, 5);
+        $this->assertEquals(5, $order->target_quantity);
+
+        // 2. Available additional slots should be 12 - 5 = 7
+        $additionalCapacity = $autoService->getAvailableAdditionalCapacity($bot, $service, $member);
+        $this->assertEquals(7, $additionalCapacity);
+
+        // 3. Add 3 numbers to queue
+        $updated = $autoService->addAutoOrderQuantity($bot, $member, $service, 3);
+        $this->assertEquals(8, $updated->target_quantity);
+
+        // 4. Available additional slots now 12 - 8 = 4
+        $this->assertEquals(4, $autoService->getAvailableAdditionalCapacity($bot, $service, $member));
+
+        // 5. Trying to add 5 numbers should fail because remaining uncommitted capacity is only 4
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        $autoService->addAutoOrderQuantity($bot, $member, $service, 5);
+    }
 }

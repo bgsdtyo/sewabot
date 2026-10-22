@@ -52,6 +52,56 @@ class OtpAutoOrderService
         return $query->latest('id')->first();
     }
 
+    public function getMaxCapacityForService(TelegramBot $bot, OtpService $service): ?int
+    {
+        $modalPerNumber = (int) ($service->provider_price ?? 0);
+        if ($modalPerNumber <= 0) {
+            return 100;
+        }
+
+        $providerBalance = $this->getEffectiveProviderBalance($bot);
+        if ($providerBalance === null) {
+            return null;
+        }
+
+        return (int) floor($providerBalance / $modalPerNumber);
+    }
+
+    public function getCommittedWaitingSlots(TelegramBot $bot, ?OtpService $service = null, ?BotMember $excludeMember = null): int
+    {
+        $query = OtpAutoOrder::query()
+            ->where('telegram_bot_id', $bot->id)
+            ->where('status', 'active');
+
+        if ($service) {
+            $query->where('otp_service_id', $service->id);
+        }
+
+        if ($excludeMember) {
+            $query->where('bot_member_id', '!=', $excludeMember->id);
+        }
+
+        $orders = $query->get();
+        $totalWaiting = 0;
+        foreach ($orders as $ao) {
+            $totalWaiting += max(0, $ao->target_quantity - $ao->ordered_quantity);
+        }
+
+        return $totalWaiting;
+    }
+
+    public function getAvailableAdditionalCapacity(TelegramBot $bot, OtpService $service, ?BotMember $member = null): ?int
+    {
+        $maxTotal = $this->getMaxCapacityForService($bot, $service);
+        if ($maxTotal === null) {
+            return 100;
+        }
+
+        $totalCommitted = $this->getCommittedWaitingSlots($bot, $service);
+
+        return max(0, $maxTotal - $totalCommitted);
+    }
+
     public function setAutoOrder(TelegramBot $bot, BotMember $member, OtpService $service, int $targetQuantity): OtpAutoOrder
     {
         $targetQuantity = max(1, min(100, $targetQuantity));
@@ -79,16 +129,19 @@ class OtpAutoOrderService
         if ($modalPerNumber > 0) {
             $providerBalance = $this->getEffectiveProviderBalance($bot);
             if ($providerBalance !== null) {
-                $maxByProvider = (int) floor($providerBalance / $modalPerNumber);
-                if ($maxByProvider < 1) {
+                $totalMaxCapacity = (int) floor($providerBalance / $modalPerNumber);
+                $committedByOthers = $this->getCommittedWaitingSlots($bot, $service, excludeMember: $member);
+                $maxAvailableForThisMember = max(0, $totalMaxCapacity - $committedByOthers);
+
+                if ($maxAvailableForThisMember < 1) {
                     throw ValidationException::withMessages([
                         'provider_balance' => "⚠️ <b>Layanan Sedang Penuh</b>\n\nSaat ini antrean auto order untuk layanan ini sedang mencapai kapasitas maksimal sistem. Silakan coba beberapa saat lagi atau hubungi admin.",
                     ]);
                 }
 
-                if ($targetQuantity > $maxByProvider) {
+                if ($targetQuantity > $maxAvailableForThisMember) {
                     throw ValidationException::withMessages([
-                        'provider_balance' => "⚠️ <b>Batas Maksimal Antrean</b>\n\nUntuk menjaga kelancaran dan kestabilan sistem, batas maksimal pemesanan otomatis untuk layanan ini adalah <b>{$maxByProvider} nomor</b> per antrean.\n\nSilakan masukkan jumlah target antara 1 sampai <b>{$maxByProvider} nomor</b>, atau hubungi admin jika Anda membutuhkan kuota lebih besar.",
+                        'provider_balance' => "⚠️ <b>Batas Maksimal Antrean</b>\n\nUntuk menjaga kelancaran dan kestabilan sistem, batas maksimal pemesanan otomatis untuk layanan ini adalah <b>{$maxAvailableForThisMember} nomor</b> per antrean.\n\nSilakan masukkan jumlah target antara 1 sampai <b>{$maxAvailableForThisMember} nomor</b>, atau hubungi admin jika Anda membutuhkan kuota lebih besar.",
                     ]);
                 }
             }
@@ -107,6 +160,54 @@ class OtpAutoOrderService
                 'last_error' => null,
             ]
         );
+    }
+
+    public function addAutoOrderQuantity(TelegramBot $bot, BotMember $member, OtpService $service, int $additionalQuantity): OtpAutoOrder
+    {
+        $additionalQuantity = max(1, min(100, $additionalQuantity));
+        $active = $this->getActiveForMember($bot, $member, $service);
+
+        if (! $active) {
+            return $this->setAutoOrder($bot, $member, $service, $additionalQuantity);
+        }
+
+        $unitPrice = $bot->sellPriceFor($service->provider_price);
+        $currentWaiting = max(0, $active->target_quantity - $active->ordered_quantity);
+        $totalWaitingAfter = $currentWaiting + $additionalQuantity;
+
+        // 1. Validasi saldo member
+        $totalMemberCost = $unitPrice * $totalWaitingAfter;
+        if ($member->availableBalance() < $totalMemberCost) {
+            $formattedTotalCost = number_format($totalMemberCost, 0, ',', '.');
+            $maxCanAffordAdd = max(0, ((int) floor($member->availableBalance() / $unitPrice)) - $currentWaiting);
+            throw ValidationException::withMessages([
+                'balance' => "⚠️ <b>Saldo Tidak Mencukupi</b>\n\nSaldo Anda (".$member->formattedAvailable().") tidak mencukupi untuk menambah <b>{$additionalQuantity} nomor</b> (Total antrean: {$totalWaitingAfter} nomor, Total: Rp{$formattedTotalCost}).\n\nMaksimal penambahan yang dapat Anda lakukan saat ini adalah <b>{$maxCanAffordAdd} nomor</b>.",
+            ]);
+        }
+
+        // 2. Validasi kapasitas modal server yang belum ter-lock
+        $availableAdditional = $this->getAvailableAdditionalCapacity($bot, $service, $member);
+        if ($availableAdditional !== null) {
+            if ($availableAdditional < 1) {
+                throw ValidationException::withMessages([
+                    'provider_balance' => "⚠️ <b>Kapasitas Antrean Penuh</b>\n\nSaat ini kapasitas modal server untuk layanan ini sudah 100% terkunci oleh antrean yang sedang berjalan. Anda belum dapat menambah kuota saat ini. Silakan coba beberapa saat lagi atau hubungi admin.",
+                ]);
+            }
+
+            if ($additionalQuantity > $availableAdditional) {
+                throw ValidationException::withMessages([
+                    'provider_balance' => "⚠️ <b>Batas Penambahan Antrean</b>\n\nSisa kuota server yang belum terkunci saat ini adalah <b>+{$availableAdditional} nomor</b>.\n\nSilakan masukkan penambahan antara 1 sampai <b>{$availableAdditional} nomor</b>, atau hubungi admin jika Anda membutuhkan kuota lebih besar.",
+                ]);
+            }
+        }
+
+        $active->increment('target_quantity', $additionalQuantity);
+        $active->update([
+            'status' => 'active',
+            'last_error' => null,
+        ]);
+
+        return $active->fresh();
     }
 
     public function cancelAutoOrder(TelegramBot $bot, BotMember $member, int|OtpService|null $service = null): bool
