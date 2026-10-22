@@ -306,8 +306,8 @@ class OtpAutoOrderService
                     $remainingNeeded = $autoOrder->remainingQuantity();
                     $canAffordCount = (int) floor($availableBalance / $unitPrice);
 
-                    // Batch up to 5 at a time, limited by needed, affordable, and available stock
-                    $batchQuantity = max(1, min($remainingNeeded, $canAffordCount, 5, $availableStock));
+                    // Batch up to 50 at a time, limited by needed, affordable, and available stock
+                    $batchQuantity = max(1, min($remainingNeeded, $canAffordCount, 50, $availableStock));
 
                     try {
                         $result = $this->otpOrderService->requestBulkOtp($bot, $member, $service, $batchQuantity);

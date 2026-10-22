@@ -350,7 +350,7 @@ class OtpOrderService
      */
     public function requestBulkOtp(TelegramBot $bot, BotMember $member, OtpService $service, int $quantity = 1): array
     {
-        $quantity = max(1, min(5, $quantity));
+        $quantity = max(1, min(50, $quantity));
 
         if ($bot->status !== 'active' || ! $bot->hasActiveSubscription()) {
             throw ValidationException::withMessages(['bot' => 'Layanan bot sedang dinonaktifkan atau masa sewa bot telah berakhir.']);
