@@ -40,11 +40,16 @@ class KopkenPhoneCheckerService
         }
 
         $data = $response->json() ?? [];
-        $credits = (int) ($data['credits'] ?? $data['credit'] ?? $data['balance'] ?? $data['saldo'] ?? 0);
+
+        // API boostly.id mengembalikan nested: { "success": true, "data": { "credits": 49, ... } }
+        // Support both nested ("data" key) dan flat response
+        $payload = isset($data['data']) && is_array($data['data']) ? $data['data'] : $data;
+
+        $credits = (int) ($payload['credits'] ?? $payload['credit'] ?? $payload['balance'] ?? $payload['saldo'] ?? 0);
 
         return [
             'credits'  => $credits,
-            'username' => (string) ($data['username'] ?? $data['user'] ?? ''),
+            'username' => (string) ($payload['username'] ?? $payload['user'] ?? $payload['first_name'] ?? ''),
             'ms'       => round((microtime(true) - $started) * 1000, 1),
             'raw'      => $data,
         ];
@@ -303,6 +308,9 @@ class KopkenPhoneCheckerService
             ->withHeaders([
                 'X-API-Key'  => $apiKey,
                 'Connection' => 'keep-alive',
+            ])
+            ->withQueryParameters([
+                'api_key' => $apiKey, // fallback: beberapa endpoint support query param
             ])
             ->acceptJson()
             ->timeout($timeout)
