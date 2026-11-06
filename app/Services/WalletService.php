@@ -62,6 +62,39 @@ class WalletService
         });
     }
 
+    public function charge(BotMember $member, int $amount, ?string $referenceType = null, ?int $referenceId = null, ?string $note = null): BotMember
+    {
+        if ($amount <= 0) {
+            return $member;
+        }
+
+        return DB::transaction(function () use ($member, $amount, $referenceType, $referenceId, $note) {
+            $member = BotMember::query()->whereKey($member->id)->lockForUpdate()->firstOrFail();
+
+            if ($member->availableBalance() < $amount) {
+                throw ValidationException::withMessages([
+                    'balance' => 'Saldo tidak cukup. Tersedia '.$member->formattedAvailable().', dibutuhkan Rp'.number_format($amount, 0, ',', '.'),
+                ]);
+            }
+
+            $member->balance = max(0, $member->balance - $amount);
+            $member->save();
+
+            WalletTransaction::create([
+                'bot_member_id' => $member->id,
+                'telegram_bot_id' => $member->telegram_bot_id,
+                'type' => 'charge',
+                'amount' => -$amount,
+                'balance_after' => $member->balance,
+                'reference_type' => $referenceType,
+                'reference_id' => $referenceId,
+                'note' => $note ?? 'Potong saldo',
+            ]);
+
+            return $member->fresh();
+        });
+    }
+
     public function chargeHeld(BotMember $member, int $amount, string $referenceType, int $referenceId, ?string $note = null): BotMember
     {
         return DB::transaction(function () use ($member, $amount, $referenceType, $referenceId, $note) {

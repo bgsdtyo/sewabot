@@ -224,6 +224,11 @@ class TelegramBotService
             return;
         }
 
+        // Phone checker manual input
+        if ($this->handlePhoneCheckerPendingInput($bot, $member, $chatId, $text)) {
+            return;
+        }
+
         // Kembali ke menu user
         if ($this->isButton($text, 'Menu User') || str_starts_with(strtolower($text), '/user')) {
             $this->clearAdminPending($bot, $chatId);
@@ -340,6 +345,28 @@ class TelegramBotService
 
         if (str_starts_with($text, '/auto') || $this->isButton($text, 'Auto Order')) {
             $this->showAutoOrderMenu($bot, $member, $chatId);
+
+            return;
+        }
+
+        if (
+            str_starts_with($text, '/checker')
+            || str_starts_with($text, '/cekno')
+            || str_starts_with($text, '/ceknomor')
+            || str_starts_with($text, '/check')
+            || $this->isButton($text, 'Cek Nomor Fresh')
+            || $this->isButton($text, 'Phone Checker')
+            || $this->isButton($text, 'Cek Nomor')
+        ) {
+            $parts = preg_split('/\s+/', trim($text));
+            if (count($parts) > 1 && ! in_array(strtolower($parts[0]), ['cek', 'nomor', 'fresh', 'phone', 'checker', '🔍'], true)) {
+                array_shift($parts);
+                $this->executeDirectPhoneCheck($bot, $member, $chatId, $parts);
+
+                return;
+            }
+
+            $this->showPhoneCheckerMenu($bot, $member, $chatId);
 
             return;
         }
@@ -1166,12 +1193,22 @@ class TelegramBotService
 
     protected function mainKeyboard(): array
     {
+        $hasChecker = $this->currentBot && $this->currentBot->phone_checker_enabled && filled($this->currentBot->phone_checker_api_key);
+
         $rows = [
             [['text' => '📱 Order OTP'], ['text' => '⚡ Auto Order']],
-            [['text' => '💰 Saldo'], ['text' => '➕ Deposit']],
-            [['text' => '📦 Order Aktif'], ['text' => '📋 Riwayat']],
-            [['text' => '👤 Akun'], ['text' => '❓ Bantuan']],
         ];
+
+        if ($hasChecker) {
+            $rows[] = [['text' => '🔍 Cek Nomor Fresh'], ['text' => '💰 Saldo']];
+            $rows[] = [['text' => '➕ Deposit'], ['text' => '📦 Order Aktif']];
+            $rows[] = [['text' => '📋 Riwayat'], ['text' => '👤 Akun']];
+            $rows[] = [['text' => '❓ Bantuan']];
+        } else {
+            $rows[] = [['text' => '💰 Saldo'], ['text' => '➕ Deposit']];
+            $rows[] = [['text' => '📦 Order Aktif'], ['text' => '📋 Riwayat']];
+            $rows[] = [['text' => '👤 Akun'], ['text' => '❓ Bantuan']];
+        }
 
         if ($this->currentBot && $this->currentFromId && $this->currentBot->isTelegramAdmin($this->currentFromId)) {
             $rows[] = [['text' => '🛠 Menu Admin']];
@@ -1289,12 +1326,19 @@ class TelegramBotService
         $serviceLabel = $service ? strtoupper(e($service->name)) : 'KOPKEN';
         $price = $service ? $bot->formattedSellPriceFor($service->provider_price) : '-';
 
+        $hasChecker = $bot->phone_checker_enabled && filled($bot->phone_checker_api_key);
+        $checkerPrice = (int) ($bot->phone_checker_price ?? 100);
+        $checkerLine = $hasChecker
+            ? "• 🔍 Cek Nomor Fresh — Pengecekan status pendaftaran Kopi Kenangan (Terdaftar = GRATIS, Fresh = Rp".number_format($checkerPrice, 0, ',', '.').")\n"
+            : '';
+
         return "<b>Panduan Penggunaan</b>\n\n"
             ."Saldo tersedia: <b>{$member->formattedAvailable()}</b>\n"
             ."Tarif {$serviceLabel}: <b>{$price}</b>\n\n"
             ."<b>Menu Utama</b>\n"
             ."• 📱 Order OTP — Pesan nomor baru (hingga 5x bulk)\n"
             ."• ⚡ Auto Order — Sistem otomatis pesan nomor saat stok ready\n"
+            .$checkerLine
             ."• 📦 Order Aktif — Lihat daftar nomor yang sedang berjalan\n"
             ."• 💰 Saldo — Cek sisa saldo akun Anda\n"
             ."• ➕ Deposit — Info & konfirmasi deposit saldo\n"
@@ -3918,6 +3962,58 @@ class TelegramBotService
             return;
         }
 
+        if ($data === 'checker_menu') {
+            $this->showPhoneCheckerMenu($bot, $member, $chatId, $messageId ? (int) $messageId : null);
+
+            return;
+        }
+
+        if ($data === 'checker_close') {
+            if ($messageId) {
+                $this->deleteMessage($bot, $chatId, $messageId);
+            }
+
+            return;
+        }
+
+        if ($data === 'checker_prompt_single') {
+            Cache::put("checker_prompt_{$bot->id}_{$member->id}", ['mode' => 'single'], now()->addMinutes(5));
+            $checkerPrice = (int) ($bot->phone_checker_price ?? 100);
+            $checkerPriceFmt = 'Rp'.number_format($checkerPrice, 0, ',', '.');
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $messageId ? (int) $messageId : null,
+                "🔍 <b>Cek 1 Nomor Kopi Kenangan</b>\n\nSilakan ketik atau kirimkan <b>1 nomor telepon</b> yang ingin dicek:\nContoh: <code>081234567890</code>\n\n<i>Ketentuan Saldo:</i>\n• Terdaftar = <b>GRATIS (Rp 0)</b>\n• Fresh (Belum Terdaftar) = <b>{$checkerPriceFmt}</b> dipotong saldo\n\n<i>Ketik <b>batal</b> untuk membatalkan.</i>",
+                inlineKeyboard: [
+                    'inline_keyboard' => [
+                        [['text' => '🔙 Kembali ke Menu Checker', 'callback_data' => 'checker_menu']],
+                    ],
+                ]
+            );
+
+            return;
+        }
+
+        if ($data === 'checker_prompt_bulk') {
+            Cache::put("checker_prompt_{$bot->id}_{$member->id}", ['mode' => 'bulk'], now()->addMinutes(5));
+            $checkerPrice = (int) ($bot->phone_checker_price ?? 100);
+            $checkerPriceFmt = 'Rp'.number_format($checkerPrice, 0, ',', '.');
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $messageId ? (int) $messageId : null,
+                "📑 <b>Cek Bulk Nomor Kopi Kenangan</b>\n\nSilakan kirimkan daftar nomor telepon (maksimal 25 nomor per request).\nBisa dipisahkan dengan baris baru, spasi, atau koma.\n\nContoh:\n<code>081234567890\n085712345678\n089612345678</code>\n\n<i>Ketentuan Saldo:</i>\n• Terdaftar = <b>GRATIS (Rp 0)</b>\n• Fresh = <b>{$checkerPriceFmt}/nomor</b> dipotong saldo\n\n<i>Ketik <b>batal</b> untuk membatalkan.</i>",
+                inlineKeyboard: [
+                    'inline_keyboard' => [
+                        [['text' => '🔙 Kembali ke Menu Checker', 'callback_data' => 'checker_menu']],
+                    ],
+                ]
+            );
+
+            return;
+        }
+
         if ($data === 'deposit') {
             if ($messageId) {
                 $this->deleteMessage($bot, $chatId, $messageId);
@@ -4933,5 +5029,321 @@ class TelegramBotService
         }
 
         return true;
+    }
+
+    protected function handlePhoneCheckerPendingInput(TelegramBot $bot, BotMember $member, int|string $chatId, string $text): bool
+    {
+        $cacheKey = "checker_prompt_{$bot->id}_{$member->id}";
+        $data = Cache::get($cacheKey);
+        if (! $data || ! is_array($data)) {
+            return false;
+        }
+
+        if (in_array(strtolower(trim($text)), ['/batal', 'batal', 'cancel'], true)) {
+            Cache::forget($cacheKey);
+            $this->sendMessage($bot, $chatId, '❌ Pengecekan nomor dibatalkan.', $this->mainKeyboard());
+
+            return true;
+        }
+
+        $mode = (string) ($data['mode'] ?? 'single');
+        Cache::forget($cacheKey);
+
+        if ($mode === 'single') {
+            $this->processSinglePhoneCheck($bot, $member, $chatId, trim($text));
+        } else {
+            $phones = preg_split('/[\r\n,;\s]+/', trim($text));
+            $this->processBulkPhoneCheck($bot, $member, $chatId, $phones ?: []);
+        }
+
+        return true;
+    }
+
+    public function showPhoneCheckerMenu(
+        TelegramBot $bot,
+        BotMember $member,
+        int|string $chatId,
+        ?int $editMessageId = null,
+        ?string $notice = null
+    ): void {
+        $hasChecker = $bot->phone_checker_enabled && filled($bot->phone_checker_api_key);
+        if (! $hasChecker) {
+            $msg = "⚠️ <b>Phone Checker Belum Aktif</b>\n\nFitur pengecekan nomor Kopi Kenangan belum diaktifkan pada konfigurasi bot ini. Silakan hubungi admin.";
+            $this->replyOrSend($bot, $chatId, $editMessageId, $msg, $this->mainKeyboard());
+
+            return;
+        }
+
+        $checkerPrice = (int) ($bot->phone_checker_price ?? 100);
+        $checkerPriceFmt = 'Rp '.number_format($checkerPrice, 0, ',', '.');
+        $memberBalanceFmt = $member->formattedAvailable();
+
+        $lines = [];
+        if ($notice) {
+            $lines[] = "{$notice}\n";
+        }
+
+        $lines[] = "🔍 <b>Kopi Kenangan Phone Checker</b> ☕📱\n";
+        $lines[] = "Fitur validasi instan untuk mengecek status pendaftaran nomor telepon di server Kopi Kenangan secara <i>real-time</i>.\n";
+        $lines[] = "📋 <b>Ketentuan Biaya & Saldo:</b>";
+        $lines[] = "• 🔴 <b>Nomor TERDAFTAR:</b> <b>GRATIS (Rp 0)</b> — Saldo Anda <b>TIDAK</b> dipotong!";
+        $lines[] = "• 🟢 <b>Nomor FRESH (Belum Terdaftar):</b> <b>{$checkerPriceFmt} / nomor</b> dipotong dari saldo akun Anda.\n";
+        $lines[] = "💳 Saldo Tersedia Anda: <b>{$memberBalanceFmt}</b>\n";
+        $lines[] = "<i>Pilih mode pengecekan di bawah ini:</i>";
+
+        $buttons = [
+            [
+                ['text' => '🔍 Cek 1 Nomor', 'callback_data' => 'checker_prompt_single'],
+                ['text' => '📑 Cek Bulk (Maks 25 No)', 'callback_data' => 'checker_prompt_bulk'],
+            ],
+            [
+                ['text' => '🔄 Refresh', 'callback_data' => 'checker_menu'],
+                ['text' => '❌ Tutup', 'callback_data' => 'checker_close'],
+            ],
+        ];
+
+        $this->replyOrSend(
+            $bot,
+            $chatId,
+            $editMessageId,
+            implode("\n", $lines),
+            inlineKeyboard: ['inline_keyboard' => $buttons]
+        );
+    }
+
+    protected function executeDirectPhoneCheck(TelegramBot $bot, BotMember $member, int|string $chatId, array $args): void
+    {
+        $hasChecker = $bot->phone_checker_enabled && filled($bot->phone_checker_api_key);
+        if (! $hasChecker) {
+            $this->replyOrSend($bot, $chatId, null, "⚠️ Fitur Phone Checker belum diaktifkan pada bot ini.", $this->mainKeyboard());
+
+            return;
+        }
+
+        if (count($args) === 1) {
+            $this->processSinglePhoneCheck($bot, $member, $chatId, $args[0]);
+        } else {
+            $this->processBulkPhoneCheck($bot, $member, $chatId, $args);
+        }
+    }
+
+    protected function processSinglePhoneCheck(TelegramBot $bot, BotMember $member, int|string $chatId, string $phoneInput): void
+    {
+        $cleaned = preg_replace('/\D+/', '', $phoneInput);
+        if (strlen($cleaned) < 9 || strlen($cleaned) > 15) {
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                null,
+                "⚠️ Format nomor tidak valid: <code>".e($phoneInput)."</code>\n\nPastikan nomor terdiri dari 9-15 digit angka (contoh: <code>081234567890</code>).",
+                inlineKeyboard: [
+                    'inline_keyboard' => [
+                        [['text' => '🔍 Coba Lagi', 'callback_data' => 'checker_prompt_single']],
+                        [['text' => '🔙 Menu Checker', 'callback_data' => 'checker_menu']],
+                    ],
+                ]
+            );
+
+            return;
+        }
+
+        $checkerPrice = (int) ($bot->phone_checker_price ?? 100);
+        if ($member->availableBalance() < $checkerPrice) {
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                null,
+                "⚠️ <b>Saldo Tidak Mencukupi</b>\n\nSaldo Anda saat ini (".$member->formattedAvailable().") tidak mencukupi untuk biaya cek nomor Fresh (dibutuhkan minimal Rp".number_format($checkerPrice, 0, ',', '.').").\n\nSilakan isi saldo melalui menu Deposit.",
+                inlineKeyboard: [
+                    'inline_keyboard' => [
+                        [['text' => '➕ Deposit', 'callback_data' => 'deposit']],
+                        [['text' => '🔙 Menu Checker', 'callback_data' => 'checker_menu']],
+                    ],
+                ]
+            );
+
+            return;
+        }
+
+        $checker = app(KopkenPhoneCheckerService::class);
+        try {
+            $result = $checker->checkSingle($cleaned, $bot->phone_checker_api_key, $bot->phone_checker_base_url);
+            $isFresh = (bool) ($result['is_fresh'] ?? false);
+            $normalizedPhone = (string) ($result['phone'] ?? $cleaned);
+
+            $wallet = app(WalletService::class);
+            $chargedFee = 0;
+
+            if ($isFresh && $checkerPrice > 0) {
+                $wallet->charge($member, $checkerPrice, note: "Phone Checker: {$normalizedPhone} (Fresh)");
+                $member->refresh();
+                $chargedFee = $checkerPrice;
+            }
+
+            $statusText = $isFresh
+                ? "🟢 <b>FRESH (Belum Terdaftar)</b>"
+                : "🔴 <b>SUDAH TERDAFTAR</b>";
+
+            $feeText = $isFresh
+                ? "-Rp ".number_format($chargedFee, 0, ',', '.')
+                : "Rp 0 (GRATIS)";
+
+            $desc = $isFresh
+                ? "<i>Nomor ini belum pernah terdaftar di Kopi Kenangan dan siap digunakan!</i>"
+                : "<i>Nomor ini sudah terdaftar di Kopi Kenangan. Saldo Anda tidak dipotong sama sekali.</i>";
+
+            $lines = [
+                "🔍 <b>Hasil Pengecekan Kopi Kenangan</b>\n",
+                "📱 Nomor: <code>{$normalizedPhone}</code>",
+                "📊 Status: {$statusText}",
+                "💰 Biaya Cek: <b>{$feeText}</b>",
+                "💳 Sisa Saldo: <b>".$member->formattedAvailable()."</b>\n",
+                $desc,
+            ];
+
+            $buttons = [
+                [
+                    ['text' => '🔍 Cek Nomor Lain', 'callback_data' => 'checker_prompt_single'],
+                    ['text' => '📑 Cek Bulk', 'callback_data' => 'checker_prompt_bulk'],
+                ],
+                [
+                    ['text' => '🔙 Menu Checker', 'callback_data' => 'checker_menu'],
+                ],
+            ];
+
+            $this->replyOrSend($bot, $chatId, null, implode("\n", $lines), inlineKeyboard: ['inline_keyboard' => $buttons]);
+        } catch (\Throwable $e) {
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                null,
+                "⚠️ <b>Gagal Cek Nomor:</b>\n".$e->getMessage(),
+                inlineKeyboard: [
+                    'inline_keyboard' => [
+                        [['text' => '🔍 Coba Lagi', 'callback_data' => 'checker_prompt_single']],
+                        [['text' => '🔙 Menu Checker', 'callback_data' => 'checker_menu']],
+                    ],
+                ]
+            );
+        }
+    }
+
+    protected function processBulkPhoneCheck(TelegramBot $bot, BotMember $member, int|string $chatId, array $rawPhones): void
+    {
+        $phones = [];
+        foreach ($rawPhones as $p) {
+            $c = preg_replace('/\D+/', '', (string) $p);
+            if (strlen($c) >= 9 && strlen($c) <= 15) {
+                $phones[] = $c;
+            }
+        }
+        $phones = array_values(array_unique($phones));
+
+        if (empty($phones)) {
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                null,
+                "⚠️ Tidak ada nomor telepon valid yang ditemukan.\n\nPastikan nomor terdiri dari 9-15 digit angka (contoh: <code>081234567890</code>).",
+                inlineKeyboard: [
+                    'inline_keyboard' => [
+                        [['text' => '📑 Coba Lagi', 'callback_data' => 'checker_prompt_bulk']],
+                        [['text' => '🔙 Menu Checker', 'callback_data' => 'checker_menu']],
+                    ],
+                ]
+            );
+
+            return;
+        }
+
+        // Batasi maks 25 nomor per request
+        if (count($phones) > 25) {
+            $phones = array_slice($phones, 0, 25);
+        }
+
+        $checkerPrice = (int) ($bot->phone_checker_price ?? 100);
+        if ($member->availableBalance() < $checkerPrice) {
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                null,
+                "⚠️ <b>Saldo Tidak Mencukupi</b>\n\nSaldo Anda saat ini (".$member->formattedAvailable().") tidak mencukupi untuk biaya cek nomor Fresh (minimal Rp".number_format($checkerPrice, 0, ',', '.').").\n\nSilakan isi saldo melalui menu Deposit.",
+                inlineKeyboard: [
+                    'inline_keyboard' => [
+                        [['text' => '➕ Deposit', 'callback_data' => 'deposit']],
+                        [['text' => '🔙 Menu Checker', 'callback_data' => 'checker_menu']],
+                    ],
+                ]
+            );
+
+            return;
+        }
+
+        $checker = app(KopkenPhoneCheckerService::class);
+        try {
+            $result = $checker->checkBulk($phones, $bot->phone_checker_api_key, $bot->phone_checker_base_url);
+            $freshList = $result['fresh'] ?? [];
+            $regList = $result['registered'] ?? [];
+            $freshCount = count($freshList);
+            $regCount = count($regList);
+            $totalCount = count($phones);
+
+            $totalCost = $freshCount * $checkerPrice;
+            if ($totalCost > 0) {
+                $wallet = app(WalletService::class);
+                $chargeAmount = min($totalCost, $member->availableBalance());
+                $wallet->charge($member, $chargeAmount, note: "Phone Checker Bulk: {$freshCount} fresh");
+                $member->refresh();
+            }
+
+            $fmtCost = $totalCost > 0 ? "-Rp ".number_format($totalCost, 0, ',', '.') : "Rp 0 (GRATIS)";
+
+            $lines = [
+                "📑 <b>Hasil Pengecekan Bulk Kopi Kenangan</b>\n",
+                "📋 Total Dicek: <b>{$totalCount} nomor</b>",
+                "🟢 Fresh (Belum Terdaftar): <b>{$freshCount} nomor</b>",
+                "🔴 Sudah Terdaftar: <b>{$regCount} nomor</b>",
+                "💰 Total Biaya: <b>{$fmtCost}</b> (Terdaftar = GRATIS, Fresh = Rp".number_format($checkerPrice, 0, ',', '.')."/no)",
+                "💳 Sisa Saldo: <b>".$member->formattedAvailable()."</b>\n",
+                "━━━━━━━━━━━━━━━━━━━━━",
+            ];
+
+            if ($freshCount > 0) {
+                $lines[] = "🟢 <b>NOMOR FRESH ({$freshCount}):</b>";
+                $lines[] = "<code>".implode("\n", array_slice($freshList, 0, 25))."</code>\n";
+            }
+
+            if ($regCount > 0) {
+                $lines[] = "🔴 <b>NOMOR TERDAFTAR ({$regCount}):</b>";
+                $lines[] = "<code>".implode("\n", array_slice($regList, 0, 25))."</code>\n";
+            }
+
+            $lines[] = "━━━━━━━━━━━━━━━━━━━━━";
+
+            $buttons = [
+                [
+                    ['text' => '📑 Cek Bulk Lagi', 'callback_data' => 'checker_prompt_bulk'],
+                    ['text' => '🔍 Cek 1 Nomor', 'callback_data' => 'checker_prompt_single'],
+                ],
+                [
+                    ['text' => '🔙 Menu Checker', 'callback_data' => 'checker_menu'],
+                ],
+            ];
+
+            $this->replyOrSend($bot, $chatId, null, implode("\n", $lines), inlineKeyboard: ['inline_keyboard' => $buttons]);
+        } catch (\Throwable $e) {
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                null,
+                "⚠️ <b>Gagal Cek Bulk:</b>\n".$e->getMessage(),
+                inlineKeyboard: [
+                    'inline_keyboard' => [
+                        [['text' => '📑 Coba Lagi', 'callback_data' => 'checker_prompt_bulk']],
+                        [['text' => '🔙 Menu Checker', 'callback_data' => 'checker_menu']],
+                    ],
+                ]
+            );
+        }
     }
 }

@@ -79,8 +79,9 @@ class KopkenPhoneCheckerService
         }
 
         $data = $response->json() ?? [];
+        $payload = isset($data['data']) && is_array($data['data']) ? $data['data'] : $data;
 
-        return $this->normalizeCheckResult($phone, $data);
+        return $this->normalizeCheckResult($phone, $payload);
     }
 
     /**
