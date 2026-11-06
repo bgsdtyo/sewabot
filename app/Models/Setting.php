@@ -56,6 +56,14 @@ class Setting extends Model
         ];
     }
 
+    public static function phoneChecker(): array
+    {
+        return [
+            'api_key'  => (string) static::get('phone_checker_api_key', env('PHONE_CHECKER_API_KEY', '')),
+            'base_url' => rtrim((string) static::get('phone_checker_base_url', env('PHONE_CHECKER_BASE_URL', \App\Services\KopkenPhoneCheckerService::DEFAULT_BASE_URL)), '/'),
+        ];
+    }
+
     public static function activeOtpProvider(): string
     {
         return (string) static::get('active_otp_provider', 'kopken');

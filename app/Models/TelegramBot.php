@@ -39,6 +39,8 @@ class TelegramBot extends Model
         'force_subscribe_enabled',
         'force_subscribe_channel',
         'force_subscribe_join_url',
+        'phone_checker_api_key',
+        'phone_checker_enabled',
     ];
 
     protected function casts(): array
@@ -49,7 +51,8 @@ class TelegramBot extends Model
             'provider_balance_checked_at' => 'datetime',
             'min_provider_balance_alert' => 'integer',
             'provider_balance_last_alerted_at' => 'datetime',
-            'force_subscribe_enabled' => 'boolean',
+            'force_subscribe_enabled'  => 'boolean',
+            'phone_checker_enabled'    => 'boolean',
         ];
     }
 
@@ -58,6 +61,7 @@ class TelegramBot extends Model
         'otp_api_key',
         'otp_wahub_api_key',
         'wahub_webhook_secret',
+        'phone_checker_api_key',
     ];
 
     public function hasActiveSubscription(): bool

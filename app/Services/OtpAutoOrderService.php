@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\BotMember;
 use App\Models\OtpAutoOrder;
+use App\Models\OtpOrder;
 use App\Models\OtpService;
 use App\Models\TelegramBot;
 use App\Services\OtpProviderManager;
@@ -15,7 +16,7 @@ class OtpAutoOrderService
 {
     public function __construct(
         protected OtpOrderService $otpOrderService,
-        protected TelegramBotService $telegramBotService
+        protected TelegramBotService $telegramBotService,
     ) {}
 
     public function getEffectiveProviderBalance(TelegramBot $bot): ?int
@@ -341,6 +342,22 @@ class OtpAutoOrderService
                             break;
                         }
 
+                        // ── Phone Checker Validation ──────────────────────────────────────────
+                        // Jika bot mengaktifkan phone_checker, validasi nomor yang diterima.
+                        // Nomor TERDAFTAR di Kopi Kenangan: cancel order + refund saldo member.
+                        // Nomor FRESH: diteruskan ke member.
+                        $createdOrders = $this->filterAndRefundRegisteredNumbers(
+                            $bot, $member, $service, $createdOrders
+                        );
+                        $countCreated = count($createdOrders);
+
+                        if ($countCreated === 0) {
+                            // Semua nomor batch ini terdaftar, lanjut ke autoOrder berikutnya
+                            Log::info("Phone Checker: semua {$batchQuantity} nomor batch terdaftar di Kopken, skip batch untuk member #{$member->id}");
+                            break;
+                        }
+                        // ─────────────────────────────────────────────────────────────────────
+
                         $totalExecuted += $countCreated;
                         $availableStock -= $countCreated;
 
@@ -422,5 +439,129 @@ class OtpAutoOrderService
         }
 
         return $totalExecuted;
+    }
+
+    /**
+     * Validasi nomor yang baru dipesan via Phone Checker API.
+     *
+     * - Nomor TERDAFTAR di Kopi Kenangan: cancel order di provider + refund saldo member.
+     * - Nomor FRESH (belum terdaftar): biarkan, teruskan ke member.
+     *
+     * Jika bot tidak mengaktifkan phone_checker atau API key belum dikonfigurasi,
+     * semua nomor dianggap valid (pass-through) agar tidak memblokir auto order.
+     *
+     * @param  OtpOrder[]  $orders
+     * @return OtpOrder[]  Hanya order yang lolos (nomor fresh)
+     */
+    protected function filterAndRefundRegisteredNumbers(
+        TelegramBot $bot,
+        BotMember $member,
+        OtpService $service,
+        array $orders
+    ): array {
+        // Hanya jalankan jika phone_checker_enabled = true untuk bot ini
+        if (! $bot->phone_checker_enabled) {
+            return $orders;
+        }
+
+        // Tentukan API key: prioritas per-bot, fallback ke global setting
+        $checkerApiKey = filled($bot->phone_checker_api_key)
+            ? $bot->phone_checker_api_key
+            : (string) \App\Models\Setting::get('phone_checker_api_key', '');
+
+        if (! filled($checkerApiKey)) {
+            Log::debug('Phone Checker diaktifkan tapi API key belum diisi, skip validasi untuk bot #'.$bot->id);
+
+            return $orders;
+        }
+
+        // Kumpulkan nomor telepon dari orders yang sudah punya nomor
+        $phoneToOrder   = [];
+        $ordersWithoutPhone = [];
+
+        foreach ($orders as $order) {
+            $phone = (string) ($order->phone_number ?? '');
+            if (filled($phone)) {
+                $phoneToOrder[$phone] = $order;
+            } else {
+                // Order yang belum ada nomor (pending provider) langsung lolos
+                $ordersWithoutPhone[] = $order;
+            }
+        }
+
+        if (empty($phoneToOrder)) {
+            return $orders;
+        }
+
+        try {
+            $checker     = app(KopkenPhoneCheckerService::class);
+            $checkResult = $checker->checkBulk(array_keys($phoneToOrder), $checkerApiKey);
+
+            $registeredPhones = array_flip($checkResult['registered']); // O(1) lookup
+            $creditsUsed      = $checkResult['credits_used'];
+
+            if ($creditsUsed > 0) {
+                Log::info("Phone Checker: {$creditsUsed} kredit digunakan (auto order member #{$member->id})");
+            }
+
+            $validOrders = $ordersWithoutPhone;
+
+            foreach ($phoneToOrder as $phone => $order) {
+                if (isset($registeredPhones[$phone])) {
+                    // Nomor TERDAFTAR → cancel + refund otomatis
+                    Log::info("Phone Checker: nomor {$phone} sudah terdaftar di Kopken, cancel order #{$order->id}");
+
+                    try {
+                        $this->otpOrderService->cancelOrder($order);
+                    } catch (\Throwable $cancelErr) {
+                        Log::warning("Phone Checker: gagal cancel order #{$order->id}: ".$cancelErr->getMessage());
+                    }
+                } else {
+                    // Nomor FRESH → teruskan ke member
+                    $validOrders[] = $order;
+                }
+            }
+
+            // Notifikasi jika ada nomor yang di-skip
+            $skippedCount = count($orders) - count($validOrders);
+            if ($skippedCount > 0) {
+                $this->notifyCheckerSkipped($bot, $member, $service, $skippedCount, count($validOrders));
+            }
+
+            return array_values($validOrders);
+        } catch (\Throwable $e) {
+            // Jika Phone Checker gagal (timeout, API error), jangan blokir auto order
+            Log::warning('Phone Checker validation failed, melanjutkan tanpa validasi: '.$e->getMessage());
+
+            return $orders;
+        }
+    }
+
+    /**
+     * Kirim notifikasi ke member jika ada nomor yang diskip karena terdaftar di Kopken.
+     */
+    protected function notifyCheckerSkipped(
+        TelegramBot $bot,
+        BotMember $member,
+        OtpService $service,
+        int $skippedCount,
+        int $validCount
+    ): void {
+        if (! $member->telegram_chat_id) {
+            return;
+        }
+
+        $text = "🔄 <b>Info Auto Order: Nomor Diganti Otomatis</b>\n\n"
+            ."Sistem mendeteksi <b>{$skippedCount} nomor</b> yang diterima dari provider sudah terdaftar "
+            ."di akun Kopi Kenangan lain.\n\n"
+            ."✅ Saldo untuk nomor tersebut telah <b>dikembalikan otomatis</b>.\n"
+            ."📦 Nomor valid yang diteruskan: <b>{$validCount} nomor</b>\n\n"
+            ."<i>Sistem akan terus mencari nomor fresh untuk melengkapi target Anda.</i>";
+
+        try {
+            $this->telegramBotService->sendMessage($bot, $member->telegram_chat_id, $text);
+        } catch (\Throwable $e) {
+            Log::debug('Gagal kirim notif phone checker skip: '.$e->getMessage());
+        }
     }
 }
