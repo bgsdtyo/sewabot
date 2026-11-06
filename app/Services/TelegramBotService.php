@@ -5169,20 +5169,26 @@ class TelegramBotService
         try {
             $result = $checker->checkSingle($cleaned, $bot->phone_checker_api_key, $bot->phone_checker_base_url);
             $isFresh = (bool) ($result['is_fresh'] ?? false);
-            $normalizedPhone = (string) ($result['phone'] ?? $cleaned);
+            $displayPhone = (string) ($result['phone'] ?? $checker->formatLocalPhone($cleaned));
+            $name = $result['name'] ?? null;
+            $latencyMs = $result['latency_ms'] ?? null;
 
             $wallet = app(WalletService::class);
             $chargedFee = 0;
 
             if ($isFresh && $checkerPrice > 0) {
-                $wallet->charge($member, $checkerPrice, note: "Phone Checker: {$normalizedPhone} (Fresh)");
+                $wallet->charge($member, $checkerPrice, note: "Phone Checker: {$displayPhone} (Fresh)");
                 $member->refresh();
                 $chargedFee = $checkerPrice;
             }
 
             $statusText = $isFresh
-                ? "🟢 <b>FRESH (Belum Terdaftar)</b>"
-                : "🔴 <b>SUDAH TERDAFTAR</b>";
+                ? "🟢 <b>BELUM TERDAFTAR (Fresh)</b>"
+                : "🔴 <b>TERDAFTAR</b>";
+
+            $quickCopy = $name
+                ? "<code>{$displayPhone} | {$name}</code>"
+                : ($isFresh ? "<code>{$displayPhone} | Belum Terdaftar</code>" : "<code>{$displayPhone} | TERDAFTAR</code>");
 
             $feeText = $isFresh
                 ? "-Rp ".number_format($chargedFee, 0, ',', '.')
@@ -5194,12 +5200,23 @@ class TelegramBotService
 
             $lines = [
                 "🔍 <b>Hasil Pengecekan Kopi Kenangan</b>\n",
-                "📱 Nomor: <code>{$normalizedPhone}</code>",
-                "📊 Status: {$statusText}",
-                "💰 Biaya Cek: <b>{$feeText}</b>",
-                "💳 Sisa Saldo: <b>".$member->formattedAvailable()."</b>\n",
-                $desc,
+                $quickCopy."\n",
+                "📱 Nomor: <code>{$displayPhone}</code>",
             ];
+
+            if ($name) {
+                $lines[] = "👤 Nama: <b>".e($name)."</b>";
+            }
+
+            $lines[] = "📊 Status: {$statusText}";
+
+            if ($latencyMs !== null) {
+                $lines[] = "⚡ Latensi: <b>{$latencyMs}ms</b>";
+            }
+
+            $lines[] = "💰 Biaya Cek: <b>{$feeText}</b>";
+            $lines[] = "💳 Sisa Saldo: <b>".$member->formattedAvailable()."</b>\n";
+            $lines[] = $desc;
 
             $buttons = [
                 [
@@ -5284,6 +5301,7 @@ class TelegramBotService
             $result = $checker->checkBulk($phones, $bot->phone_checker_api_key, $bot->phone_checker_base_url);
             $freshList = $result['fresh'] ?? [];
             $regList = $result['registered'] ?? [];
+            $allResults = $result['results'] ?? [];
             $freshCount = count($freshList);
             $regCount = count($regList);
             $totalCount = count($phones);
@@ -5298,6 +5316,21 @@ class TelegramBotService
 
             $fmtCost = $totalCost > 0 ? "-Rp ".number_format($totalCost, 0, ',', '.') : "Rp 0 (GRATIS)";
 
+            $regLines = [];
+            foreach ($regList as $p) {
+                $item = $allResults[$p] ?? null;
+                $dp = (string) ($item['phone'] ?? $checker->formatLocalPhone((string) $p));
+                $nm = ! empty($item['name']) ? $item['name'] : 'TERDAFTAR';
+                $regLines[] = "{$dp} | {$nm}";
+            }
+
+            $freshLines = [];
+            foreach ($freshList as $p) {
+                $item = $allResults[$p] ?? null;
+                $dp = (string) ($item['phone'] ?? $checker->formatLocalPhone((string) $p));
+                $freshLines[] = "{$dp} | Belum Terdaftar";
+            }
+
             $lines = [
                 "📑 <b>Hasil Pengecekan Bulk Kopi Kenangan</b>\n",
                 "📋 Total Dicek: <b>{$totalCount} nomor</b>",
@@ -5308,14 +5341,14 @@ class TelegramBotService
                 "━━━━━━━━━━━━━━━━━━━━━",
             ];
 
-            if ($freshCount > 0) {
-                $lines[] = "🟢 <b>NOMOR FRESH ({$freshCount}):</b>";
-                $lines[] = "<code>".implode("\n", array_slice($freshList, 0, 25))."</code>\n";
+            if ($regCount > 0) {
+                $lines[] = "🔴 <b>TERDAFTAR ({$regCount}):</b>";
+                $lines[] = "<code>".implode("\n", $regLines)."</code>\n";
             }
 
-            if ($regCount > 0) {
-                $lines[] = "🔴 <b>NOMOR TERDAFTAR ({$regCount}):</b>";
-                $lines[] = "<code>".implode("\n", array_slice($regList, 0, 25))."</code>\n";
+            if ($freshCount > 0) {
+                $lines[] = "🟢 <b>BELUM TERDAFTAR / FRESH ({$freshCount}):</b>";
+                $lines[] = "<code>".implode("\n", $freshLines)."</code>\n";
             }
 
             $lines[] = "━━━━━━━━━━━━━━━━━━━━━";

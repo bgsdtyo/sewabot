@@ -349,31 +349,53 @@ class KopkenPhoneCheckerService
     }
 
     /**
+     * Normalisasi format nomor telepon ke format tampilan lokal (08xxx).
+     */
+    public function formatLocalPhone(string $phone): string
+    {
+        $phone = preg_replace('/\D+/', '', trim($phone));
+        if ($phone === '') {
+            return '';
+        }
+
+        if (str_starts_with($phone, '628')) {
+            return '08'.substr($phone, 3);
+        }
+
+        if (str_starts_with($phone, '8')) {
+            return '0'.$phone;
+        }
+
+        return $phone;
+    }
+
+    /**
      * Normalisasi hasil cek dari response API ke format standar internal.
      *
-     * @return array{phone: string, status: string, is_fresh: bool, raw: array}
+     * @return array{phone: string, name: ?string, status: string, is_fresh: bool, latency_ms: ?int, raw: array}
      */
     protected function normalizeCheckResult(string $phone, array $data): array
     {
         // Ambil status dari berbagai kemungkinan key
-        $rawStatus = strtolower(trim((string) (
+        $rawStatus = strtoupper(trim((string) (
             $data['status'] ?? $data['result'] ?? $data['state'] ?? ''
         )));
+        $rawStatusLower = strtolower($rawStatus);
 
         // "TERDAFTAR" / "registered" / "exists" → nomor sudah terdaftar, BUKAN fresh
         // "BELUM TERDAFTAR" / "fresh" / "not_registered" / "new" → nomor fresh
         $isFresh = match (true) {
-            str_contains($rawStatus, 'fresh')           => true,
-            str_contains($rawStatus, 'belum')           => true,
-            str_contains($rawStatus, 'not_registered')  => true,
-            str_contains($rawStatus, 'not registered')  => true,
-            str_contains($rawStatus, 'unregistered')    => true,
-            str_contains($rawStatus, 'new')             => true,
-            str_contains($rawStatus, 'terdaftar')       => false, // "TERDAFTAR" = sudah terdaftar
-            str_contains($rawStatus, 'registered')      => false,
-            str_contains($rawStatus, 'exists')          => false,
-            str_contains($rawStatus, 'found')           => false,
-            default                                     => true,  // unknown → safe default: anggap fresh
+            str_contains($rawStatusLower, 'fresh')           => true,
+            str_contains($rawStatusLower, 'belum')           => true,
+            str_contains($rawStatusLower, 'not_registered')  => true,
+            str_contains($rawStatusLower, 'not registered')  => true,
+            str_contains($rawStatusLower, 'unregistered')    => true,
+            str_contains($rawStatusLower, 'new')             => true,
+            str_contains($rawStatusLower, 'terdaftar')       => false, // "TERDAFTAR" = sudah terdaftar
+            str_contains($rawStatusLower, 'registered')      => false,
+            str_contains($rawStatusLower, 'exists')          => false,
+            str_contains($rawStatusLower, 'found')           => false,
+            default                                          => true,  // unknown → safe default: anggap fresh
         };
 
         // Override: kalau ada field boolean eksplisit
@@ -385,11 +407,18 @@ class KopkenPhoneCheckerService
             $isFresh = ! ((bool) $data['registered']);
         }
 
+        $rawPhone = (string) ($data['phone'] ?? $phone);
+        $displayPhone = $this->formatLocalPhone($rawPhone);
+        $name = trim((string) ($data['name'] ?? $data['nama'] ?? ''));
+        $latencyMs = isset($data['latency_ms']) ? (int) $data['latency_ms'] : null;
+
         return [
-            'phone'   => $phone,
-            'status'  => $rawStatus ?: 'unknown',
-            'is_fresh' => $isFresh,
-            'raw'     => $data,
+            'phone'      => $displayPhone ?: $phone,
+            'name'       => $name !== '' ? $name : null,
+            'status'     => $rawStatus ?: ($isFresh ? 'BELUM TERDAFTAR' : 'TERDAFTAR'),
+            'is_fresh'   => $isFresh,
+            'latency_ms' => $latencyMs,
+            'raw'        => $data,
         ];
     }
 
