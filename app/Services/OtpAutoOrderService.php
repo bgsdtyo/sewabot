@@ -464,13 +464,11 @@ class OtpAutoOrderService
             return $orders;
         }
 
-        // Tentukan API key: prioritas per-bot, fallback ke global setting
-        $checkerApiKey = filled($bot->phone_checker_api_key)
-            ? $bot->phone_checker_api_key
-            : (string) \App\Models\Setting::get('phone_checker_api_key', '');
+        // Tentukan API key: dari konfigurasi bot masing-masing user
+        $checkerApiKey = filled($bot->phone_checker_api_key) ? trim((string) $bot->phone_checker_api_key) : '';
 
         if (! filled($checkerApiKey)) {
-            Log::debug('Phone Checker diaktifkan tapi API key belum diisi, skip validasi untuk bot #'.$bot->id);
+            Log::debug('Phone Checker diaktifkan pada bot #'.$bot->id.' tetapi API key belum diisi di konfigurasi bot');
 
             return $orders;
         }

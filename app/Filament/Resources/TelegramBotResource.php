@@ -68,6 +68,25 @@ class TelegramBotResource extends Resource
                 ->helperText('API key jika menggunakan provider WAHub.')
                 ->dehydrated(fn (?string $state): bool => filled($state))
                 ->dehydrateStateUsing(fn (?string $state): ?string => filled($state) ? trim($state) : null),
+            Forms\Components\Section::make('Phone Checker — Kopi Kenangan')
+                ->description('Validasi nomor fresh sebelum dikirim ke member. Nomor yang sudah terdaftar di Kopi Kenangan akan dicancel otomatis dan saldo member dikembalikan.')
+                ->icon('heroicon-o-phone')
+                ->schema([
+                    Forms\Components\Toggle::make('phone_checker_enabled')
+                        ->label('Aktifkan Phone Checker')
+                        ->helperText('Jika aktif, setiap nomor dari auto order akan dicek terlebih dahulu — hanya nomor fresh (belum terdaftar) yang dikirim ke member.')
+                        ->default(false)
+                        ->live(),
+                    Forms\Components\TextInput::make('phone_checker_api_key')
+                        ->label('Phone Checker API Key')
+                        ->password()
+                        ->revealable()
+                        ->helperText('API key dari Kopi Kenangan Phone Checker (X-API-Key). Dapatkan dari penyedia layanan checker.')
+                        ->dehydrated(fn (?string $state): bool => filled($state))
+                        ->dehydrateStateUsing(fn (?string $state): ?string => filled($state) ? trim($state) : null)
+                        ->visible(fn (Forms\Get $get): bool => (bool) $get('phone_checker_enabled')),
+                ])
+                ->collapsed(),
             Forms\Components\Select::make('otp_markup_type')
                 ->label('Tipe Markup')
                 ->options([

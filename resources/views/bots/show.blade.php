@@ -397,7 +397,94 @@
                         </div>
                     </div>
 
-                    {{-- SECTION 2: HARGA, MARKUP & ALERT --}}
+                    {{-- SECTION 2: PHONE CHECKER KOPI KENANGAN --}}
+                    <div class="rounded-2xl border border-brand-200/90 bg-white p-5 sm:p-6 shadow-xs space-y-4">
+                        <div class="flex items-center justify-between border-b border-brand-100 pb-3">
+                            <div class="flex items-center gap-2.5">
+                                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50 text-purple-700">
+                                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h2 class="text-sm font-extrabold text-brand-900">Phone Checker (Kopi Kenangan)</h2>
+                                    <p class="text-[11px] text-brand-400">Validasi otomatis nomor fresh saat Auto Order berjalan</p>
+                                </div>
+                            </div>
+
+                            {{-- Switch Phone Checker --}}
+                            <div class="flex items-center gap-2">
+                                <button type="button"
+                                        @click="phoneCheckerEnabled = !phoneCheckerEnabled"
+                                        :class="phoneCheckerEnabled ? 'bg-purple-600' : 'bg-slate-300'"
+                                        class="relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+                                        role="switch" :aria-checked="phoneCheckerEnabled">
+                                    <span :class="phoneCheckerEnabled ? 'translate-x-5' : 'translate-x-0'"
+                                          class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out"></span>
+                                </button>
+                                <span class="text-xs font-bold" :class="phoneCheckerEnabled ? 'text-purple-700' : 'text-brand-400'" x-text="phoneCheckerEnabled ? 'Aktif' : 'Nonaktif'"></span>
+                                <input type="hidden" name="phone_checker_enabled" :value="phoneCheckerEnabled ? '1' : '0'">
+                            </div>
+                        </div>
+
+                        <p class="text-[11px] text-brand-500 leading-relaxed">
+                            💡 <b>Cara Kerja:</b> Ketika Auto Order mendapatkan nomor dari provider, sistem akan langsung mengecek ke API Kopi Kenangan. Jika nomor <b>sudah terdaftar</b>, order otomatis dibatalkan & saldo member dikembalikan. Hanya nomor <b>Fresh (belum terdaftar)</b> yang diberikan ke member.
+                        </p>
+
+                        <div x-show="phoneCheckerEnabled" x-transition class="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3.5">
+                            <div class="flex items-center justify-between">
+                                <label class="block text-xs font-bold text-brand-900">API Key Phone Checker (X-API-Key)</label>
+                                @if (filled($telegramBot->phone_checker_api_key))
+                                    <button type="submit"
+                                            formaction="{{ route('bots.phone-checker-balance', $telegramBot) }}"
+                                            formmethod="POST"
+                                            class="text-[10px] font-bold text-purple-700 hover:underline inline-flex items-center gap-1 cursor-pointer">
+                                        🔍 Cek Kredit Checker
+                                    </button>
+                                @endif
+                            </div>
+
+                            @if (filled($telegramBot->phone_checker_api_key))
+                                <div x-data="{ editing: false }">
+                                    <div x-show="!editing" class="flex items-center justify-between gap-2 rounded-lg bg-white border border-brand-200 px-3 py-2">
+                                        <span class="text-xs font-bold text-emerald-700">✓ API Key Phone Checker tersimpan</span>
+                                        <button type="button" @click="editing = true" class="text-xs font-bold text-brand-900 hover:underline cursor-pointer">
+                                            Ganti Key
+                                        </button>
+                                    </div>
+                                    <div x-show="editing" style="display: none;" class="space-y-2 mt-2">
+                                        <input type="password" name="phone_checker_api_key" autocomplete="off"
+                                               placeholder="Tempel API Key baru Phone Checker..."
+                                               class="w-full rounded-xl border-brand-200 font-mono text-xs focus:border-purple-600 focus:ring-purple-600">
+                                        <div class="flex items-center justify-between text-xs">
+                                            <button type="button" @click="editing = false" class="text-brand-500 hover:underline cursor-pointer">Batal</button>
+                                            <label class="flex items-center gap-1 text-brand-500 cursor-pointer">
+                                                <input type="checkbox" name="clear_phone_checker_api_key" value="1" class="rounded border-brand-300">
+                                                Hapus key
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            @else
+                                <input type="password" name="phone_checker_api_key" autocomplete="off"
+                                       placeholder="Tempel API Key Phone Checker..."
+                                       class="w-full rounded-xl border-brand-200 font-mono text-xs focus:border-purple-600 focus:ring-purple-600">
+                            @endif
+                            @error('phone_checker_api_key')
+                                <p class="mt-1 text-xs text-red-600 font-semibold">{{ $message }}</p>
+                            @enderror
+
+                            <div class="rounded-lg bg-white/80 border border-purple-200/60 p-2.5 text-[11px] text-purple-900 space-y-1">
+                                <p class="font-bold">Ketentuan Saldo & Biaya API Checker:</p>
+                                <ul class="list-disc list-inside space-y-0.5 text-brand-600">
+                                    <li>Nomor <b>Terdaftar</b> = <b>GRATIS (0 Kredit)</b></li>
+                                    <li>Nomor <b>Fresh (Belum Terdaftar)</b> = <b>1 Kredit (Rp100)</b></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- SECTION 3: HARGA, MARKUP & ALERT --}}
                     <div class="rounded-2xl border border-brand-200/90 bg-white p-5 sm:p-6 shadow-xs space-y-5">
                         <div class="flex items-center gap-2.5 border-b border-brand-100 pb-3">
                             <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
@@ -682,6 +769,7 @@
                 reminderEnabled: {{ ($telegramBot->min_provider_balance_alert && $telegramBot->min_provider_balance_alert > 0) ? 'true' : 'false' }},
                 reminderAmount: {{ (int) old('min_provider_balance_alert', $telegramBot->min_provider_balance_alert ?? 10000) }},
                 forceSubEnabled: {{ old('force_subscribe_enabled', $telegramBot->force_subscribe_enabled) ? 'true' : 'false' }},
+                phoneCheckerEnabled: {{ old('phone_checker_enabled', $telegramBot->phone_checker_enabled) ? 'true' : 'false' }},
 
                 get availableServices() {
                     return this.allServices.filter(s => s.provider === this.activeProvider);

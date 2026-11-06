@@ -261,7 +261,7 @@ class KopkenPhoneCheckerService
     }
 
     /**
-     * Ambil API key: prioritaskan parameter, fallback ke Setting.
+     * Ambil API key dari parameter (konfigurasi bot) atau fallback ke environment.
      */
     protected function resolveApiKey(?string $apiKey = null): string
     {
@@ -269,12 +269,12 @@ class KopkenPhoneCheckerService
             return trim($apiKey);
         }
 
-        $fromSetting = (string) Setting::get('phone_checker_api_key', env('PHONE_CHECKER_API_KEY', ''));
-        if ($fromSetting !== '') {
-            return $fromSetting;
+        $fromEnv = (string) env('PHONE_CHECKER_API_KEY', '');
+        if ($fromEnv !== '') {
+            return $fromEnv;
         }
 
-        throw new RuntimeException('Phone Checker API Key belum dikonfigurasi. Silakan isi di Pengaturan OTP Provider.');
+        throw new RuntimeException('API Key Phone Checker belum diisi di Konfigurasi Bot.');
     }
 
     /**

@@ -14,10 +14,6 @@
             <x-filament::button type="button" color="info" wire:click="syncWahub">
                 Sync WAHub (Provider 2)
             </x-filament::button>
-
-            <x-filament::button type="button" color="success" wire:click="testPhoneChecker">
-                🔍 Test Phone Checker
-            </x-filament::button>
         </div>
     </form>
 </x-filament-panels::page>

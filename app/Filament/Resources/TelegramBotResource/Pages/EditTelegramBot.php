@@ -49,9 +49,11 @@ class EditTelegramBot extends EditRecord
     protected function mutateFormDataBeforeFill(array $data): array
     {
         // $hidden di model membuat token/api key tidak ikut ke form → terlihat kosong.
-        $this->record->makeVisible(['token', 'otp_api_key']);
+        $this->record->makeVisible(['token', 'otp_api_key', 'otp_wahub_api_key', 'phone_checker_api_key']);
         $data['token'] = $this->record->token;
         $data['otp_api_key'] = $this->record->otp_api_key;
+        $data['otp_wahub_api_key'] = $this->record->otp_wahub_api_key;
+        $data['phone_checker_api_key'] = $this->record->phone_checker_api_key;
 
         return $data;
     }

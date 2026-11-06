@@ -4,7 +4,6 @@ namespace App\Filament\Pages;
 
 use App\Models\Setting;
 use App\Models\TelegramBot;
-use App\Services\KopkenPhoneCheckerService;
 use App\Services\OtpOrderService;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -35,7 +34,6 @@ class OtpProviderSettings extends Page implements HasForms
     {
         $cfgKopken = Setting::otpProvider();
         $cfgWahub = Setting::wahubProvider();
-        $cfgChecker = Setting::phoneChecker();
 
         $this->form->fill([
             'active_otp_provider' => Setting::activeOtpProvider(),
@@ -43,8 +41,6 @@ class OtpProviderSettings extends Page implements HasForms
             'otp_api_key' => $cfgKopken['api_key'],
             'wahub_api_base_url' => $cfgWahub['api_base_url'],
             'wahub_api_key' => $cfgWahub['api_key'],
-            'phone_checker_api_key' => $cfgChecker['api_key'],
-            'phone_checker_base_url' => $cfgChecker['base_url'],
         ]);
     }
 
@@ -97,23 +93,6 @@ class OtpProviderSettings extends Page implements HasForms
                             ->revealable()
                             ->helperText('Fallback key WAHub (wh_live_...) untuk sync layanan dari admin.'),
                     ]),
-
-                Forms\Components\Section::make('Phone Checker — Kopi Kenangan (Global)')
-                    ->description('Validasi nomor fresh via Kopi Kenangan Phone Checker API. Nomor yang sudah terdaftar akan dicancel otomatis & saldo member dikembalikan. Aktifkan per-bot di halaman konfigurasi bot.')
-                    ->icon('heroicon-o-phone')
-                    ->schema([
-                        Forms\Components\TextInput::make('phone_checker_base_url')
-                            ->label('Phone Checker Base URL')
-                            ->placeholder(KopkenPhoneCheckerService::DEFAULT_BASE_URL)
-                            ->default(KopkenPhoneCheckerService::DEFAULT_BASE_URL)
-                            ->helperText('URL base server Phone Checker API.')
-                            ->url(),
-                        Forms\Components\TextInput::make('phone_checker_api_key')
-                            ->label('Phone Checker API Key (Global)')
-                            ->password()
-                            ->revealable()
-                            ->helperText('API key global (X-API-Key). Bisa di-override per-bot di halaman konfigurasi bot.'),
-                    ]),
             ])
             ->statePath('data');
     }
@@ -127,8 +106,6 @@ class OtpProviderSettings extends Page implements HasForms
         Setting::set('otp_api_key', $state['otp_api_key'] ?? '');
         Setting::set('wahub_api_base_url', rtrim($state['wahub_api_base_url'] ?? 'https://dehuyzotp.shop', '/'));
         Setting::set('wahub_api_key', $state['wahub_api_key'] ?? '');
-        Setting::set('phone_checker_api_key', $state['phone_checker_api_key'] ?? '');
-        Setting::set('phone_checker_base_url', rtrim($state['phone_checker_base_url'] ?? KopkenPhoneCheckerService::DEFAULT_BASE_URL, '/'));
 
         Notification::make()->title('Pengaturan Provider OTP berhasil disimpan')->success()->send();
     }
@@ -152,40 +129,6 @@ class OtpProviderSettings extends Page implements HasForms
             Notification::make()->title("Sync Provider 2 (WAHub) OK: {$count} layanan")->success()->send();
         } catch (\Throwable $e) {
             Notification::make()->title('Sync WAHub gagal')->body($e->getMessage())->danger()->send();
-        }
-    }
-
-    public function testPhoneChecker(): void
-    {
-        $apiKey = (string) Setting::get('phone_checker_api_key', '');
-
-        if (! filled($apiKey)) {
-            Notification::make()
-                ->title('Phone Checker API Key belum diisi')
-                ->body('Simpan konfigurasi dengan API Key terlebih dahulu.')
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        try {
-            $checker = app(KopkenPhoneCheckerService::class);
-            $result  = $checker->getBalance($apiKey);
-            $credits = $result['credits'];
-            $ms      = $result['ms'];
-
-            Notification::make()
-                ->title('Phone Checker Terhubung ✅')
-                ->body("Saldo kredit: {$credits} kredit | Latency: {$ms}ms")
-                ->success()
-                ->send();
-        } catch (\Throwable $e) {
-            Notification::make()
-                ->title('Phone Checker Gagal ❌')
-                ->body($e->getMessage())
-                ->danger()
-                ->send();
         }
     }
 }

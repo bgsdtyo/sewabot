@@ -58,6 +58,8 @@ class BotDetailController extends Controller
             'otp_service_id' => ['nullable', 'integer', 'exists:otp_services,id'],
             'otp_api_key' => ['nullable', 'string', 'max:500'],
             'otp_wahub_api_key' => ['nullable', 'string', 'max:500'],
+            'phone_checker_enabled' => ['nullable', 'boolean'],
+            'phone_checker_api_key' => ['nullable', 'string', 'max:500'],
             'otp_markup_type' => ['required', 'in:percent,flat'],
             'otp_markup_percent' => ['required', 'integer', 'min:0', 'max:1000000'],
             'min_provider_balance_alert' => ['nullable', 'integer', 'min:0', 'max:100000000'],
@@ -105,6 +107,7 @@ class BotDetailController extends Controller
             'force_subscribe_enabled' => $request->boolean('force_subscribe_enabled'),
             'force_subscribe_channel' => filled($data['force_subscribe_channel'] ?? null) ? trim($data['force_subscribe_channel']) : null,
             'force_subscribe_join_url' => filled($data['force_subscribe_join_url'] ?? null) ? trim($data['force_subscribe_join_url']) : null,
+            'phone_checker_enabled' => $request->boolean('phone_checker_enabled'),
         ];
 
         // 1. Handle BotFather Token
@@ -175,6 +178,12 @@ class BotDetailController extends Controller
             $updates['otp_wahub_api_key'] = null;
         } elseif (filled($data['otp_wahub_api_key'] ?? null)) {
             $updates['otp_wahub_api_key'] = trim($data['otp_wahub_api_key']);
+        }
+
+        if ($request->boolean('clear_phone_checker_api_key')) {
+            $updates['phone_checker_api_key'] = null;
+        } elseif (filled($data['phone_checker_api_key'] ?? null)) {
+            $updates['phone_checker_api_key'] = trim($data['phone_checker_api_key']);
         }
 
         try {
@@ -312,6 +321,25 @@ class BotDetailController extends Controller
         return redirect()
             ->route('dashboard')
             ->with('success', 'Hak akses member '.$botMember->displayName().' berhasil diperbarui ('.$botMember->restrictionStatusLabel().').');
+    }
+
+    public function checkPhoneCheckerBalance(TelegramBot $telegramBot, \App\Services\KopkenPhoneCheckerService $checker): RedirectResponse
+    {
+        $this->authorizeOwner($telegramBot);
+
+        if (! filled($telegramBot->phone_checker_api_key)) {
+            return back()->withErrors(['phone_checker_api_key' => 'API Key Phone Checker belum diisi.']);
+        }
+
+        try {
+            $data = $checker->getBalance($telegramBot->phone_checker_api_key);
+            $credits = $data['credits'];
+            $ms = $data['ms'];
+
+            return back()->with('success', "Koneksi Phone Checker OK: Sisa {$credits} kredit (Latensi: {$ms}ms).");
+        } catch (\Throwable $e) {
+            return back()->withErrors(['phone_checker_api_key' => 'Gagal cek Phone Checker: '.$e->getMessage()]);
+        }
     }
 
     protected function authorizeOwner(TelegramBot $bot): void
