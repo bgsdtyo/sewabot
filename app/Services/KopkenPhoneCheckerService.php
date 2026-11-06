@@ -19,20 +19,18 @@ use RuntimeException;
  */
 class KopkenPhoneCheckerService
 {
-    public const DEFAULT_BASE_URL = 'https://kopken-checker.kenaganid.my.id';
-
     /**
      * Cek saldo kredit checker dari API profile.
      *
      * @throws RuntimeException
      */
-    public function getBalance(?string $apiKey = null): array
+    public function getBalance(?string $apiKey = null, ?string $baseUrl = null): array
     {
         $key = $this->resolveApiKey($apiKey);
         $started = microtime(true);
 
         try {
-            $response = $this->client($key, timeout: 8)->get('/api/v1/profile');
+            $response = $this->client($key, $baseUrl, timeout: 8)->get('/api/v1/profile');
         } catch (\Throwable $e) {
             $this->handleConnectionError($e, 'cek saldo checker');
         }
@@ -58,13 +56,13 @@ class KopkenPhoneCheckerService
      * @return array{phone: string, status: string, is_fresh: bool, raw: array}
      * @throws RuntimeException
      */
-    public function checkSingle(string $phone, ?string $apiKey = null): array
+    public function checkSingle(string $phone, ?string $apiKey = null, ?string $baseUrl = null): array
     {
         $key = $this->resolveApiKey($apiKey);
         $phone = $this->normalizePhone($phone);
 
         try {
-            $response = $this->client($key, timeout: 15)->post('/api/v1/check', [
+            $response = $this->client($key, $baseUrl, timeout: 15)->post('/api/v1/check', [
                 'phone' => $phone,
             ]);
         } catch (\Throwable $e) {
@@ -92,7 +90,7 @@ class KopkenPhoneCheckerService
      * }
      * @throws RuntimeException
      */
-    public function checkBulk(array $phones, ?string $apiKey = null): array
+    public function checkBulk(array $phones, ?string $apiKey = null, ?string $baseUrl = null): array
     {
         if (empty($phones)) {
             return [
@@ -119,7 +117,7 @@ class KopkenPhoneCheckerService
 
         foreach ($chunks as $chunk) {
             try {
-                $response = $this->client($key, timeout: 20)->post('/api/v1/check-bulk', [
+                $response = $this->client($key, $baseUrl, timeout: 20)->post('/api/v1/check-bulk', [
                     'phones' => $chunk,
                 ]);
             } catch (\Throwable $e) {
@@ -210,7 +208,7 @@ class KopkenPhoneCheckerService
     /**
      * Cek riwayat pengecekan (opsional, berguna untuk deduplication/cache manual).
      */
-    public function getHistory(?string $date = null, int $limit = 100, ?string $apiKey = null): array
+    public function getHistory(?string $date = null, int $limit = 100, ?string $apiKey = null, ?string $baseUrl = null): array
     {
         $key = $this->resolveApiKey($apiKey);
 
@@ -220,7 +218,7 @@ class KopkenPhoneCheckerService
         }
 
         try {
-            $response = $this->client($key, timeout: 10)->get('/api/v1/history', $params);
+            $response = $this->client($key, $baseUrl, timeout: 10)->get('/api/v1/history', $params);
         } catch (\Throwable $e) {
             $this->handleConnectionError($e, 'ambil riwayat checker');
         }
@@ -237,13 +235,13 @@ class KopkenPhoneCheckerService
     /**
      * Ping latency ke server checker.
      */
-    public function pingLatency(?string $apiKey = null): array
+    public function pingLatency(?string $apiKey = null, ?string $baseUrl = null): array
     {
         $started = microtime(true);
 
         try {
             $key = $this->resolveApiKey($apiKey);
-            $response = $this->client($key, timeout: 6)->get('/api/v1/profile');
+            $response = $this->client($key, $baseUrl, timeout: 6)->get('/api/v1/profile');
             $ms = (microtime(true) - $started) * 1000;
 
             return [
@@ -278,11 +276,28 @@ class KopkenPhoneCheckerService
     }
 
     /**
+     * Resolusi Base URL API Phone Checker dari bot atau environment.
+     */
+    protected function resolveBaseUrl(?string $baseUrl = null): string
+    {
+        $url = trim((string) ($baseUrl ?: env('PHONE_CHECKER_BASE_URL', '')));
+        if ($url === '') {
+            throw new RuntimeException('Base URL Phone Checker belum diisi. Silakan isi URL API Phone Checker di Konfigurasi Bot.');
+        }
+
+        if (! str_starts_with($url, 'http://') && ! str_starts_with($url, 'https://')) {
+            $url = 'https://' . $url;
+        }
+
+        return rtrim($url, '/');
+    }
+
+    /**
      * Build HTTP client dengan X-API-Key header (bukan Bearer token).
      */
-    protected function client(string $apiKey, int $timeout = 15): \Illuminate\Http\Client\PendingRequest
+    protected function client(string $apiKey, ?string $baseUrl = null, int $timeout = 15): \Illuminate\Http\Client\PendingRequest
     {
-        $base = rtrim((string) Setting::get('phone_checker_base_url', self::DEFAULT_BASE_URL), '/');
+        $base = $this->resolveBaseUrl($baseUrl);
 
         return Http::baseUrl($base)
             ->withHeaders([

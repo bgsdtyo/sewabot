@@ -59,7 +59,9 @@ class BotDetailController extends Controller
             'otp_api_key' => ['nullable', 'string', 'max:500'],
             'otp_wahub_api_key' => ['nullable', 'string', 'max:500'],
             'phone_checker_enabled' => ['nullable', 'boolean'],
+            'phone_checker_base_url' => ['nullable', 'string', 'max:500'],
             'phone_checker_api_key' => ['nullable', 'string', 'max:500'],
+            'phone_checker_price' => ['nullable', 'integer', 'min:0', 'max:1000000'],
             'otp_markup_type' => ['required', 'in:percent,flat'],
             'otp_markup_percent' => ['required', 'integer', 'min:0', 'max:1000000'],
             'min_provider_balance_alert' => ['nullable', 'integer', 'min:0', 'max:100000000'],
@@ -108,6 +110,8 @@ class BotDetailController extends Controller
             'force_subscribe_channel' => filled($data['force_subscribe_channel'] ?? null) ? trim($data['force_subscribe_channel']) : null,
             'force_subscribe_join_url' => filled($data['force_subscribe_join_url'] ?? null) ? trim($data['force_subscribe_join_url']) : null,
             'phone_checker_enabled' => $request->boolean('phone_checker_enabled'),
+            'phone_checker_base_url' => filled($data['phone_checker_base_url'] ?? null) ? trim($data['phone_checker_base_url']) : null,
+            'phone_checker_price' => isset($data['phone_checker_price']) && $data['phone_checker_price'] !== '' ? max(0, (int) $data['phone_checker_price']) : 100,
         ];
 
         // 1. Handle BotFather Token
@@ -327,22 +331,35 @@ class BotDetailController extends Controller
     {
         $this->authorizeOwner($telegramBot);
 
-        // Ambil key dari input request (jika user baru mengetik) atau dari database bot
         $apiKey = trim((string) ($request->input('api_key') ?: $telegramBot->phone_checker_api_key));
+        $baseUrl = trim((string) ($request->input('base_url') ?: $telegramBot->phone_checker_base_url));
 
-        if (! filled($apiKey)) {
+        if (! filled($baseUrl)) {
+            $msg = 'Base URL Phone Checker belum diisi. Silakan masukkan Base URL API terlebih dahulu.';
             if ($request->expectsJson() || $request->ajax()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'API Key Phone Checker belum diisi. Silakan ketik API Key terlebih dahulu.',
+                    'message' => $msg,
                 ], 422);
             }
 
-            return back()->withErrors(['phone_checker_api_key' => 'API Key Phone Checker belum diisi.']);
+            return back()->withErrors(['phone_checker_base_url' => $msg]);
+        }
+
+        if (! filled($apiKey)) {
+            $msg = 'API Key Phone Checker belum diisi. Silakan ketik API Key terlebih dahulu.';
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $msg,
+                ], 422);
+            }
+
+            return back()->withErrors(['phone_checker_api_key' => $msg]);
         }
 
         try {
-            $data = $checker->getBalance($apiKey);
+            $data = $checker->getBalance(apiKey: $apiKey, baseUrl: $baseUrl);
             $credits = (int) ($data['credits'] ?? 0);
             $ms = $data['ms'] ?? 0;
             $username = (string) ($data['username'] ?? '');

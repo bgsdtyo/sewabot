@@ -77,6 +77,11 @@ class TelegramBotResource extends Resource
                         ->helperText('Jika aktif, setiap nomor dari auto order akan dicek terlebih dahulu — hanya nomor fresh (belum terdaftar) yang dikirim ke member.')
                         ->default(false)
                         ->live(),
+                    Forms\Components\TextInput::make('phone_checker_base_url')
+                        ->label('Base URL API Phone Checker')
+                        ->placeholder('https://api-checker.domain.com')
+                        ->helperText('URL server Phone Checker API (tanpa /api/v1).')
+                        ->visible(fn (Forms\Get $get): bool => (bool) $get('phone_checker_enabled')),
                     Forms\Components\TextInput::make('phone_checker_api_key')
                         ->label('Phone Checker API Key')
                         ->password()
@@ -84,6 +89,13 @@ class TelegramBotResource extends Resource
                         ->helperText('API key dari Kopi Kenangan Phone Checker (X-API-Key). Dapatkan dari penyedia layanan checker.')
                         ->dehydrated(fn (?string $state): bool => filled($state))
                         ->dehydrateStateUsing(fn (?string $state): ?string => filled($state) ? trim($state) : null)
+                        ->visible(fn (Forms\Get $get): bool => (bool) $get('phone_checker_enabled')),
+                    Forms\Components\TextInput::make('phone_checker_price')
+                        ->label('Biaya Checker per Nomor Fresh ke Member (Rp)')
+                        ->numeric()
+                        ->default(100)
+                        ->minValue(0)
+                        ->helperText('Tarif tambahan yang dibebankan ke member saat nomor berhasil tervalidasi fresh. Modal API pusat: 1 kredit = Rp100.')
                         ->visible(fn (Forms\Get $get): bool => (bool) $get('phone_checker_enabled')),
                 ])
                 ->collapsed(),

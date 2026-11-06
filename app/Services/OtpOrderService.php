@@ -348,7 +348,7 @@ class OtpOrderService
      *
      * @return array{orders: array<int, OtpOrder>, failed: list<array{slot: int, message: string}>}
      */
-    public function requestBulkOtp(TelegramBot $bot, BotMember $member, OtpService $service, int $quantity = 1): array
+    public function requestBulkOtp(TelegramBot $bot, BotMember $member, OtpService $service, int $quantity = 1, int $extraPerNumber = 0): array
     {
         $quantity = max(1, min(50, $quantity));
 
@@ -362,7 +362,7 @@ class OtpOrderService
             throw ValidationException::withMessages(['service' => 'Layanan tidak aktif.']);
         }
 
-        $sellPrice = $bot->sellPriceFor($service->provider_price);
+        $sellPrice = $bot->sellPriceFor($service->provider_price) + max(0, $extraPerNumber);
         $totalPrice = $sellPrice * $quantity;
 
         if ($member->availableBalance() < $totalPrice) {

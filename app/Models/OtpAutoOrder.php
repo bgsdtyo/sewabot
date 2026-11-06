@@ -12,6 +12,8 @@ class OtpAutoOrder extends Model
         'bot_member_id',
         'otp_service_id',
         'target_quantity',
+        'use_checker',
+        'checker_price',
         'ordered_quantity',
         'status',
         'last_order_at',
@@ -22,6 +24,8 @@ class OtpAutoOrder extends Model
     {
         return [
             'target_quantity' => 'integer',
+            'use_checker' => 'boolean',
+            'checker_price' => 'integer',
             'ordered_quantity' => 'integer',
             'last_order_at' => 'datetime',
         ];

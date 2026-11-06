@@ -40,6 +40,8 @@ class TelegramBot extends Model
         'force_subscribe_channel',
         'force_subscribe_join_url',
         'phone_checker_api_key',
+        'phone_checker_base_url',
+        'phone_checker_price',
         'phone_checker_enabled',
     ];
 
@@ -53,6 +55,7 @@ class TelegramBot extends Model
             'provider_balance_last_alerted_at' => 'datetime',
             'force_subscribe_enabled'  => 'boolean',
             'phone_checker_enabled'    => 'boolean',
+            'phone_checker_price'      => 'integer',
         ];
     }
 

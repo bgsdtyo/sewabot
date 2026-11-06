@@ -441,6 +441,8 @@
                                      this.balanceResult = null;
                                      this.balanceError = null;
 
+                                     const urlEl = document.querySelector('input[name=phone_checker_base_url]');
+                                     const typedUrl = urlEl ? urlEl.value : '';
                                      const inputEl = document.querySelector('input[name=phone_checker_api_key]');
                                      const typedKey = inputEl ? inputEl.value : '';
 
@@ -452,7 +454,7 @@
                                                  'Accept': 'application/json',
                                                  'X-CSRF-TOKEN': '{{ csrf_token() }}'
                                              },
-                                             body: JSON.stringify({ api_key: typedKey })
+                                             body: JSON.stringify({ api_key: typedKey, base_url: typedUrl })
                                          });
                                          const data = await res.json();
                                          if (res.ok && data.success) {
@@ -467,7 +469,23 @@
                                      }
                                  }
                              }"
-                             class="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3.5">
+                             class="space-y-4 rounded-xl border border-purple-100 bg-purple-50/40 p-3.5">
+
+                            {{-- Base URL API Phone Checker --}}
+                            <div>
+                                <label class="mb-1 block text-xs font-bold text-brand-900">
+                                    Base URL API Phone Checker <span class="text-rose-500">*</span>
+                                </label>
+                                <input type="text" name="phone_checker_base_url"
+                                       value="{{ old('phone_checker_base_url', $telegramBot->phone_checker_base_url) }}"
+                                       placeholder="https://api-checker.domain.com"
+                                       class="w-full rounded-xl border-brand-200 text-xs font-mono focus:border-purple-600 focus:ring-purple-600">
+                                <p class="mt-1 text-[10px] text-brand-400">Contoh: https://api.namadomain.com (tanpa /api/v1 di ujung)</p>
+                                @error('phone_checker_base_url')
+                                    <p class="mt-1 text-xs text-red-600 font-semibold">{{ $message }}</p>
+                                @enderror
+                            </div>
+
                             <div class="flex items-center justify-between">
                                 <label class="block text-xs font-bold text-brand-900">API Key Phone Checker (X-API-Key)</label>
                                 <button type="button"
@@ -528,6 +546,37 @@
                                        placeholder="Tempel API Key Phone Checker..."
                                        class="w-full rounded-xl border-brand-200 font-mono text-xs focus:border-purple-600 focus:ring-purple-600">
                             @endif
+                            @error('phone_checker_api_key')
+                                <p class="mt-1 text-xs text-red-600 font-semibold">{{ $message }}</p>
+                            @enderror
+
+                            {{-- Biaya Checker ke Member --}}
+                            <div class="border-t border-purple-200/60 pt-3">
+                                <label class="mb-1 block text-xs font-bold text-brand-900">
+                                    Biaya Checker per Nomor Fresh ke Member (Rp)
+                                </label>
+                                <div class="flex items-center gap-2">
+                                    <div class="flex w-full sm:w-48 overflow-hidden rounded-xl border border-brand-200 shadow-2xs">
+                                        <span class="inline-flex min-w-[2.75rem] items-center justify-center bg-purple-900 px-3 text-xs font-black text-white">Rp</span>
+                                        <input type="number" name="phone_checker_price" min="0" required
+                                               value="{{ old('phone_checker_price', $telegramBot->phone_checker_price ?? 100) }}"
+                                               class="w-full border-0 bg-white px-3 py-2 text-sm font-bold text-brand-900 focus:outline-none focus:ring-0">
+                                    </div>
+                                    <span class="text-[11px] text-brand-500">/ nomor fresh (modal API: 1 kredit = Rp100)</span>
+                                </div>
+                                <p class="mt-1 text-[11px] text-brand-400">
+                                    Hanya dipotong dari saldo member jika nomor terbukti <b>Fresh (Belum Terdaftar)</b>. Jika nomor terdaftar (dibatalkan), saldo 100% di-refund.
+                                </p>
+                            </div>
+
+                            <div class="rounded-lg bg-white/80 border border-purple-200/60 p-2.5 text-[11px] text-purple-900 space-y-1">
+                                <p class="font-bold">Ketentuan Saldo & Biaya API Checker:</p>
+                                <ul class="list-disc list-inside space-y-0.5 text-brand-600">
+                                    <li>Nomor <b>Terdaftar</b> = <b>GRATIS (0 Kredit)</b></li>
+                                    <li>Nomor <b>Fresh (Belum Terdaftar)</b> = <b>1 Kredit (Rp100)</b></li>
+                                </ul>
+                            </div>
+                        </div>
                             @error('phone_checker_api_key')
                                 <p class="mt-1 text-xs text-red-600 font-semibold">{{ $message }}</p>
                             @enderror

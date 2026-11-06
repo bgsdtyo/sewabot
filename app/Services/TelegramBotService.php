@@ -3764,6 +3764,26 @@ class TelegramBotService
             return;
         }
 
+        if (str_starts_with($data, 'auto_order_toggle_checker:')) {
+            $serviceId = (int) substr($data, strlen('auto_order_toggle_checker:'));
+            $prefKey = "auto_order_checker_pref_{$bot->id}_{$member->id}";
+            $current = (bool) Cache::get($prefKey, false);
+            Cache::put($prefKey, ! $current, now()->addDays(7));
+
+            $this->showAutoOrderMenu(
+                $bot,
+                $member,
+                $chatId,
+                $messageId ? (int) $messageId : null,
+                $serviceId,
+                notice: ! $current
+                    ? '🛡️ <b>Filter Fresh Kopi Kenangan: AKTIF</b> (Otomatis verifikasi & buang nomor yang sudah terdaftar)'
+                    : '⚪ <b>Filter Fresh Kopi Kenangan: NONAKTIF</b> (Order standar tanpa validasi checker)'
+            );
+
+            return;
+        }
+
         if (str_starts_with($data, 'auto_order_cancel:')) {
             $serviceId = (int) substr($data, strlen('auto_order_cancel:'));
             $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService($bot);
@@ -3783,8 +3803,10 @@ class TelegramBotService
 
             if ($service) {
                 try {
-                    app(OtpAutoOrderService::class)->setAutoOrder($bot, $member, $service, $qty);
-                    $this->showAutoOrderMenu($bot, $member, $chatId, $messageId ? (int) $messageId : null, notice: "✅ Target Auto Order berhasil disetel untuk <b>{$qty} nomor</b>!");
+                    $useChecker = (bool) Cache::get("auto_order_checker_pref_{$bot->id}_{$member->id}", false);
+                    app(OtpAutoOrderService::class)->setAutoOrder($bot, $member, $service, $qty, $useChecker);
+                    $checkerNotice = $useChecker ? ' [🛡️ Filter Fresh Aktif]' : '';
+                    $this->showAutoOrderMenu($bot, $member, $chatId, $messageId ? (int) $messageId : null, notice: "✅ Target Auto Order berhasil disetel untuk <b>{$qty} nomor</b>{$checkerNotice}!");
                 } catch (ValidationException $e) {
                     $err = collect($e->errors())->flatten()->first() ?? 'Gagal pasang auto order.';
                     $this->replyOrSend($bot, $chatId, $messageId ? (int) $messageId : null, $err, inlineKeyboard: [
@@ -4404,8 +4426,16 @@ class TelegramBotService
         $autoOrderService = app(OtpAutoOrderService::class);
         $activeAuto = $autoOrderService->getActiveForMember($bot, $member, $service);
 
-        $unitPrice = $bot->sellPriceFor($service->provider_price);
-        $formattedUnitPrice = 'Rp '.number_format($unitPrice, 0, ',', '.');
+        $hasChecker = $bot->phone_checker_enabled && filled($bot->phone_checker_api_key);
+        $checkerPrice = $hasChecker ? (int) ($bot->phone_checker_price ?? 100) : 0;
+        $useCheckerPref = $hasChecker ? (bool) Cache::get("auto_order_checker_pref_{$bot->id}_{$member->id}", false) : false;
+
+        $baseUnitPrice = $bot->sellPriceFor($service->provider_price);
+        $effectiveUnitPrice = $activeAuto
+            ? ($baseUnitPrice + ($activeAuto->use_checker ? (int) $activeAuto->checker_price : 0))
+            : ($baseUnitPrice + ($useCheckerPref ? $checkerPrice : 0));
+
+        $formattedUnitPrice = 'Rp '.number_format($effectiveUnitPrice, 0, ',', '.');
         $formattedAvailable = $member->formattedAvailable();
         $totalMax = $autoOrderService->getMaxCapacityForService($bot, $service);
         $availableToAdd = $autoOrderService->getAvailableAdditionalCapacity($bot, $service, $member);
@@ -4418,6 +4448,11 @@ class TelegramBotService
         $lines[] = "⚡ <b>Sistem Auto Order (Sniping)</b> 🎯\n";
         $lines[] = "❏ Layanan: <b>".e($service->name)."</b>";
         $lines[] = "├  Harga: <b>{$formattedUnitPrice} / nomor</b>";
+        if ($hasChecker && ! $activeAuto) {
+            $lines[] = "├  Filter Fresh Kopken: " . ($useCheckerPref ? "🛡️ <b>AKTIF (+Rp".number_format($checkerPrice, 0, ',', '.').")</b>" : "⚪ <b>Nonaktif</b>");
+        } elseif ($activeAuto && ($hasChecker || $activeAuto->use_checker)) {
+            $lines[] = "├  Filter Fresh Kopken: " . ($activeAuto->use_checker ? "🛡️ <b>AKTIF (+Rp".number_format($activeAuto->checker_price, 0, ',', '.')."/nomor fresh)</b>" : "⚪ <b>Nonaktif</b>");
+        }
         $lines[] = "├  Saldo Tersedia: <b>{$formattedAvailable}</b>";
         if ($totalMax !== null && $totalMax > 0) {
             $lines[] = "├  Batas Antrean: <b>maks. {$totalMax} nomor</b>";
@@ -4461,7 +4496,17 @@ class TelegramBotService
         } else {
             $lines[] = "└  Status: ⚪ <b>Tidak Aktif</b>\n";
             $lines[] = "Sistem akan otomatis memesan nomor untuk Anda begitu stok tersedia di server provider, tanpa perlu menunggu atau klik manual.\n";
+            if ($hasChecker && $useCheckerPref) {
+                $lines[] = "<i>🛡️ Filter Fresh aktif: saldo hanya terpotong jika nomor dipastikan Fresh (belum terdaftar di Kopi Kenangan). Jika terdaftar, nomor dibatalkan & saldo dikembalikan.</i>\n";
+            }
             $lines[] = "Pilih target jumlah nomor yang ingin di-order otomatis:";
+
+            // Row 0: Toggle Filter Fresh jika bot mengaktifkan checker
+            if ($hasChecker) {
+                $buttons[] = [
+                    ['text' => $useCheckerPref ? '🛡️ Filter Fresh Kopken: [ AKTIF ✅ ]' : '⚪ Filter Fresh Kopken: [ NONAKTIF ]', 'callback_data' => 'auto_order_toggle_checker:'.$service->id],
+                ];
+            }
 
             // Preset rows
             $buttons[] = [
@@ -4642,9 +4687,11 @@ class TelegramBotService
                 Cache::forget($cacheKey);
                 $this->showAutoOrderMenu($bot, $member, $chatId, notice: "✅ Berhasil menambahkan <b>+{$qty} nomor</b> ke antrean! Total target sekarang: <b>{$updated->target_quantity} nomor</b>.");
             } else {
-                $autoOrderService->setAutoOrder($bot, $member, $service, $qty);
+                $useChecker = (bool) Cache::get("auto_order_checker_pref_{$bot->id}_{$member->id}", false);
+                $autoOrderService->setAutoOrder($bot, $member, $service, $qty, $useChecker);
                 Cache::forget($cacheKey);
-                $this->showAutoOrderMenu($bot, $member, $chatId, notice: "✅ Target Auto Order berhasil disetel untuk <b>{$qty} nomor</b>!");
+                $checkerNotice = $useChecker ? ' [🛡️ Filter Fresh Aktif]' : '';
+                $this->showAutoOrderMenu($bot, $member, $chatId, notice: "✅ Target Auto Order berhasil disetel untuk <b>{$qty} nomor</b>{$checkerNotice}!");
             }
         } catch (ValidationException $e) {
             $err = collect($e->errors())->flatten()->first() ?? 'Gagal memproses auto order.';

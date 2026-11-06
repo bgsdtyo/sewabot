@@ -103,11 +103,16 @@ class OtpAutoOrderService
         return max(0, $maxTotal - $totalCommitted);
     }
 
-    public function setAutoOrder(TelegramBot $bot, BotMember $member, OtpService $service, int $targetQuantity): OtpAutoOrder
+    public function setAutoOrder(TelegramBot $bot, BotMember $member, OtpService $service, int $targetQuantity, bool $useChecker = false): OtpAutoOrder
     {
         $targetQuantity = max(1, min(100, $targetQuantity));
 
-        $unitPrice = $bot->sellPriceFor($service->provider_price);
+        // Hitung biaya checker jika fitur aktif pada bot dan dipilih oleh member
+        $isCheckerActive = $useChecker && $bot->phone_checker_enabled && filled($bot->phone_checker_api_key);
+        $checkerFee = $isCheckerActive ? (int) ($bot->phone_checker_price ?? 100) : 0;
+
+        $baseUnitPrice = $bot->sellPriceFor($service->provider_price);
+        $unitPrice = $baseUnitPrice + $checkerFee;
         $totalMemberCost = $unitPrice * $targetQuantity;
 
         // 1. Validasi saldo member
@@ -172,6 +177,8 @@ class OtpAutoOrderService
                 'ordered_quantity' => 0,
                 'status' => 'active',
                 'last_error' => null,
+                'use_checker' => $isCheckerActive,
+                'checker_price' => $checkerFee,
             ]
         );
     }
@@ -185,7 +192,8 @@ class OtpAutoOrderService
             return $this->setAutoOrder($bot, $member, $service, $additionalQuantity);
         }
 
-        $unitPrice = $bot->sellPriceFor($service->provider_price);
+        $checkerFee = $active->use_checker ? (int) $active->checker_price : 0;
+        $unitPrice = $bot->sellPriceFor($service->provider_price) + $checkerFee;
         $currentWaiting = max(0, $active->target_quantity - $active->ordered_quantity);
         $totalWaitingAfter = $currentWaiting + $additionalQuantity;
 
@@ -296,7 +304,12 @@ class OtpAutoOrderService
                     continue;
                 }
 
-                $unitPrice = $bot->sellPriceFor($service->provider_price);
+                $isCheckerActiveForOrder = $autoOrder->use_checker
+                    && $bot->phone_checker_enabled
+                    && filled($bot->phone_checker_api_key);
+
+                $checkerFee = $isCheckerActiveForOrder ? (int) ($autoOrder->checker_price ?: ($bot->phone_checker_price ?? 100)) : 0;
+                $unitPrice = $bot->sellPriceFor($service->provider_price) + $checkerFee;
 
                 while ($availableStock > 0 && $autoOrder->remainingQuantity() > 0) {
                     $availableBalance = $member->availableBalance();
@@ -334,7 +347,7 @@ class OtpAutoOrderService
                     $batchQuantity = max(1, min($remainingNeeded, $canAffordCount, 50, $availableStock));
 
                     try {
-                        $result = $this->otpOrderService->requestBulkOtp($bot, $member, $service, $batchQuantity);
+                        $result = $this->otpOrderService->requestBulkOtp($bot, $member, $service, $batchQuantity, extraPerNumber: $checkerFee);
                         $createdOrders = array_values($result['orders'] ?? []);
                         $countCreated = count($createdOrders);
 
@@ -343,18 +356,18 @@ class OtpAutoOrderService
                         }
 
                         // ── Phone Checker Validation ──────────────────────────────────────────
-                        // Jika bot mengaktifkan phone_checker, validasi nomor yang diterima.
-                        // Nomor TERDAFTAR di Kopi Kenangan: cancel order + refund saldo member.
-                        // Nomor FRESH: diteruskan ke member.
-                        $createdOrders = $this->filterAndRefundRegisteredNumbers(
-                            $bot, $member, $service, $createdOrders
-                        );
-                        $countCreated = count($createdOrders);
+                        // Hanya validasi jika antrean auto order member mengaktifkan filter checker
+                        if ($isCheckerActiveForOrder) {
+                            $createdOrders = $this->filterAndRefundRegisteredNumbers(
+                                $bot, $member, $service, $createdOrders
+                            );
+                            $countCreated = count($createdOrders);
 
-                        if ($countCreated === 0) {
-                            // Semua nomor batch ini terdaftar, lanjut ke autoOrder berikutnya
-                            Log::info("Phone Checker: semua {$batchQuantity} nomor batch terdaftar di Kopken, skip batch untuk member #{$member->id}");
-                            break;
+                            if ($countCreated === 0) {
+                                // Semua nomor batch ini terdaftar, lanjut ke autoOrder berikutnya
+                                Log::info("Phone Checker: semua {$batchQuantity} nomor batch terdaftar di Kopken, skip batch untuk member #{$member->id}");
+                                break;
+                            }
                         }
                         // ─────────────────────────────────────────────────────────────────────
 
@@ -493,7 +506,7 @@ class OtpAutoOrderService
 
         try {
             $checker     = app(KopkenPhoneCheckerService::class);
-            $checkResult = $checker->checkBulk(array_keys($phoneToOrder), $checkerApiKey);
+            $checkResult = $checker->checkBulk(array_keys($phoneToOrder), apiKey: $checkerApiKey, baseUrl: $bot->phone_checker_base_url);
 
             $registeredPhones = array_flip($checkResult['registered']); // O(1) lookup
             $creditsUsed      = $checkResult['credits_used'];
