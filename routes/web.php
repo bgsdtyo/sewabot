@@ -63,7 +63,7 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/bots/{telegramBot}/settings', [BotDetailController::class, 'updateSettings'])->name('bots.settings');
     Route::post('/bots/{telegramBot}/sync-services', [BotDetailController::class, 'syncServices'])->name('bots.sync-services');
     Route::post('/bots/{telegramBot}/provider-balance', [BotDetailController::class, 'checkProviderBalance'])->name('bots.provider-balance');
-    Route::post('/bots/{telegramBot}/phone-checker-balance', [BotDetailController::class, 'checkPhoneCheckerBalance'])->name('bots.phone-checker-balance');
+    Route::match(['post', 'put'], '/bots/{telegramBot}/phone-checker-balance', [BotDetailController::class, 'checkPhoneCheckerBalance'])->name('bots.phone-checker-balance');
     Route::post('/bots/{telegramBot}/members/{botMember}/topup', [BotDetailController::class, 'topup'])
         ->scopeBindings()
         ->name('bots.members.topup');

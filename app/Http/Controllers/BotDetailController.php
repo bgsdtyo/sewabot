@@ -323,22 +323,54 @@ class BotDetailController extends Controller
             ->with('success', 'Hak akses member '.$botMember->displayName().' berhasil diperbarui ('.$botMember->restrictionStatusLabel().').');
     }
 
-    public function checkPhoneCheckerBalance(TelegramBot $telegramBot, \App\Services\KopkenPhoneCheckerService $checker): RedirectResponse
+    public function checkPhoneCheckerBalance(Request $request, TelegramBot $telegramBot, \App\Services\KopkenPhoneCheckerService $checker): \Illuminate\Http\JsonResponse|RedirectResponse
     {
         $this->authorizeOwner($telegramBot);
 
-        if (! filled($telegramBot->phone_checker_api_key)) {
+        // Ambil key dari input request (jika user baru mengetik) atau dari database bot
+        $apiKey = trim((string) ($request->input('api_key') ?: $telegramBot->phone_checker_api_key));
+
+        if (! filled($apiKey)) {
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'API Key Phone Checker belum diisi. Silakan ketik API Key terlebih dahulu.',
+                ], 422);
+            }
+
             return back()->withErrors(['phone_checker_api_key' => 'API Key Phone Checker belum diisi.']);
         }
 
         try {
-            $data = $checker->getBalance($telegramBot->phone_checker_api_key);
-            $credits = $data['credits'];
-            $ms = $data['ms'];
+            $data = $checker->getBalance($apiKey);
+            $credits = (int) ($data['credits'] ?? 0);
+            $ms = $data['ms'] ?? 0;
+            $username = (string) ($data['username'] ?? '');
 
-            return back()->with('success', "Koneksi Phone Checker OK: Sisa {$credits} kredit (Latensi: {$ms}ms).");
+            $msg = "Koneksi OK: Sisa {$credits} kredit" . ($username ? " (Akun: {$username})" : '') . " · Latensi: {$ms}ms";
+
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => true,
+                    'credits' => $credits,
+                    'username' => $username,
+                    'ms' => $ms,
+                    'message' => $msg,
+                ]);
+            }
+
+            return back()->with('success', $msg);
         } catch (\Throwable $e) {
-            return back()->withErrors(['phone_checker_api_key' => 'Gagal cek Phone Checker: '.$e->getMessage()]);
+            $errMsg = 'Gagal cek Phone Checker: ' . $e->getMessage();
+
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $errMsg,
+                ], 400);
+            }
+
+            return back()->withErrors(['phone_checker_api_key' => $errMsg]);
         }
     }
 
