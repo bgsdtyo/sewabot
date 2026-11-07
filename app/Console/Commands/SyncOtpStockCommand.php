@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\OtpAutoOrder;
 use App\Models\TelegramBot;
 use App\Services\OtpOrderService;
 use Illuminate\Console\Command;

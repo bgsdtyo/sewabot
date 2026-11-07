@@ -166,7 +166,7 @@ class OtpAutoOrderService
                 'last_error' => 'Dibatalkan: Member beralih ke antrean layanan '.($service->name ?? '#'.$service->id),
             ]);
 
-        return OtpAutoOrder::updateOrCreate(
+        $autoOrder = OtpAutoOrder::updateOrCreate(
             [
                 'telegram_bot_id' => $bot->id,
                 'bot_member_id' => $member->id,
@@ -181,6 +181,17 @@ class OtpAutoOrderService
                 'checker_price' => $checkerFee,
             ]
         );
+
+        // Jika layanan sudah memiliki stok saat ini di database, langsung jalankan eksekusi instan
+        if ((int) ($service->stock ?? 0) > 0) {
+            try {
+                $this->processAutoOrdersForService($service, (int) $service->stock);
+            } catch (\Throwable $e) {
+                Log::warning('Immediate auto order execution failed: '.$e->getMessage());
+            }
+        }
+
+        return $autoOrder->fresh();
     }
 
     public function addAutoOrderQuantity(TelegramBot $bot, BotMember $member, OtpService $service, int $additionalQuantity): OtpAutoOrder
@@ -228,6 +239,14 @@ class OtpAutoOrderService
             'status' => 'active',
             'last_error' => null,
         ]);
+
+        if ((int) ($service->stock ?? 0) > 0) {
+            try {
+                $this->processAutoOrdersForService($service, (int) $service->stock);
+            } catch (\Throwable $e) {
+                Log::warning('Immediate auto order execution after add failed: '.$e->getMessage());
+            }
+        }
 
         return $active->fresh();
     }
@@ -508,8 +527,21 @@ class OtpAutoOrderService
             $checker     = app(KopkenPhoneCheckerService::class);
             $checkResult = $checker->checkBulk(array_keys($phoneToOrder), apiKey: $checkerApiKey, baseUrl: $bot->phone_checker_base_url);
 
-            $registeredPhones = array_flip($checkResult['registered']); // O(1) lookup
-            $creditsUsed      = $checkResult['credits_used'];
+            $registeredPhones = [];
+            foreach ($checkResult['registered'] ?? [] as $regP) {
+                $c = preg_replace('/\D+/', '', (string) $regP);
+                if ($c === '') {
+                    continue;
+                }
+                $registeredPhones[$c] = true;
+                if (str_starts_with($c, '628')) {
+                    $registeredPhones['08'.substr($c, 3)] = true;
+                } elseif (str_starts_with($c, '08')) {
+                    $registeredPhones['628'.substr($c, 2)] = true;
+                }
+            }
+
+            $creditsUsed = $checkResult['credits_used'];
 
             if ($creditsUsed > 0) {
                 Log::info("Phone Checker: {$creditsUsed} kredit digunakan (auto order member #{$member->id})");
@@ -518,9 +550,10 @@ class OtpAutoOrderService
             $validOrders = $ordersWithoutPhone;
 
             foreach ($phoneToOrder as $phone => $order) {
-                if (isset($registeredPhones[$phone])) {
+                $c = preg_replace('/\D+/', '', (string) $phone);
+                if (isset($registeredPhones[$c]) || isset($registeredPhones[$phone])) {
                     // Nomor TERDAFTAR → cancel + refund otomatis
-                    Log::info("Phone Checker: nomor {$phone} sudah terdaftar di Kopken, cancel order #{$order->id}");
+                    Log::info("Phone Checker: nomor {$phone} ({$c}) sudah terdaftar di Kopken, cancel order #{$order->id}");
 
                     try {
                         $this->otpOrderService->cancelOrder($order);

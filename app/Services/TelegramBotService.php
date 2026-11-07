@@ -3880,6 +3880,73 @@ class TelegramBotService
             return;
         }
 
+        if (str_starts_with($data, 'auto_order_trigger:')) {
+            $serviceId = (int) substr($data, strlen('auto_order_trigger:'));
+            $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService($bot);
+            $autoOrderService = app(OtpAutoOrderService::class);
+            $activeAuto = $service ? $autoOrderService->getActiveForMember($bot, $member, $service) : null;
+
+            if (! $activeAuto || $activeAuto->status !== 'active') {
+                $this->showAutoOrderMenu($bot, $member, $chatId, $messageId ? (int) $messageId : null, notice: '⚠️ Tidak ada antrean auto order aktif.');
+
+                return;
+            }
+
+            try {
+                // 1. Sinkronisasi stok terbaru dari provider langsung menggunakan bot ini
+                $otpOrderService = app(OtpOrderService::class);
+                $allowedNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'];
+                $otpOrderService->syncServices($allowedNames, $bot, $bot->activeOtpProvider());
+
+                // Refresh model
+                $service->refresh();
+                $activeAuto->refresh();
+
+                $currentStock = (int) ($service->stock ?? 0);
+                $oldOrdered = (int) $activeAuto->ordered_quantity;
+
+                // 2. Jika ada stok dan antrean masih butuh nomor, proses sekarang
+                if ($currentStock > 0 && $activeAuto->status === 'active' && $activeAuto->remainingQuantity() > 0) {
+                    $autoOrderService->processAutoOrdersForService($service, $currentStock);
+                    $activeAuto->refresh();
+                }
+
+                $newOrdered = (int) $activeAuto->ordered_quantity;
+                $diff = $newOrdered - $oldOrdered;
+                $remaining = $activeAuto->remainingQuantity();
+
+                if ($diff > 0) {
+                    $notice = "⚡ <b>Eksekusi Berhasil!</b>\nBerhasil mendapatkan <b>{$diff} nomor baru</b>! (Total: {$newOrdered}/{$activeAuto->target_quantity} nomor). Silakan cek nomor di menu <b>Order Aktif</b>.";
+                } elseif ($currentStock <= 0) {
+                    $notice = "⚠️ <b>Stok Provider Saat Ini: 0 (Kosong)</b>\nServer provider <b>{$bot->activeOtpProvider()}</b> belum memiliki stok untuk layanan <b>".e($service->name)."</b> saat ini.\nSistem tetap standby dan akan otomatis mengeksekusi saat restock.";
+                } elseif ($activeAuto->last_error) {
+                    $notice = "⚠️ <b>Hasil Eksekusi:</b>\n".$activeAuto->last_error;
+                } else {
+                    $notice = "⚡ Pengecekan selesai. Stok di server ({$currentStock} nomor). Sisa antrean Anda: {$remaining} nomor.";
+                }
+
+                $this->showAutoOrderMenu(
+                    $bot,
+                    $member,
+                    $chatId,
+                    $messageId ? (int) $messageId : null,
+                    $service->id,
+                    notice: $notice
+                );
+            } catch (\Throwable $e) {
+                $this->showAutoOrderMenu(
+                    $bot,
+                    $member,
+                    $chatId,
+                    $messageId ? (int) $messageId : null,
+                    $service->id,
+                    notice: "⚠️ Gagal mengeksekusi auto order: ".$e->getMessage()
+                );
+            }
+
+            return;
+        }
+
         if (str_starts_with($data, 'auto_order_cancel:')) {
             $serviceId = (int) substr($data, strlen('auto_order_cancel:'));
             $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService($bot);
@@ -4693,7 +4760,12 @@ class TelegramBotService
                 $lines[] = "<i>Sistem akan otomatis mengeksekusi order begitu provider restock nomor.</i>";
             }
 
-            // Row 1: Toggle Filter Fresh (tersedia di state aktif juga)
+            // Row 1: ⚡ Jalankan Sekarang (Ambil Stok Manual)
+            $buttons[] = [
+                ['text' => '⚡ Jalankan Sekarang (Ambil Stok)', 'callback_data' => 'auto_order_trigger:'.$service->id],
+            ];
+
+            // Row 2: Toggle Filter Fresh (tersedia di state aktif juga)
             if ($hasChecker) {
                 $isCheckerOn = (bool) $activeAuto->use_checker;
                 $checkerPriceFormatted = 'Rp'.number_format($checkerPrice, 0, ',', '.');
