@@ -130,15 +130,15 @@ class KopkenPhoneCheckerService
                 Log::warning('KopkenPhoneChecker bulk check failed: '.$e->getMessage(), [
                     'phones_count' => count($chunk),
                 ]);
-                // Jika gagal, anggap semua fresh agar auto order tetap berjalan
+                // Jika gagal cek, jangan anggap fresh agar nomor terdaftar tidak lolos ke member
                 foreach ($chunk as $phone) {
-                    $freshPhones[] = $phone;
                     $allResults[$phone] = [
-                        'phone'   => $phone,
-                        'status'  => 'unknown',
-                        'is_fresh' => true,
-                        'error'   => $e->getMessage(),
+                        'phone'    => $this->formatLocalPhone($phone),
+                        'status'   => 'GAGAL CEK',
+                        'is_fresh' => false,
+                        'error'    => $e->getMessage(),
                     ];
+                    $regPhones[] = $phone;
                 }
                 continue;
             }
@@ -148,14 +148,14 @@ class KopkenPhoneCheckerService
                     'status' => $response->status(),
                     'body'   => $response->body(),
                 ]);
-                // Fallback: anggap fresh agar tidak memblokir auto order
+                // Jika status response error, anggap tidak fresh demi keamanan filter member
                 foreach ($chunk as $phone) {
-                    $freshPhones[] = $phone;
                     $allResults[$phone] = [
-                        'phone'   => $phone,
-                        'status'  => 'unknown',
-                        'is_fresh' => true,
+                        'phone'    => $this->formatLocalPhone($phone),
+                        'status'   => 'GAGAL CEK (HTTP '.$response->status().')',
+                        'is_fresh' => false,
                     ];
+                    $regPhones[] = $phone;
                 }
                 continue;
             }
@@ -184,17 +184,17 @@ class KopkenPhoneCheckerService
                 if (isset($resultMap[$phone])) {
                     $result = $resultMap[$phone];
                 } else {
-                    // Nomor tidak ada di response, anggap fresh (safe default)
+                    // Nomor tidak ada di response, jangan anggap fresh
                     $result = [
-                        'phone'   => $phone,
-                        'status'  => 'unknown',
-                        'is_fresh' => true,
+                        'phone'    => $this->formatLocalPhone($phone),
+                        'status'   => 'TIDAK DIKETAHUI',
+                        'is_fresh' => false,
                     ];
                 }
 
                 $allResults[$phone] = $result;
 
-                if ($result['is_fresh']) {
+                if (! empty($result['is_fresh'])) {
                     $freshPhones[] = $phone;
                     $creditsUsed++;
                 } else {
@@ -321,9 +321,18 @@ class KopkenPhoneCheckerService
     }
 
     /**
-     * Normalisasi format nomor telepon ke format 08xxx atau 628xxx.
+     * Normalisasi format nomor telepon ke format 628xxx (canonical standard).
      */
-    protected function normalizePhone(string $phone): string
+    public function normalizePhone(string $phone): string
+    {
+        return $this->canonicalizePhone($phone);
+    }
+
+    /**
+     * Normalisasi nomor telepon ke canonical standard:
+     * '628xxxxxxxxxx' (canonical international format tanpa tanda plus)
+     */
+    public function canonicalizePhone(string $phone): string
     {
         $phone = preg_replace('/\D+/', '', trim($phone));
         if ($phone === '') {
@@ -346,6 +355,33 @@ class KopkenPhoneCheckerService
         }
 
         return $phone;
+    }
+
+    /**
+     * Dapatkan semua variasi representasi nomor untuk pencocokan instan:
+     * e.g. ['6285746388227', '085746388227', '85746388227']
+     *
+     * @return string[]
+     */
+    public function getAllPhoneVariants(string $phone): array
+    {
+        $clean = preg_replace('/\D+/', '', trim($phone));
+        if ($clean === '') {
+            return [];
+        }
+
+        $canonical = $this->canonicalizePhone($clean);
+        $variants = [$clean, $canonical];
+
+        if (str_starts_with($canonical, '628')) {
+            $variants[] = '08'.substr($canonical, 3);
+            $variants[] = substr($canonical, 2); // '857...'
+        } elseif (str_starts_with($canonical, '62')) {
+            $variants[] = '0'.substr($canonical, 2);
+            $variants[] = substr($canonical, 2);
+        }
+
+        return array_values(array_unique(array_filter($variants)));
     }
 
     /**
@@ -395,7 +431,7 @@ class KopkenPhoneCheckerService
             str_contains($rawStatusLower, 'registered')      => false,
             str_contains($rawStatusLower, 'exists')          => false,
             str_contains($rawStatusLower, 'found')           => false,
-            default                                          => true,  // unknown → safe default: anggap fresh
+            default                                          => false, // Unverified/unknown status tidak boleh dianggap fresh demi keamanan member
         };
 
         // Override: kalau ada field boolean eksplisit

@@ -659,7 +659,7 @@ class OtpOrderService
         return $completed;
     }
 
-    public function cancelOrder(OtpOrder $order): OtpOrder
+    public function cancelOrder(OtpOrder $order, bool $notify = true): OtpOrder
     {
         if ($order->status !== 'pending') {
             throw ValidationException::withMessages(['order' => 'Pesanan tidak bisa dibatalkan.']);
@@ -673,7 +673,7 @@ class OtpOrderService
             }
         }
 
-        return $this->refundLocal($order, 'cancelled');
+        return $this->refundLocal($order, 'cancelled', notify: $notify);
     }
 
     protected function refundLocal(OtpOrder $order, string $status, ?string $reason = null, bool $notify = true): OtpOrder

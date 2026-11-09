@@ -330,6 +330,8 @@ class OtpAutoOrderService
                 $checkerFee = $isCheckerActiveForOrder ? (int) ($autoOrder->checker_price ?: ($bot->phone_checker_price ?? 100)) : 0;
                 $unitPrice = $bot->sellPriceFor($service->provider_price) + $checkerFee;
 
+                $consecutiveFilteredBatches = 0;
+
                 while ($availableStock > 0 && $autoOrder->remainingQuantity() > 0) {
                     $availableBalance = $member->availableBalance();
 
@@ -383,15 +385,25 @@ class OtpAutoOrderService
                             $countCreated = count($createdOrders);
 
                             if ($countCreated === 0) {
-                                // Semua nomor batch ini terdaftar, lanjut ke autoOrder berikutnya
-                                Log::info("Phone Checker: semua {$batchQuantity} nomor batch terdaftar di Kopken, skip batch untuk member #{$member->id}");
-                                break;
+                                // Semua nomor batch ini terdaftar di provider
+                                $consecutiveFilteredBatches++;
+                                $availableStock = max(0, $availableStock - $batchQuantity);
+                                Log::info("Phone Checker: semua {$batchQuantity} nomor batch terdaftar di Kopken (attempt {$consecutiveFilteredBatches}), skip batch untuk member #{$member->id}");
+
+                                if ($consecutiveFilteredBatches >= 3 || $availableStock <= 0) {
+                                    break;
+                                }
+
+                                usleep(500000);
+                                continue;
                             }
+
+                            $consecutiveFilteredBatches = 0;
                         }
                         // ─────────────────────────────────────────────────────────────────────
 
                         $totalExecuted += $countCreated;
-                        $availableStock -= $countCreated;
+                        $availableStock = max(0, $availableStock - $batchQuantity);
 
                         $autoOrder->increment('ordered_quantity', $countCreated);
                         $autoOrder->update([
@@ -505,79 +517,154 @@ class OtpAutoOrderService
             return $orders;
         }
 
-        // Kumpulkan nomor telepon dari orders yang sudah punya nomor
-        $phoneToOrder   = [];
-        $ordersWithoutPhone = [];
+        if (empty($orders)) {
+            return [];
+        }
+
+        /** @var KopkenPhoneCheckerService $checker */
+        $checker = app(KopkenPhoneCheckerService::class);
+
+        // Kumpulkan nomor telepon dari orders
+        // Petakan canonical phone (628...) => array of OtpOrder
+        /** @var array<string, OtpOrder[]> $canonicalToOrders */
+        $canonicalToOrders = [];
+        $unresolvableOrders = [];
 
         foreach ($orders as $order) {
             $phone = (string) ($order->phone_number ?? '');
-            if (filled($phone)) {
-                $phoneToOrder[$phone] = $order;
+            if (! filled($phone)) {
+                // Refresh dari DB jika provider baru saja mengalokasikan nomor
+                $order = $order->fresh() ?? $order;
+                $phone = (string) ($order->phone_number ?? '');
+            }
+
+            $canonical = $checker->canonicalizePhone($phone);
+            if (filled($canonical)) {
+                $canonicalToOrders[$canonical][] = $order;
             } else {
-                // Order yang belum ada nomor (pending provider) langsung lolos
-                $ordersWithoutPhone[] = $order;
+                // Order tanpa nomor telepon tidak bisa diverifikasi sebagai fresh
+                $unresolvableOrders[] = $order;
             }
         }
 
-        if (empty($phoneToOrder)) {
-            return $orders;
+        // Batalkan order tanpa nomor telepon (tidak bisa diverifikasi)
+        foreach ($unresolvableOrders as $unOrder) {
+            Log::warning("Phone Checker: order #{$unOrder->id} tidak memiliki nomor telepon valid, membatalkan order");
+            try {
+                $this->otpOrderService->cancelOrder($unOrder, notify: false);
+            } catch (\Throwable $cancelErr) {
+                Log::warning("Phone Checker: gagal cancel order tanpa nomor #{$unOrder->id}: ".$cancelErr->getMessage());
+            }
         }
+
+        if (empty($canonicalToOrders)) {
+            return [];
+        }
+
+        $phonesToCheck = array_keys($canonicalToOrders);
 
         try {
-            $checker     = app(KopkenPhoneCheckerService::class);
-            $checkResult = $checker->checkBulk(array_keys($phoneToOrder), apiKey: $checkerApiKey, baseUrl: $bot->phone_checker_base_url);
+            $checkResult = $checker->checkBulk(
+                $phonesToCheck,
+                apiKey: $checkerApiKey,
+                baseUrl: $bot->phone_checker_base_url
+            );
 
-            $registeredPhones = [];
+            // Bangun set lookup seluruh variasi nomor yang TERDAFTAR / BUKAN FRESH
+            $registeredLookup = [];
+
+            // 1. Dari array registered hasil checker
             foreach ($checkResult['registered'] ?? [] as $regP) {
-                $c = preg_replace('/\D+/', '', (string) $regP);
-                if ($c === '') {
-                    continue;
-                }
-                $registeredPhones[$c] = true;
-                if (str_starts_with($c, '628')) {
-                    $registeredPhones['08'.substr($c, 3)] = true;
-                } elseif (str_starts_with($c, '08')) {
-                    $registeredPhones['628'.substr($c, 2)] = true;
+                foreach ($checker->getAllPhoneVariants((string) $regP) as $variant) {
+                    $registeredLookup[$variant] = true;
                 }
             }
 
-            $creditsUsed = $checkResult['credits_used'];
+            // 2. Dari detail results: setiap item yang is_fresh !== true atau status bukan BELUM TERDAFTAR
+            foreach ($checkResult['results'] ?? [] as $itemKey => $itemData) {
+                $isFresh = (bool) ($itemData['is_fresh'] ?? false);
+                $statusUpper = strtoupper((string) ($itemData['status'] ?? ''));
 
+                if (! $isFresh || $statusUpper !== 'BELUM TERDAFTAR') {
+                    foreach ($checker->getAllPhoneVariants((string) $itemKey) as $variant) {
+                        $registeredLookup[$variant] = true;
+                    }
+                    if (isset($itemData['phone'])) {
+                        foreach ($checker->getAllPhoneVariants((string) $itemData['phone']) as $variant) {
+                            $registeredLookup[$variant] = true;
+                        }
+                    }
+                }
+            }
+
+            $creditsUsed = $checkResult['credits_used'] ?? 0;
             if ($creditsUsed > 0) {
                 Log::info("Phone Checker: {$creditsUsed} kredit digunakan (auto order member #{$member->id})");
             }
 
-            $validOrders = $ordersWithoutPhone;
+            $validOrders = [];
+            $registeredOrders = [];
 
-            foreach ($phoneToOrder as $phone => $order) {
-                $c = preg_replace('/\D+/', '', (string) $phone);
-                if (isset($registeredPhones[$c]) || isset($registeredPhones[$phone])) {
-                    // Nomor TERDAFTAR → cancel + refund otomatis
-                    Log::info("Phone Checker: nomor {$phone} ({$c}) sudah terdaftar di Kopken, cancel order #{$order->id}");
-
-                    try {
-                        $this->otpOrderService->cancelOrder($order);
-                    } catch (\Throwable $cancelErr) {
-                        Log::warning("Phone Checker: gagal cancel order #{$order->id}: ".$cancelErr->getMessage());
+            foreach ($canonicalToOrders as $canonical => $orderList) {
+                foreach ($orderList as $order) {
+                    $orderPhone = (string) ($order->phone_number ?? '');
+                    $variants = $checker->getAllPhoneVariants($orderPhone);
+                    if (empty($variants)) {
+                        $variants = [$canonical];
                     }
-                } else {
-                    // Nomor FRESH → teruskan ke member
-                    $validOrders[] = $order;
+
+                    $isRegistered = false;
+                    foreach ($variants as $v) {
+                        if (isset($registeredLookup[$v])) {
+                            $isRegistered = true;
+                            break;
+                        }
+                    }
+
+                    if ($isRegistered) {
+                        $registeredOrders[] = $order;
+                    } else {
+                        // Dipastikan hanya nomor fresh yang lolos
+                        $validOrders[] = $order;
+                    }
                 }
             }
 
-            // Notifikasi jika ada nomor yang di-skip
-            $skippedCount = count($orders) - count($validOrders);
+            // Batalkan & refund semua order yang terdaftar di Kopi Kenangan
+            foreach ($registeredOrders as $regOrder) {
+                Log::info("Phone Checker: nomor {$regOrder->phone_number} terdaftar di Kopken, cancel & refund order #{$regOrder->id}");
+                try {
+                    $this->otpOrderService->cancelOrder($regOrder, notify: false);
+                } catch (\Throwable $cancelErr) {
+                    Log::warning("Phone Checker: gagal cancel order terdaftar #{$regOrder->id}: ".$cancelErr->getMessage());
+                }
+            }
+
+            // Notifikasi gabungan ke member jika ada nomor yang di-skip
+            $skippedCount = count($registeredOrders) + count($unresolvableOrders);
             if ($skippedCount > 0) {
                 $this->notifyCheckerSkipped($bot, $member, $service, $skippedCount, count($validOrders));
             }
 
             return array_values($validOrders);
         } catch (\Throwable $e) {
-            // Jika Phone Checker gagal (timeout, API error), jangan blokir auto order
-            Log::warning('Phone Checker validation failed, melanjutkan tanpa validasi: '.$e->getMessage());
+            // Jika Phone Checker mengalami error fatal dan filter fresh aktif,
+            // batalkan seluruh batch nomor demi keamanan saldo & kualitas nomor member (fail-safe)
+            Log::error('Phone Checker bulk validation critical error, membatalkan batch pesanan: '.$e->getMessage());
 
-            return $orders;
+            foreach ($canonicalToOrders as $orderList) {
+                foreach ($orderList as $order) {
+                    try {
+                        $this->otpOrderService->cancelOrder($order, notify: false);
+                    } catch (\Throwable $ce) {
+                        Log::warning("Gagal cancel order setelah Phone Checker error #{$order->id}: ".$ce->getMessage());
+                    }
+                }
+            }
+
+            $this->notifyCheckerSkipped($bot, $member, $service, count($orders), 0);
+
+            return [];
         }
     }
 
