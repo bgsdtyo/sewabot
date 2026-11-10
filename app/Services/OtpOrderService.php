@@ -28,12 +28,10 @@ class OtpOrderService
      */
     public function syncServices(?array $onlyNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'], ?TelegramBot $usingBot = null, ?string $providerName = null): int
     {
-        $targetProvider = $usingBot
-            ? $usingBot->activeOtpProvider()
-            : ($providerName ?: Setting::activeOtpProvider());
+        $targetProvider = $providerName ?: ($usingBot ? ($usingBot->activeOtpProvider() === 'both' ? 'kopken' : $usingBot->activeOtpProvider()) : Setting::activeOtpProvider());
 
         $client = $usingBot
-            ? $this->providerManager->forBot($usingBot)
+            ? $this->providerManager->forBot($usingBot, $targetProvider)
             : $this->providerManager->driver($targetProvider);
 
         $items = $client->getServices();
@@ -201,11 +199,11 @@ class OtpOrderService
             return (int) ($service->stock ?? 0);
         }
 
-        $providerName = $service->provider ?: $bot->activeOtpProvider();
+        $providerName = $service->provider ?: ($bot->activeOtpProvider() === 'both' ? 'kopken' : $bot->activeOtpProvider());
         $cacheKey = "bot_{$bot->id}_svc_{$providerName}_{$service->provider_service_id}_stock";
 
         try {
-            $client = $this->providerManager->forBot($bot);
+            $client = $this->providerManager->forBot($bot, $providerName);
             $services = $client->getServices(timeout: 5);
             foreach ($services as $item) {
                 if ((int) ($item['id'] ?? 0) === (int) $service->provider_service_id) {
@@ -385,7 +383,7 @@ class OtpOrderService
         $failed = [];
         $stopRemaining = false;
         $stopReason = null;
-        $activeProvider = $bot->activeOtpProvider();
+        $activeProvider = $service->provider ?: ($bot->activeOtpProvider() === 'both' ? 'kopken' : $bot->activeOtpProvider());
 
         for ($i = 0; $i < $quantity; $i++) {
             $slot = $i + 1;
@@ -419,7 +417,7 @@ class OtpOrderService
                     $item->update(['wallet_status' => 'held']);
 
                     try {
-                        $client = $this->providerManager->forBot($bot);
+                        $client = $this->providerManager->forBot($bot, $activeProvider);
                         $data = $client->createOrder($service->provider_service_id, $item->idempotency_key);
                     } catch (\Throwable $e) {
                         $this->wallet->releaseHold($member->fresh(), $sellPrice, OtpOrder::class, $item->id, 'Refund: gagal order provider');

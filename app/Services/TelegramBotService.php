@@ -1348,23 +1348,26 @@ class TelegramBotService
             ."<i>Aksi pesanan (Ganti Nomor, Ulang OTP, Batalkan) dapat langsung dilakukan melalui tombol pada bubble transaksi masing-masing.</i>";
     }
 
-    protected function kopkenService(?TelegramBot $bot = null): ?OtpService
+    protected function kopkenService(?TelegramBot $bot = null, ?string $provider = null): ?OtpService
     {
         if ($bot) {
-            $service = $bot->activeOtpService();
+            $service = $bot->activeOtpService($provider);
             if ($service) {
                 return $service;
             }
         }
 
-        $provider = $bot ? $bot->activeOtpProvider() : null;
+        $targetProvider = $provider ?: ($bot ? $bot->activeOtpProvider() : null);
+        if ($targetProvider === 'both') {
+            $targetProvider = null;
+        }
 
         // 1. Prioritaskan layanan Kopi Kenangan / Kopken spesifik untuk provider aktif
-        $service = OtpService::sellable()->kopiKenangan($provider)->first();
+        $service = OtpService::sellable()->kopiKenangan($targetProvider)->first();
 
         // 2. Jika tidak ada, cari via scopeKopken (termasuk WhatsApp) untuk provider aktif
-        if (! $service && $provider) {
-            $service = OtpService::sellable()->kopken($provider)->first();
+        if (! $service && $targetProvider) {
+            $service = OtpService::sellable()->kopken($targetProvider)->first();
         }
 
         // 3. Fallback global jika bot provider belum punya service tersimpan
@@ -1628,8 +1631,87 @@ class TelegramBotService
         $this->replyOrSend($bot, $chatId, $editMessageId, $text, inlineKeyboard: $keyboard);
     }
 
+    public function showProviderSelectionForOrder(
+        TelegramBot $bot,
+        BotMember $member,
+        int|string $chatId,
+        ?int $editMessageId = null,
+        bool $forceFresh = false
+    ): void {
+        $otpOrderService = app(OtpOrderService::class);
+
+        $ninjaSvc = $bot->activeOtpService('kopken') ?? $this->kopkenService($bot, 'kopken');
+        $wahubSvc = $bot->activeOtpService('wahub') ?? $this->kopkenService($bot, 'wahub');
+
+        $ninjaStock = $ninjaSvc ? $otpOrderService->getServiceStock($ninjaSvc, $bot, $forceFresh) : 0;
+        $wahubStock = $wahubSvc ? $otpOrderService->getServiceStock($wahubSvc, $bot, $forceFresh) : 0;
+
+        $ninjaStockStr = $ninjaStock > 0 ? number_format($ninjaStock, 0, ',', '.') . ' nomor' : '0 (Habis)';
+        $wahubStockStr = $wahubStock > 0 ? number_format($wahubStock, 0, ',', '.') . ' nomor' : '0 (Habis)';
+
+        $lines = [
+            "📱 <b>Pilih Provider OTP</b>\n",
+            "Silakan tentukan server provider untuk pesanan nomor Anda:\n",
+            "1️⃣ <b>Ninja OTP</b> (app.ninjatop.cloud)",
+        ];
+
+        if ($ninjaSvc) {
+            $ninjaPrice = 'Rp ' . number_format($bot->sellPriceFor($ninjaSvc->provider_price), 0, ',', '.');
+            $lines[] = "├  Layanan: <b>" . e($ninjaSvc->name) . "</b>";
+            $lines[] = "├  Tarif: <b>{$ninjaPrice} / nomor</b>";
+            $lines[] = "└  Stok Live: <b>{$ninjaStockStr}</b>\n";
+        } else {
+            $lines[] = "└  <i>Layanan belum disinkronkan</i>\n";
+        }
+
+        $lines[] = "2️⃣ <b>WAHub</b> (dehuyzotp.shop)";
+        if ($wahubSvc) {
+            $wahubPrice = 'Rp ' . number_format($bot->sellPriceFor($wahubSvc->provider_price), 0, ',', '.');
+            $lines[] = "├  Layanan: <b>" . e($wahubSvc->name) . "</b>";
+            $lines[] = "├  Tarif: <b>{$wahubPrice} / nomor</b>";
+            $lines[] = "└  Stok Live: <b>{$wahubStockStr}</b>\n";
+        } else {
+            $lines[] = "└  <i>Layanan belum disinkronkan</i>\n";
+        }
+
+        $lines[] = "💳 Saldo Tersedia: <b>" . $member->formattedAvailable() . "</b>";
+
+        $buttons = [];
+        $actionRow = [];
+        if ($ninjaSvc) {
+            $ninjaTag = $ninjaStock > 0 ? " ({$ninjaStock})" : " (0)";
+            $actionRow[] = ['text' => "🥷 Ninja OTP{$ninjaTag}", 'callback_data' => "order_select_svc:{$ninjaSvc->id}"];
+        }
+        if ($wahubSvc) {
+            $wahubTag = $wahubStock > 0 ? " ({$wahubStock})" : " (0)";
+            $actionRow[] = ['text' => "🌐 WAHub{$wahubTag}", 'callback_data' => "order_select_svc:{$wahubSvc->id}"];
+        }
+        if ($actionRow !== []) {
+            $buttons[] = $actionRow;
+        }
+
+        $buttons[] = [
+            ['text' => '⚡ Pasang Auto Order', 'callback_data' => 'auto_order_hub'],
+        ];
+
+        $buttons[] = [
+            ['text' => '🔄 Refresh Stok', 'callback_data' => 'order_provider_refresh'],
+            ['text' => '❌ Batal', 'callback_data' => 'otp_preview_cancel'],
+        ];
+
+        $this->replyOrSend($bot, $chatId, $editMessageId, implode("\n", $lines), inlineKeyboard: [
+            'inline_keyboard' => $buttons,
+        ]);
+    }
+
     protected function startKopken(TelegramBot $bot, $member, $chatId): void
     {
+        if ($bot->hasMultipleOtpProviders()) {
+            $this->showProviderSelectionForOrder($bot, $member, $chatId);
+
+            return;
+        }
+
         $this->startOrderForService($bot, $member, $chatId);
     }
 
@@ -1782,13 +1864,24 @@ class TelegramBotService
                 .($hasAlert ? "🔔 <i>Pengingat aktif! Bot akan otomatis mengirim notifikasi ketika nomor kembali tersedia.</i>\n\n" : "")
                 ."<i>Stok nomor untuk layanan ini saat ini sedang habis. Klik tombol di bawah untuk mendapatkan notifikasi otomatis saat restock.</i>";
 
+            $autoOrderCallback = $bot->hasMultipleOtpProviders()
+                ? 'auto_order_svc:'.$service->id
+                : 'auto_order_menu';
+
+            $stockRow = [
+                ['text' => '🔄 Cek Stok Lagi', 'callback_data' => 'otp_check_stock:'.$service->id],
+            ];
+            if ($bot->hasMultipleOtpProviders()) {
+                $stockRow[] = ['text' => '🔙 Ganti Provider', 'callback_data' => 'order_provider_select'];
+            }
+
             $buttons = [
                 [$alertButton],
                 [
-                    ['text' => '⚡ Pasang Auto Order', 'callback_data' => 'auto_order_menu'],
+                    ['text' => '⚡ Pasang Auto Order', 'callback_data' => $autoOrderCallback],
                 ],
+                $stockRow,
                 [
-                    ['text' => '🔄 Cek Stok Lagi', 'callback_data' => 'otp_check_stock:'.$service->id],
                     ['text' => '❌ Tutup', 'callback_data' => 'otp_preview_cancel'],
                 ],
             ];
@@ -1820,6 +1913,12 @@ class TelegramBotService
                 $qtyRow,
                 $actionRow,
             ];
+
+            if ($bot->hasMultipleOtpProviders()) {
+                $buttons[] = [
+                    ['text' => '🔙 Pilih Provider Lain', 'callback_data' => 'order_provider_select'],
+                ];
+            }
         }
 
         $this->replyOrSend($bot, $chatId, $editMessageId, $text, inlineKeyboard: [
@@ -3710,6 +3809,98 @@ class TelegramBotService
             return;
         }
 
+        if ($data === 'auto_order_hub') {
+            $this->showAutoOrderHub($bot, $member, $chatId, $messageId ? (int) $messageId : null);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'auto_order_svc:')) {
+            $serviceId = (int) substr($data, strlen('auto_order_svc:'));
+            $this->showAutoOrderMenu($bot, $member, $chatId, $messageId ? (int) $messageId : null, $serviceId ?: null);
+
+            return;
+        }
+
+        if ($data === 'auto_order_trigger_sync_all') {
+            $otpOrderService = app(OtpOrderService::class);
+            $autoOrderService = app(OtpAutoOrderService::class);
+            $allowedNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'];
+
+            $totalGot = 0;
+            $details = [];
+
+            foreach ($bot->availableOtpProviders() as $p) {
+                try {
+                    $otpOrderService->syncServices($allowedNames, $bot, $p);
+                    $svc = $bot->activeOtpService($p) ?? $this->kopkenService($bot, $p);
+                    if ($svc) {
+                        $svc->refresh();
+                        $activeAuto = $autoOrderService->getActiveForMember($bot, $member, $svc);
+                        if ($activeAuto && $activeAuto->status === 'active' && $activeAuto->remainingQuantity() > 0) {
+                            $oldQ = (int) $activeAuto->ordered_quantity;
+                            if ((int) $svc->stock > 0) {
+                                $autoOrderService->processAutoOrdersForService($svc, (int) $svc->stock);
+                                $activeAuto->refresh();
+                                $got = (int) $activeAuto->ordered_quantity - $oldQ;
+                                $totalGot += max(0, $got);
+                                $pLabel = $p === 'wahub' ? 'WAHub' : 'Ninja';
+                                $details[] = "{$pLabel}: +{$got} nomor";
+                            } else {
+                                $pLabel = $p === 'wahub' ? 'WAHub' : 'Ninja';
+                                $details[] = "{$pLabel}: stok 0";
+                            }
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    $pLabel = $p === 'wahub' ? 'WAHub' : 'Ninja';
+                    $details[] = "{$pLabel}: err " . $e->getMessage();
+                }
+            }
+
+            $notice = $totalGot > 0
+                ? "⚡ <b>Eksekusi Selesai!</b> Berhasil mendapat <b>{$totalGot} nomor</b>!\n(" . implode(' | ', $details) . ")"
+                : "⚡ Pengecekan stok selesai. (" . implode(' | ', $details) . ")";
+
+            $this->showAutoOrderHub($bot, $member, $chatId, $messageId ? (int) $messageId : null, notice: $notice);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'order_select_svc:')) {
+            $serviceId = (int) substr($data, strlen('order_select_svc:'));
+            $this->startOrderForService(
+                $bot,
+                $member,
+                $chatId,
+                $serviceId ?: null,
+                $messageId ? (int) $messageId : null,
+                callbackId: $callbackId
+            );
+
+            return;
+        }
+
+        if ($data === 'order_provider_select') {
+            $this->showProviderSelectionForOrder($bot, $member, $chatId, $messageId ? (int) $messageId : null);
+
+            return;
+        }
+
+        if ($data === 'order_provider_refresh') {
+            $this->showProviderSelectionForOrder($bot, $member, $chatId, $messageId ? (int) $messageId : null, forceFresh: true);
+
+            return;
+        }
+
+        if ($data === 'order_provider_close') {
+            if ($messageId) {
+                $this->deleteMessage($bot, $chatId, $messageId);
+            }
+
+            return;
+        }
+
         if ($data === 'auto_order_close') {
             if ($messageId) {
                 $this->deleteMessage($bot, $chatId, $messageId);
@@ -3896,7 +4087,11 @@ class TelegramBotService
                 // 1. Sinkronisasi stok terbaru dari provider langsung menggunakan bot ini
                 $otpOrderService = app(OtpOrderService::class);
                 $allowedNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'];
-                $otpOrderService->syncServices($allowedNames, $bot, $bot->activeOtpProvider());
+                $targetProvider = $service->provider ?: $bot->activeOtpProvider();
+                if ($targetProvider === 'both') {
+                    $targetProvider = 'kopken';
+                }
+                $otpOrderService->syncServices($allowedNames, $bot, $targetProvider);
 
                 // Refresh model
                 $service->refresh();
@@ -3914,11 +4109,12 @@ class TelegramBotService
                 $newOrdered = (int) $activeAuto->ordered_quantity;
                 $diff = $newOrdered - $oldOrdered;
                 $remaining = $activeAuto->remainingQuantity();
+                $providerLabel = $service->provider === 'wahub' ? 'WAHub' : 'Ninja OTP';
 
                 if ($diff > 0) {
                     $notice = "⚡ <b>Eksekusi Berhasil!</b>\nBerhasil mendapatkan <b>{$diff} nomor baru</b>! (Total: {$newOrdered}/{$activeAuto->target_quantity} nomor). Silakan cek nomor di menu <b>Order Aktif</b>.";
                 } elseif ($currentStock <= 0) {
-                    $notice = "⚠️ <b>Stok Provider Saat Ini: 0 (Kosong)</b>\nServer provider <b>{$bot->activeOtpProvider()}</b> belum memiliki stok untuk layanan <b>".e($service->name)."</b> saat ini.\nSistem tetap standby dan akan otomatis mengeksekusi saat restock.";
+                    $notice = "⚠️ <b>Stok Provider Saat Ini: 0 (Kosong)</b>\nServer provider <b>{$providerLabel}</b> belum memiliki stok untuk layanan <b>".e($service->name)."</b> saat ini.\nSistem tetap standby dan akan otomatis mengeksekusi saat restock.";
                 } elseif ($activeAuto->last_error) {
                     $notice = "⚠️ <b>Hasil Eksekusi:</b>\n".$activeAuto->last_error;
                 } else {
@@ -3950,10 +4146,20 @@ class TelegramBotService
         if (str_starts_with($data, 'auto_order_cancel:')) {
             $serviceId = (int) substr($data, strlen('auto_order_cancel:'));
             $service = OtpService::sellable()->whereKey($serviceId)->first() ?? $this->kopkenService($bot);
-            // Batalkan semua antrean aktif member di bot ini agar bersih tuntas tanpa sisa antrean hantu di layanan lain
-            app(OtpAutoOrderService::class)->cancelAutoOrder($bot, $member, null);
+            if ($service) {
+                app(OtpAutoOrderService::class)->cancelAutoOrder($bot, $member, $service);
+            } else {
+                app(OtpAutoOrderService::class)->cancelAutoOrder($bot, $member, null);
+            }
 
-            $this->showAutoOrderMenu($bot, $member, $chatId, $messageId ? (int) $messageId : null, notice: '❌ Auto Order berhasil dibatalkan.');
+            $this->showAutoOrderMenu(
+                $bot,
+                $member,
+                $chatId,
+                $messageId ? (int) $messageId : null,
+                $service?->id,
+                notice: '❌ Auto Order ' . ($service ? 'untuk <b>'.e($service->name).'</b> ' : '') . 'berhasil dibatalkan.'
+            );
 
             return;
         }
@@ -4668,6 +4874,94 @@ class TelegramBotService
         return $msgId;
     }
 
+    public function showAutoOrderHub(
+        TelegramBot $bot,
+        BotMember $member,
+        int|string $chatId,
+        ?int $editMessageId = null,
+        ?string $notice = null
+    ): void {
+        $autoOrderService = app(OtpAutoOrderService::class);
+
+        $ninjaSvc = $bot->activeOtpService('kopken') ?? $this->kopkenService($bot, 'kopken');
+        $wahubSvc = $bot->activeOtpService('wahub') ?? $this->kopkenService($bot, 'wahub');
+
+        $ninjaAuto = $ninjaSvc ? $autoOrderService->getActiveForMember($bot, $member, $ninjaSvc) : null;
+        $wahubAuto = $wahubSvc ? $autoOrderService->getActiveForMember($bot, $member, $wahubSvc) : null;
+
+        $lines = [];
+        if ($notice) {
+            $lines[] = "{$notice}\n";
+        }
+
+        $lines[] = "⚡ <b>Sistem Auto Order (Dual Provider)</b> 🎯\n";
+        $lines[] = "<i>Anda dapat memasang antrean Auto Order di Ninja OTP dan WAHub secara bersamaan! Begitu salah satu provider restock nomor, bot akan langsung mengeksekusi order.</i>\n";
+
+        // Provider 1: Ninja OTP
+        $lines[] = "1️⃣ <b>Ninja OTP</b> (app.ninjatop.cloud)";
+        if ($ninjaSvc) {
+            $ninjaPrice = 'Rp ' . number_format($bot->sellPriceFor($ninjaSvc->provider_price), 0, ',', '.');
+            $lines[] = "├  Layanan: <b>" . e($ninjaSvc->name) . "</b> ({$ninjaPrice}/no)";
+            if ($ninjaAuto) {
+                $rem = $ninjaAuto->remainingQuantity();
+                $filterTag = $ninjaAuto->use_checker ? '🛡️ Filter Fresh' : '⚡ Standar';
+                $lines[] = "└  Status: 🟢 <b>Aktif</b> (Target: {$ninjaAuto->target_quantity} | Sisa: {$rem} | {$filterTag})";
+            } else {
+                $lines[] = "└  Status: ⚪ <b>Tidak Aktif</b>";
+            }
+        } else {
+            $lines[] = "└  <i>Layanan belum disinkronkan</i>";
+        }
+        $lines[] = "";
+
+        // Provider 2: WAHub
+        $lines[] = "2️⃣ <b>WAHub</b> (dehuyzotp.shop)";
+        if ($wahubSvc) {
+            $wahubPrice = 'Rp ' . number_format($bot->sellPriceFor($wahubSvc->provider_price), 0, ',', '.');
+            $lines[] = "├  Layanan: <b>" . e($wahubSvc->name) . "</b> ({$wahubPrice}/no)";
+            if ($wahubAuto) {
+                $rem = $wahubAuto->remainingQuantity();
+                $filterTag = $wahubAuto->use_checker ? '🛡️ Filter Fresh' : '⚡ Standar';
+                $lines[] = "└  Status: 🟢 <b>Aktif</b> (Target: {$wahubAuto->target_quantity} | Sisa: {$rem} | {$filterTag})";
+            } else {
+                $lines[] = "└  Status: ⚪ <b>Tidak Aktif</b>";
+            }
+        } else {
+            $lines[] = "└  <i>Layanan belum disinkronkan</i>";
+        }
+        $lines[] = "";
+        $lines[] = "💳 Saldo Tersedia: <b>" . $member->formattedAvailable() . "</b>";
+
+        $buttons = [];
+        $actionRow = [];
+        if ($ninjaSvc) {
+            $ninjaBtnText = $ninjaAuto ? '🥷 Ninja OTP (🟢 Aktif)' : '🥷 Atur Ninja OTP';
+            $actionRow[] = ['text' => $ninjaBtnText, 'callback_data' => 'auto_order_svc:' . $ninjaSvc->id];
+        }
+        if ($wahubSvc) {
+            $wahubBtnText = $wahubAuto ? '🌐 WAHub (🟢 Aktif)' : '🌐 Atur WAHub';
+            $actionRow[] = ['text' => $wahubBtnText, 'callback_data' => 'auto_order_svc:' . $wahubSvc->id];
+        }
+        if ($actionRow !== []) {
+            $buttons[] = $actionRow;
+        }
+
+        if ($ninjaAuto || $wahubAuto) {
+            $buttons[] = [
+                ['text' => '⚡ Jalankan Semua Sekarang (Ambil Stok)', 'callback_data' => 'auto_order_trigger_sync_all'],
+            ];
+        }
+
+        $buttons[] = [
+            ['text' => '🔄 Refresh', 'callback_data' => 'auto_order_hub'],
+            ['text' => '❌ Tutup', 'callback_data' => 'auto_order_close'],
+        ];
+
+        $this->replyOrSend($bot, $chatId, $editMessageId, implode("\n", $lines), inlineKeyboard: [
+            'inline_keyboard' => $buttons,
+        ]);
+    }
+
     public function showAutoOrderMenu(
         TelegramBot $bot,
         BotMember $member,
@@ -4676,6 +4970,12 @@ class TelegramBotService
         ?int $serviceId = null,
         ?string $notice = null
     ): void {
+        if ($serviceId === null && $bot->hasMultipleOtpProviders()) {
+            $this->showAutoOrderHub($bot, $member, $chatId, $editMessageId, $notice);
+
+            return;
+        }
+
         $service = ($serviceId ? OtpService::sellable()->whereKey($serviceId)->first() : null) ?? $this->kopkenService($bot);
 
         if (! $service) {
@@ -4790,11 +5090,15 @@ class TelegramBotService
                 ['text' => '❌ Batalkan', 'callback_data' => 'auto_order_cancel:'.$service->id],
             ];
 
-            // Row 4: 🔄 Refresh & ❌ Tutup
-            $buttons[] = [
-                ['text' => '🔄 Refresh', 'callback_data' => 'auto_order_menu'],
-                ['text' => '❌ Tutup', 'callback_data' => 'auto_order_close'],
+            // Row 4: 🔄 Refresh, 🔙 Ganti Provider, & ❌ Tutup
+            $bottomRow = [
+                ['text' => '🔄 Refresh', 'callback_data' => 'auto_order_svc:'.$service->id],
             ];
+            if ($bot->hasMultipleOtpProviders()) {
+                $bottomRow[] = ['text' => '🔙 Ganti Provider', 'callback_data' => 'auto_order_hub'];
+            }
+            $bottomRow[] = ['text' => '❌ Tutup', 'callback_data' => 'auto_order_close'];
+            $buttons[] = $bottomRow;
         } else {
             $lines[] = "└  Status: ⚪ <b>Tidak Aktif</b>\n";
             $lines[] = "Sistem akan otomatis memesan nomor begitu stok tersedia di provider, tanpa perlu klik manual.\n";
@@ -4838,9 +5142,12 @@ class TelegramBotService
             $buttons[] = [
                 ['text' => '✍️ Jumlah Custom (bebas)', 'callback_data' => 'auto_order_prompt:'.$service->id],
             ];
-            $buttons[] = [
-                ['text' => '❌ Tutup', 'callback_data' => 'auto_order_close'],
-            ];
+            $bottomRow = [];
+            if ($bot->hasMultipleOtpProviders()) {
+                $bottomRow[] = ['text' => '🔙 Ganti Provider', 'callback_data' => 'auto_order_hub'];
+            }
+            $bottomRow[] = ['text' => '❌ Tutup', 'callback_data' => 'auto_order_close'];
+            $buttons[] = $bottomRow;
         }
 
         $this->replyOrSend(
@@ -4903,7 +5210,7 @@ class TelegramBotService
             ['text' => '✍️ Tambah Custom (Ketik Angka)', 'callback_data' => 'auto_order_prompt_add:'.$service->id],
         ];
         $buttons[] = [
-            ['text' => '🔙 Kembali ke Menu', 'callback_data' => 'auto_order_menu'],
+            ['text' => '🔙 Kembali ke Menu', 'callback_data' => 'auto_order_svc:'.$service->id],
         ];
 
         $this->replyOrSend($bot, $chatId, $editMessageId, implode("\n", $lines), inlineKeyboard: ['inline_keyboard' => $buttons]);
@@ -4956,7 +5263,7 @@ class TelegramBotService
             ['text' => '✍️ Target Custom (Ketik Angka)', 'callback_data' => 'auto_order_prompt:'.$service->id],
         ];
         $buttons[] = [
-            ['text' => '🔙 Kembali ke Menu', 'callback_data' => 'auto_order_menu'],
+            ['text' => '🔙 Kembali ke Menu', 'callback_data' => 'auto_order_svc:'.$service->id],
         ];
 
         $this->replyOrSend($bot, $chatId, $editMessageId, implode("\n", $lines), inlineKeyboard: ['inline_keyboard' => $buttons]);
@@ -5024,7 +5331,7 @@ class TelegramBotService
             [
                 [
                     'text' => '🔙 Batal / Kembali',
-                    'callback_data' => 'auto_order_menu',
+                    'callback_data' => 'auto_order_svc:'.$service->id,
                 ],
             ],
         ];
@@ -5080,7 +5387,7 @@ class TelegramBotService
             if ($mode === 'add') {
                 $updated = $autoOrderService->addAutoOrderQuantity($bot, $member, $service, $qty);
                 Cache::forget($cacheKey);
-                $this->showAutoOrderMenu($bot, $member, $chatId, notice: "✅ Berhasil menambahkan <b>+{$qty} nomor</b> ke antrean! Total target sekarang: <b>{$updated->target_quantity} nomor</b>.");
+                $this->showAutoOrderMenu($bot, $member, $chatId, serviceId: $service->id, notice: "✅ Berhasil menambahkan <b>+{$qty} nomor</b> ke antrean! Total target sekarang: <b>{$updated->target_quantity} nomor</b>.");
             } else {
                 $hasChecker = $bot->phone_checker_enabled && filled($bot->phone_checker_api_key);
                 Cache::forget($cacheKey);
@@ -5090,7 +5397,7 @@ class TelegramBotService
                     $this->showAutoOrderConfirmation($bot, $member, $chatId, null, $service, $qty);
                 } else {
                     $autoOrderService->setAutoOrder($bot, $member, $service, $qty, false);
-                    $this->showAutoOrderMenu($bot, $member, $chatId, notice: "✅ Target Auto Order berhasil disetel untuk <b>{$qty} nomor</b>!");
+                    $this->showAutoOrderMenu($bot, $member, $chatId, serviceId: $service->id, notice: "✅ Target Auto Order berhasil disetel untuk <b>{$qty} nomor</b>!");
                 }
             }
         } catch (ValidationException $e) {

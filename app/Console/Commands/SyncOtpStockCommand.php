@@ -52,14 +52,16 @@ class SyncOtpStockCommand extends Command
         $syncedProviders = [];
 
         foreach ($botsToSync as $bot) {
-            $provider = $bot->activeOtpProvider();
-            $syncedProviders[] = "{$bot->name} ({$provider})";
+            $providersToSync = $bot->availableOtpProviders();
+            foreach ($providersToSync as $provider) {
+                $syncedProviders[] = "{$bot->name} ({$provider})";
 
-            try {
-                $count = $otpOrderService->syncServices($allowedNames, $bot, $provider);
-                $totalSynced += $count;
-            } catch (\Throwable $e) {
-                Log::warning("Console syncStock for bot #{$bot->id} ({$provider}) warning: ".$e->getMessage());
+                try {
+                    $count = $otpOrderService->syncServices($allowedNames, $bot, $provider);
+                    $totalSynced += $count;
+                } catch (\Throwable $e) {
+                    Log::warning("Console syncStock for bot #{$bot->id} ({$provider}) warning: ".$e->getMessage());
+                }
             }
         }
 

@@ -38,9 +38,9 @@ class OtpProviderManager
     /**
      * Get configured provider driver for a specific TelegramBot.
      */
-    public function forBot(TelegramBot $bot): OtpProviderInterface
+    public function forBot(TelegramBot $bot, ?string $provider = null): OtpProviderInterface
     {
-        $providerName = $bot->activeOtpProvider();
+        $providerName = $provider ?: ($bot->activeOtpProvider() === 'both' ? 'kopken' : $bot->activeOtpProvider());
         $driver = $this->driver($providerName);
 
         return $driver->forBot($bot);

@@ -44,6 +44,7 @@ class TelegramBotResource extends Resource
                 ->options([
                     'kopken' => 'Ninja OTP (app.ninjatop.cloud)',
                     'wahub' => 'WAHub (dehuyzotp.shop)',
+                    'both' => 'Keduanya (Dual Provider: Ninja OTP + WAHub)',
                 ])
                 ->default('kopken')
                 ->required(),

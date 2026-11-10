@@ -30,15 +30,25 @@ class BotDetailController extends Controller
         $allServices = OtpService::sellable()
             ->orderBy('name')
             ->get();
-        $services = $allServices->where('provider', $telegramBot->activeOtpProvider())->values();
+        $services = $telegramBot->isDualProvider()
+            ? $allServices->values()
+            : $allServices->where('provider', $telegramBot->activeOtpProvider())->values();
 
         if ($services->isEmpty() && $telegramBot->hasOtpConfigured()) {
             try {
-                $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $telegramBot);
+                if ($telegramBot->isDualProvider()) {
+                    foreach ($telegramBot->availableOtpProviders() as $p) {
+                        $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $telegramBot, $p);
+                    }
+                } else {
+                    $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $telegramBot);
+                }
                 $allServices = OtpService::sellable()
                     ->orderBy('name')
                     ->get();
-                $services = $allServices->where('provider', $telegramBot->activeOtpProvider())->values();
+                $services = $telegramBot->isDualProvider()
+                    ? $allServices->values()
+                    : $allServices->where('provider', $telegramBot->activeOtpProvider())->values();
             } catch (\Throwable $e) {
                 Log::warning('Auto-sync services on bot detail show: '.$e->getMessage());
             }
@@ -54,7 +64,7 @@ class BotDetailController extends Controller
         $data = $request->validate([
             'token' => ['nullable', 'string', 'max:255'],
             'status' => ['nullable', 'string', 'in:active,inactive'],
-            'otp_provider' => ['nullable', 'string', 'in:kopken,wahub'],
+            'otp_provider' => ['nullable', 'string', 'in:kopken,wahub,both'],
             'otp_service_id' => ['nullable', 'integer', 'exists:otp_services,id'],
             'otp_api_key' => ['nullable', 'string', 'max:500'],
             'otp_wahub_api_key' => ['nullable', 'string', 'max:500'],
@@ -217,13 +227,19 @@ class BotDetailController extends Controller
 
             if ($freshBot->hasOtpConfigured()) {
                 try {
-                    $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $freshBot);
+                    if ($freshBot->isDualProvider()) {
+                        foreach ($freshBot->availableOtpProviders() as $p) {
+                            $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $freshBot, $p);
+                        }
+                    } else {
+                        $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $freshBot);
+                    }
                 } catch (\Throwable $e) {
                     Log::warning('Auto-sync services after update settings: '.$e->getMessage());
                 }
             }
 
-            if ($freshBot->activeOtpProvider() === 'wahub' && filled($freshBot->activeOtpApiKey())) {
+            if (($freshBot->activeOtpProvider() === 'wahub' || $freshBot->isDualProvider()) && filled($freshBot->otp_wahub_api_key)) {
                 try {
                     app(\App\Services\OtpProviders\WahubProvider::class)->registerWebhookForBot($freshBot);
                 } catch (\Throwable $whErr) {
@@ -252,10 +268,17 @@ class BotDetailController extends Controller
         $this->authorizeOwner($telegramBot);
 
         try {
-            $count = $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $telegramBot);
+            $totalCount = 0;
+            if ($telegramBot->isDualProvider()) {
+                foreach ($telegramBot->availableOtpProviders() as $p) {
+                    $totalCount += $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $telegramBot, $p);
+                }
+            } else {
+                $totalCount = $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $telegramBot);
+            }
             $providerName = $telegramBot->otpProviderName();
 
-            return back()->with('success', "Sync layanan OTP berhasil ({$count} layanan) untuk {$providerName}.");
+            return back()->with('success', "Sync layanan OTP berhasil ({$totalCount} layanan) untuk {$providerName}.");
         } catch (\Throwable $e) {
             return back()->withErrors(['otp_api_key' => $e->getMessage()]);
         }
@@ -266,19 +289,39 @@ class BotDetailController extends Controller
         $this->authorizeOwner($telegramBot);
 
         try {
-            $data = $manager->forBot($telegramBot)->getBalance();
-            $balance = (int) ($data['balance'] ?? $data['available'] ?? 0);
-            $currency = (string) ($data['currency'] ?? 'IDR');
+            $msgParts = [];
+            $totalBalance = 0;
+            $currency = 'IDR';
+
+            if ($telegramBot->isDualProvider()) {
+                if (filled($telegramBot->otp_api_key)) {
+                    $ninjaData = $manager->forBot($telegramBot, 'kopken')->getBalance();
+                    $ninjaBal = (int) ($ninjaData['balance'] ?? $ninjaData['available'] ?? 0);
+                    $totalBalance += $ninjaBal;
+                    $msgParts[] = 'Ninja: Rp'.number_format($ninjaBal, 0, ',', '.');
+                }
+                if (filled($telegramBot->otp_wahub_api_key)) {
+                    $wahubData = $manager->forBot($telegramBot, 'wahub')->getBalance();
+                    $wahubBal = (int) ($wahubData['balance'] ?? $wahubData['available'] ?? 0);
+                    $totalBalance += $wahubBal;
+                    $msgParts[] = 'WAHub: Rp'.number_format($wahubBal, 0, ',', '.');
+                }
+            } else {
+                $data = $manager->forBot($telegramBot)->getBalance();
+                $totalBalance = (int) ($data['balance'] ?? $data['available'] ?? 0);
+                $currency = (string) ($data['currency'] ?? 'IDR');
+                $msgParts[] = 'Rp'.number_format($totalBalance, 0, ',', '.');
+            }
 
             $telegramBot->update([
-                'provider_balance' => $balance,
+                'provider_balance' => $totalBalance,
                 'provider_balance_currency' => $currency,
                 'provider_balance_checked_at' => now(),
             ]);
 
             return redirect()
                 ->route('bots.show', $telegramBot)
-                ->with('success', 'Saldo pusat ('.$telegramBot->otpProviderName().') diperbarui: Rp'.number_format($balance, 0, ',', '.'));
+                ->with('success', 'Saldo pusat diperbarui: ' . implode(' | ', $msgParts) . ($telegramBot->isDualProvider() ? ' (Total: Rp'.number_format($totalBalance, 0, ',', '.').')' : ''));
         } catch (\Throwable $e) {
             return redirect()
                 ->route('bots.show', $telegramBot)

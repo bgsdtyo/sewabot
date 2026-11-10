@@ -19,10 +19,11 @@ class OtpAutoOrderService
         protected TelegramBotService $telegramBotService,
     ) {}
 
-    public function getEffectiveProviderBalance(TelegramBot $bot): ?int
+    public function getEffectiveProviderBalance(TelegramBot $bot, ?string $provider = null): ?int
     {
+        $targetProvider = $provider ?: ($bot->activeOtpProvider() === 'both' ? 'kopken' : $bot->activeOtpProvider());
         try {
-            $client = app(OtpProviderManager::class)->forBot($bot);
+            $client = app(OtpProviderManager::class)->forBot($bot, $targetProvider);
             $data = $client->getBalance();
             $balance = (int) ($data['available'] ?? $data['balance'] ?? 0);
             $bot->update([
@@ -60,7 +61,7 @@ class OtpAutoOrderService
             return 100;
         }
 
-        $providerBalance = $this->getEffectiveProviderBalance($bot);
+        $providerBalance = $this->getEffectiveProviderBalance($bot, $service->provider);
         if ($providerBalance === null) {
             return null;
         }
@@ -153,18 +154,24 @@ class OtpAutoOrderService
             }
         }
 
-        // Pastikan hanya ada 1 antrean auto order aktif per member di bot ini.
-        // Jika sebelumnya ada antrean aktif di layanan lain (misal Kopken reguler), batalkan otomatis
-        // agar tidak terjadi eksekusi silang / salah layanan saat provider restock.
-        OtpAutoOrder::query()
-            ->where('telegram_bot_id', $bot->id)
-            ->where('bot_member_id', $member->id)
-            ->where('status', 'active')
-            ->where('otp_service_id', '!=', $service->id)
-            ->update([
-                'status' => 'cancelled',
-                'last_error' => 'Dibatalkan: Member beralih ke antrean layanan '.($service->name ?? '#'.$service->id),
-            ]);
+        // Batalkan antrean aktif lain HANYA jika berada pada provider yang sama
+        // (misal ganti dari Kopken Reguler ke Kopken Filter pada provider yang sama).
+        // Antrean pada provider yang berbeda (Ninja OTP vs WAHub) dibiarkan tetap aktif bersamaan.
+        $otherServiceIds = OtpService::where('provider', $service->provider)
+            ->where('id', '!=', $service->id)
+            ->pluck('id');
+
+        if ($otherServiceIds->isNotEmpty()) {
+            OtpAutoOrder::query()
+                ->where('telegram_bot_id', $bot->id)
+                ->where('bot_member_id', $member->id)
+                ->where('status', 'active')
+                ->whereIn('otp_service_id', $otherServiceIds)
+                ->update([
+                    'status' => 'cancelled',
+                    'last_error' => 'Dibatalkan: Member beralih ke antrean layanan '.($service->name ?? '#'.$service->id),
+                ]);
+        }
 
         $autoOrder = OtpAutoOrder::updateOrCreate(
             [
@@ -314,12 +321,21 @@ class OtpAutoOrderService
                 }
 
                 // Proteksi migrasi layanan: Jika bot dikonfigurasikan khusus untuk layanan tertentu (misal Kopken Filter),
-                // jangan eksekusi antrean layanan lama/berbeda pada bot ini.
-                if ($bot->otp_service_id && (int) $bot->otp_service_id !== (int) $service->id) {
+                // jangan eksekusi antrean layanan lama/berbeda pada bot ini (kecuali bot mode dual provider).
+                if ($bot->otp_service_id && ! $bot->isDualProvider() && (int) $bot->otp_service_id !== (int) $service->id) {
                     $autoOrder->update([
                         'status' => 'cancelled',
                         'last_error' => 'Dibatalkan: Layanan bot telah diubah ke layanan lain oleh pemilik bot',
                     ]);
+                    continue;
+                }
+
+                // Pastikan bot memiliki API key aktif untuk provider layanan ini
+                $providerKey = ($service->provider === 'wahub')
+                    ? ($bot->otp_wahub_api_key ?: $bot->otp_api_key)
+                    : $bot->otp_api_key;
+
+                if (! filled($providerKey)) {
                     continue;
                 }
 

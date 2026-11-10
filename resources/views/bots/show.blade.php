@@ -70,11 +70,23 @@
             <div class="relative overflow-hidden rounded-2xl border border-brand-200/80 bg-white p-4 shadow-xs">
                 <div class="flex items-center justify-between">
                     <span class="text-[11px] font-bold uppercase tracking-wider text-brand-400">Provider Aktif</span>
-                    <span class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-extrabold {{ $activeProvider === 'wahub' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-purple-50 text-purple-700 border border-purple-200' }}">
-                        {{ $activeProvider === 'wahub' ? 'WAHub' : 'Ninja OTP' }}
-                    </span>
+                    @if ($activeProvider === 'both')
+                        <span class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            Dual Provider
+                        </span>
+                    @elseif ($activeProvider === 'wahub')
+                        <span class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">
+                            WAHub
+                        </span>
+                    @else
+                        <span class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-extrabold bg-purple-50 text-purple-700 border border-purple-200">
+                            Ninja OTP
+                        </span>
+                    @endif
                 </div>
-                <p class="mt-2 text-lg font-black text-brand-900 truncate">{{ $activeProvider === 'wahub' ? 'WAHub (dehuyzotp)' : 'Ninja OTP (ninjatop)' }}</p>
+                <p class="mt-2 text-lg font-black text-brand-900 truncate">
+                    {{ $activeProvider === 'both' ? 'Ninja OTP + WAHub' : ($activeProvider === 'wahub' ? 'WAHub (dehuyzotp)' : 'Ninja OTP (ninjatop)') }}
+                </p>
                 <p class="mt-1 text-[11px] {{ $telegramBot->hasOtpConfigured() ? 'text-emerald-700 font-semibold' : 'text-amber-600 font-semibold' }}">
                     {{ $telegramBot->hasOtpConfigured() ? '✓ API Key Terpasang' : '⚠ API Key Kosong' }}
                 </p>
@@ -238,7 +250,7 @@
                         <div class="border-t border-brand-100 pt-4 space-y-3">
                             <label class="block text-xs font-bold text-brand-900">Pilih Provider OTP</label>
 
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                 {{-- Provider 1: Ninja OTP --}}
                                 <label class="relative flex cursor-pointer flex-col justify-between rounded-xl border p-3 transition"
                                        :class="activeProvider === 'kopken' ? 'border-purple-600 bg-purple-50/40 ring-2 ring-purple-500' : 'border-brand-200 bg-white hover:border-brand-300'">
@@ -282,10 +294,32 @@
                                         {{ filled($telegramBot->otp_wahub_api_key) ? '✓ Key Terpasang' : '⚠ Key Belum Diisi' }}
                                     </span>
                                 </label>
+
+                                {{-- Provider 3: Keduanya (Dual Provider) --}}
+                                <label class="relative flex cursor-pointer flex-col justify-between rounded-xl border p-3 transition"
+                                       :class="activeProvider === 'both' ? 'border-emerald-600 bg-emerald-50/40 ring-2 ring-emerald-500' : 'border-brand-200 bg-white hover:border-brand-300'">
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div>
+                                            <div class="flex items-center gap-1.5">
+                                                <span class="inline-flex h-2 w-2 rounded-full bg-emerald-600"></span>
+                                                <span class="text-xs font-black text-brand-900">Dual Provider</span>
+                                            </div>
+                                            <p class="mt-0.5 text-[11px] text-brand-500">Ninja OTP + WAHub</p>
+                                        </div>
+                                        <input type="radio" name="otp_provider" value="both" class="sr-only" x-model="activeProvider">
+                                        <span class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-brand-300"
+                                              :class="activeProvider === 'both' ? 'border-emerald-600 bg-emerald-600 text-white' : 'bg-white'">
+                                            <span class="h-1.5 w-1.5 rounded-full bg-white" x-show="activeProvider === 'both'"></span>
+                                        </span>
+                                    </div>
+                                    <span class="mt-2 inline-flex items-center text-[10px] font-bold {{ (filled($telegramBot->otp_api_key) && filled($telegramBot->otp_wahub_api_key)) ? 'text-emerald-700' : 'text-amber-600' }}">
+                                        {{ (filled($telegramBot->otp_api_key) && filled($telegramBot->otp_wahub_api_key)) ? '✓ 2 Key Terpasang' : '⚠ Isi Kedua Key' }}
+                                    </span>
+                                </label>
                             </div>
 
                             {{-- Input API Key Ninja OTP --}}
-                            <div x-show="activeProvider === 'kopken'" x-transition class="rounded-xl border border-purple-100 bg-purple-50/30 p-3.5 space-y-2">
+                            <div x-show="activeProvider === 'kopken' || activeProvider === 'both'" x-transition class="rounded-xl border border-purple-100 bg-purple-50/30 p-3.5 space-y-2">
                                 <div class="flex items-center justify-between">
                                     <label class="block text-xs font-bold text-brand-900">API Key Ninja OTP (nk_...)</label>
                                     <a href="https://app.ninjatop.cloud/profil" target="_blank" class="text-[10px] font-bold text-purple-700 hover:underline">
@@ -325,7 +359,7 @@
                             </div>
 
                             {{-- Input API Key WAHub --}}
-                            <div x-show="activeProvider === 'wahub'" x-transition class="rounded-xl border border-blue-100 bg-blue-50/30 p-3.5 space-y-2">
+                            <div x-show="activeProvider === 'wahub' || activeProvider === 'both'" x-transition class="rounded-xl border border-blue-100 bg-blue-50/30 p-3.5 space-y-2">
                                 <div class="flex items-center justify-between">
                                     <label class="block text-xs font-bold text-brand-900">API Key WAHub (wh_live_...)</label>
                                     <a href="https://dehuyzotp.shop" target="_blank" class="text-[10px] font-bold text-blue-700 hover:underline">
@@ -383,7 +417,7 @@
                                             class="w-full rounded-xl border-brand-200 text-xs font-bold text-brand-900 focus:border-brand-900 focus:ring-brand-900 bg-white py-2.5">
                                         <option value="">⚙️ Otomatis / Default (Kopi Kenangan Reguler)</option>
                                         <template x-for="svc in availableServices" :key="svc.id">
-                                            <option :value="svc.id" x-text="svc.name + ' — Modal ' + svc.formatted_price + ' (' + (svc.stock > 0 ? svc.stock + ' stok' : 'Stok Kosong') + ')'"></option>
+                                            <option :value="svc.id" x-text="(activeProvider === 'both' ? (svc.provider === 'wahub' ? '[WAHub] ' : '[Ninja] ') : '') + svc.name + ' — Modal ' + svc.formatted_price + ' (' + (svc.stock > 0 ? svc.stock + ' stok' : 'Stok Kosong') + ')'"></option>
                                         </template>
                                     </select>
                                     @error('otp_service_id')
@@ -879,6 +913,9 @@
                 phoneCheckerEnabled: {{ old('phone_checker_enabled', $telegramBot->phone_checker_enabled) ? 'true' : 'false' }},
 
                 get availableServices() {
+                    if (this.activeProvider === 'both') {
+                        return this.allServices;
+                    }
                     return this.allServices.filter(s => s.provider === this.activeProvider);
                 },
                 get currentSelectedService() {

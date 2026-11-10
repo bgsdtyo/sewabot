@@ -144,24 +144,70 @@ class TelegramBot extends Model
     {
         $provider = strtolower(trim((string) ($this->otp_provider ?: 'kopken')));
 
-        return in_array($provider, ['kopken', 'wahub'], true) ? $provider : 'kopken';
+        return in_array($provider, ['kopken', 'wahub', 'both'], true) ? $provider : 'kopken';
+    }
+
+    public function isDualProvider(): bool
+    {
+        if ($this->activeOtpProvider() === 'both') {
+            return true;
+        }
+
+        return filled($this->otp_api_key) && filled($this->otp_wahub_api_key);
+    }
+
+    /**
+     * Dapatkan daftar provider aktif pada bot ini.
+     * @return string[] e.g. ['kopken', 'wahub']
+     */
+    public function availableOtpProviders(): array
+    {
+        if ($this->isDualProvider()) {
+            $list = [];
+            if (filled($this->otp_api_key)) {
+                $list[] = 'kopken';
+            }
+            if (filled($this->otp_wahub_api_key)) {
+                $list[] = 'wahub';
+            }
+
+            return ! empty($list) ? $list : ['kopken', 'wahub'];
+        }
+
+        $single = $this->activeOtpProvider();
+        if ($single === 'wahub') {
+            return ['wahub'];
+        }
+
+        return ['kopken'];
+    }
+
+    public function hasMultipleOtpProviders(): bool
+    {
+        return count($this->availableOtpProviders()) > 1;
     }
 
     public function otpProviderName(): string
     {
+        if ($this->isDualProvider()) {
+            return 'Dual Provider (Ninja OTP + WAHub)';
+        }
+
         return $this->activeOtpProvider() === 'wahub' ? 'WAHub (dehuyzotp.shop)' : 'Ninja OTP (app.ninjatop.cloud)';
     }
 
     public function activeOtpApiKey(): ?string
     {
-        return $this->activeOtpProvider() === 'wahub'
-            ? ($this->otp_wahub_api_key ?: $this->otp_api_key)
-            : $this->otp_api_key;
+        if ($this->activeOtpProvider() === 'wahub') {
+            return $this->otp_wahub_api_key ?: $this->otp_api_key;
+        }
+
+        return $this->otp_api_key ?: $this->otp_wahub_api_key;
     }
 
     public function hasOtpConfigured(): bool
     {
-        return filled($this->activeOtpApiKey());
+        return filled($this->otp_api_key) || filled($this->otp_wahub_api_key);
     }
 
     public function otpService(): BelongsTo
@@ -169,11 +215,13 @@ class TelegramBot extends Model
         return $this->belongsTo(OtpService::class, 'otp_service_id');
     }
 
-    public function activeOtpService(): ?OtpService
+    public function activeOtpService(?string $provider = null): ?OtpService
     {
-        if ($this->otp_service_id) {
+        $targetProvider = $provider ?: ($this->activeOtpProvider() === 'both' ? 'kopken' : $this->activeOtpProvider());
+
+        if ($this->otp_service_id && ! $provider && $this->activeOtpProvider() !== 'both') {
             $service = OtpService::sellable()
-                ->forProvider($this->activeOtpProvider())
+                ->forProvider($targetProvider)
                 ->whereKey($this->otp_service_id)
                 ->first();
 
@@ -183,10 +231,10 @@ class TelegramBot extends Model
         }
 
         return OtpService::sellable()
-            ->kopiKenangan($this->activeOtpProvider())
+            ->kopiKenangan($targetProvider)
             ->first()
-            ?? OtpService::sellable()->kopken($this->activeOtpProvider())->first()
-            ?? OtpService::sellable()->forProvider($this->activeOtpProvider())->first()
+            ?? OtpService::sellable()->kopken($targetProvider)->first()
+            ?? OtpService::sellable()->forProvider($targetProvider)->first()
             ?? OtpService::sellable()->first();
     }
 
