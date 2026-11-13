@@ -1561,11 +1561,23 @@ class TelegramBotService
             .'Pilih order untuk melihat nomornya:';
 
         $buttons = [];
+        $hasMultiple = $bot->hasMultipleOtpProviders();
         foreach ($orders as $order) {
             $phone = $this->formatPhoneNumber($order->phone_number);
             $phoneLabel = $phone !== '' ? $phone : 'Menunggu nomor...';
             $serviceName = e($order->otpService?->name ?? 'Kopken');
-            $buttons[] = [['text' => "{$phoneLabel} | {$serviceName}", 'callback_data' => 'otp_view_order:'.$order->id]];
+
+            $pTag = '';
+            if ($hasMultiple) {
+                $provider = $order->provider ?: $order->otpService?->provider;
+                $pTag = match (strtolower((string) $provider)) {
+                    'wahub' => '[WAHub] ',
+                    'kopken' => '[Ninja] ',
+                    default => '',
+                };
+            }
+
+            $buttons[] = [['text' => "{$pTag}{$phoneLabel} | {$serviceName}", 'callback_data' => 'otp_view_order:'.$order->id]];
         }
 
         $this->sendMessage($bot, $chatId, $text, $this->mainKeyboard(), ['inline_keyboard' => $buttons]);
@@ -2420,6 +2432,14 @@ class TelegramBotService
         $phoneStr = $phone !== '' ? '<code>'.e($phone).'</code>' : '-';
         $otp = filled($order->otp_code) ? '<code>'.e((string) $order->otp_code).'</code>' : '-';
 
+        $provider = $order->provider ?: $order->otpService?->provider;
+        $providerLabel = match (strtolower((string) $provider)) {
+            'wahub' => 'WAHub',
+            'kopken' => 'Ninja OTP',
+            default => null,
+        };
+        $providerLine = $providerLabel ? "├  Provider: <b>{$providerLabel}</b>\n" : '';
+
         $isCompleted = ($order->status === 'completed' || $statusOverride === 'Berhasil' || filled($order->otp_code));
 
         $lines = [];
@@ -2436,6 +2456,7 @@ class TelegramBotService
             $sisaSaldo = $member ? $member->formattedAvailable() : '-';
 
             $lines[] = "❏ ID: <code>{$id}</code>\n"
+                .$providerLine
                 ."├  Layanan: {$svc}\n"
                 ."├  Sisa Stok: {$stockFormatted}\n"
                 ."├  Sisa Saldo: {$sisaSaldo}\n"
@@ -2458,6 +2479,7 @@ class TelegramBotService
 
         $lines[] = "❏ ID: <code>{$id}</code>\n"
             ."├  Tanggal: {$when}\n"
+            .$providerLine
             ."├  Service: {$svc}\n"
             ."├  Nomor: {$phoneStr}\n"
             ."├  OTP: {$otp}\n"

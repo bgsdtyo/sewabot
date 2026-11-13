@@ -358,8 +358,18 @@ class OtpAutoOrderService
                                 'last_error' => 'Saldo tidak mencukupi untuk melanjutkan pemesanan',
                             ]);
 
+                            $providerLabel = match (strtolower((string) ($service->provider ?? ''))) {
+                                'wahub' => '🌐 WAHub (dehuyzotp.shop)',
+                                'kopken' => '🥷 Ninja OTP (app.ninjatop.cloud)',
+                                default => '⚡ ' . ucfirst((string) ($service->provider ?? 'Provider')),
+                            };
+
                             $text = "⚠️ <b>Auto Order Dijeda: Saldo Tidak Cukup</b>\n\n"
                                 ."Stok untuk layanan <b>".e($service->name)."</b> saat ini sedang tersedia, tetapi saldo Anda (".$member->formattedAvailable().") tidak mencukupi untuk harga per nomor (Rp".number_format($unitPrice, 0, ',', '.').").\n\n"
+                                ."❏ Provider: <b>{$providerLabel}</b>\n"
+                                ."├  Layanan: <b>".e($service->name)."</b>\n"
+                                ."├  Tarif per Nomor: <b>Rp".number_format($unitPrice, 0, ',', '.')."</b>\n"
+                                ."└  Saldo Anda: <b>".$member->formattedAvailable()."</b>\n\n"
                                 ."Silakan deposit saldo terlebih dahulu, lalu aktifkan kembali Auto Order.";
 
                             $this->telegramBotService->sendMessage(
@@ -396,7 +406,7 @@ class OtpAutoOrderService
                         // Hanya validasi jika antrean auto order member mengaktifkan filter checker
                         if ($isCheckerActiveForOrder) {
                             $createdOrders = $this->filterAndRefundRegisteredNumbers(
-                                $bot, $member, $service, $createdOrders
+                                $bot, $member, $service, $createdOrders, $autoOrder
                             );
                             $countCreated = count($createdOrders);
 
@@ -435,10 +445,17 @@ class OtpAutoOrderService
                         $isFinished = $autoOrder->status === 'completed';
                         $statusBadge = $isFinished ? '✅ <b>Target Selesai Tercapai!</b>' : '🟢 <b>Sedang Berjalan...</b>';
 
+                        $providerLabel = match (strtolower((string) ($service->provider ?? ''))) {
+                            'wahub' => '🌐 WAHub (dehuyzotp.shop)',
+                            'kopken' => '🥷 Ninja OTP (app.ninjatop.cloud)',
+                            default => '⚡ ' . ucfirst((string) ($service->provider ?? 'Provider')),
+                        };
+
                         $lines = [
                             "⚡ <b>AUTO ORDER BERHASIL DIEKSEKUSI!</b> 📦\n",
-                            "❏ Layanan: <b>".e($service->name)."</b>",
-                            "├  Nomor Baru Didapat: <b>{$countCreated} nomor</b>",
+                            "❏ Provider: <b>{$providerLabel}</b>",
+                            "├  Layanan: <b>".e($service->name)."</b>",
+                            "├  Nomor Fresh Didapat: <b>{$countCreated} nomor</b>",
                             "├  Progres Target: <b>{$autoOrder->ordered_quantity} / {$autoOrder->target_quantity} nomor</b>",
                             "└  Status Antrean: {$statusBadge}\n",
                         ];
@@ -450,16 +467,19 @@ class OtpAutoOrderService
 
                         $lines[] = "\n<i>Nomor aktif dapat dicek di menu <b>Order Aktif</b> (Masa tunggu 20 menit dari provider).</i>";
 
+                        $buttons = [
+                            [['text' => '📋 Lihat Order Aktif', 'callback_data' => 'active_orders']],
+                            [['text' => '⚡ Pengaturan Auto Order', 'callback_data' => 'auto_order_svc:'.$service->id]],
+                        ];
+                        if ($bot->hasMultipleOtpProviders()) {
+                            $buttons[] = [['text' => '🔙 Hub Provider', 'callback_data' => 'auto_order_hub']];
+                        }
+
                         $this->telegramBotService->sendMessage(
                             $bot,
                             $member->telegram_chat_id,
                             implode("\n", $lines),
-                            replyMarkup: [
-                                'inline_keyboard' => [
-                                    [['text' => '📋 Lihat Order Aktif', 'callback_data' => 'active_orders']],
-                                    [['text' => '⚡ Pengaturan Auto Order', 'callback_data' => 'auto_order_menu']],
-                                ],
-                            ]
+                            replyMarkup: ['inline_keyboard' => $buttons]
                         );
 
                         // Also send each order's interactive bubble card
@@ -517,7 +537,8 @@ class OtpAutoOrderService
         TelegramBot $bot,
         BotMember $member,
         OtpService $service,
-        array $orders
+        array $orders,
+        ?OtpAutoOrder $autoOrder = null
     ): array {
         // Hanya jalankan jika phone_checker_enabled = true untuk bot ini
         if (! $bot->phone_checker_enabled) {
@@ -659,7 +680,23 @@ class OtpAutoOrderService
             // Notifikasi gabungan ke member jika ada nomor yang di-skip
             $skippedCount = count($registeredOrders) + count($unresolvableOrders);
             if ($skippedCount > 0) {
-                $this->notifyCheckerSkipped($bot, $member, $service, $skippedCount, count($validOrders));
+                $registeredPhones = [];
+                foreach ($registeredOrders as $ro) {
+                    $phone = (string) ($ro->phone_number ?? '');
+                    if (filled($phone)) {
+                        $registeredPhones[] = $this->telegramBotService->formatPhoneNumber($phone);
+                    }
+                }
+
+                $this->notifyCheckerSkipped(
+                    $bot,
+                    $member,
+                    $service,
+                    $skippedCount,
+                    count($validOrders),
+                    $autoOrder,
+                    $registeredPhones
+                );
             }
 
             return array_values($validOrders);
@@ -678,7 +715,7 @@ class OtpAutoOrderService
                 }
             }
 
-            $this->notifyCheckerSkipped($bot, $member, $service, count($orders), 0);
+            $this->notifyCheckerSkipped($bot, $member, $service, count($orders), 0, $autoOrder);
 
             return [];
         }
@@ -686,27 +723,86 @@ class OtpAutoOrderService
 
     /**
      * Kirim notifikasi ke member jika ada nomor yang diskip karena terdaftar di Kopken.
+     *
+     * @param  string[]  $registeredPhones
      */
     protected function notifyCheckerSkipped(
         TelegramBot $bot,
         BotMember $member,
         OtpService $service,
         int $skippedCount,
-        int $validCount
+        int $validCount,
+        ?OtpAutoOrder $autoOrder = null,
+        array $registeredPhones = []
     ): void {
         if (! $member->telegram_chat_id) {
             return;
         }
 
-        $text = "🔄 <b>Info Auto Order: Nomor Diganti Otomatis</b>\n\n"
-            ."Sistem mendeteksi <b>{$skippedCount} nomor</b> yang diterima dari provider sudah terdaftar "
-            ."di akun Kopi Kenangan lain.\n\n"
-            ."✅ Saldo untuk nomor tersebut telah <b>dikembalikan otomatis</b>.\n"
-            ."📦 Nomor valid yang diteruskan: <b>{$validCount} nomor</b>\n\n"
-            ."<i>Sistem akan terus mencari nomor fresh untuk melengkapi target Anda.</i>";
+        $providerLabel = match (strtolower((string) ($service->provider ?? ''))) {
+            'wahub' => '🌐 WAHub (dehuyzotp.shop)',
+            'kopken' => '🥷 Ninja OTP (app.ninjatop.cloud)',
+            default => '⚡ ' . ucfirst((string) ($service->provider ?? 'Provider')),
+        };
+
+        $providerShort = match (strtolower((string) ($service->provider ?? ''))) {
+            'wahub' => 'WAHub',
+            'kopken' => 'Ninja OTP',
+            default => ucfirst((string) ($service->provider ?? 'Provider')),
+        };
+
+        $totalChecked = $skippedCount + $validCount;
+
+        $lines = [
+            "🔄 <b>Info Auto Order: Filter Fresh Aktif</b>\n",
+            "Sistem mendeteksi <b>{$skippedCount} nomor</b> yang diterima dari provider sudah pernah terdaftar di Kopi Kenangan.\n",
+            "❏ Provider: <b>{$providerLabel}</b>",
+            "├  Layanan: <b>" . e($service->name) . "</b>",
+            "├  Total Diterima: <b>{$totalChecked} nomor</b>",
+            "├  Sudah Terdaftar: 🔴 <b>{$skippedCount} nomor (Dibatalkan & Refund)</b>",
+            "├  Fresh Diteruskan: 🟢 <b>{$validCount} nomor</b>",
+        ];
+
+        if ($autoOrder) {
+            $projectedOrdered = $autoOrder->ordered_quantity + $validCount;
+            $projectedRemaining = max(0, $autoOrder->target_quantity - $projectedOrdered);
+            $lines[] = "├  Target Antrean: <b>{$projectedOrdered} / {$autoOrder->target_quantity} nomor</b> (Sisa: <b>{$projectedRemaining} nomor</b>)";
+        }
+
+        $lines[] = "└  Status Saldo: <b>100% Dikembalikan (Bebas Biaya / Rp 0)</b>";
+
+        if (! empty($registeredPhones)) {
+            $lines[] = "\n📋 <b>Nomor yang Dibatalkan:</b>";
+            $preview = array_slice($registeredPhones, 0, 6);
+            foreach ($preview as $p) {
+                $lines[] = "• <code>{$p}</code> ❌ <i>(Terdaftar)</i>";
+            }
+            if (count($registeredPhones) > 6) {
+                $more = count($registeredPhones) - 6;
+                $lines[] = "• <i>...dan {$more} nomor lainnya</i>";
+            }
+        }
+
+        $lines[] = "\n💡 <i>Sistem akan terus mencari nomor fresh berikutnya saat server <b>{$providerShort}</b> restock stok nomor baru.</i>";
+
+        $buttons = [];
+        $navRow = [];
+        if ($validCount > 0) {
+            $navRow[] = ['text' => '📦 Lihat Order Aktif', 'callback_data' => 'active_orders'];
+        }
+        $navRow[] = ['text' => '⚡ Pengaturan Auto Order', 'callback_data' => 'auto_order_svc:' . $service->id];
+        if ($bot->hasMultipleOtpProviders()) {
+            $navRow[] = ['text' => '🔙 Hub Provider', 'callback_data' => 'auto_order_hub'];
+        }
+        $buttons[] = $navRow;
 
         try {
-            $this->telegramBotService->sendMessage($bot, $member->telegram_chat_id, $text);
+            $this->telegramBotService->sendMessage(
+                $bot,
+                $member->telegram_chat_id,
+                implode("\n", $lines),
+                replyMarkup: ['inline_keyboard' => $buttons]
+            );
         } catch (\Throwable $e) {
             Log::debug('Gagal kirim notif phone checker skip: '.$e->getMessage());
         }
