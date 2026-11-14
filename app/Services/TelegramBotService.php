@@ -1342,7 +1342,7 @@ class TelegramBotService
             ."• 📦 Order Aktif — Lihat daftar nomor yang sedang berjalan\n"
             ."• 💰 Saldo — Cek sisa saldo akun Anda\n"
             ."• ➕ Deposit — Info & konfirmasi deposit saldo\n"
-            ."• 📋 Riwayat — 5 transaksi terakhir\n"
+            ."• 📋 Riwayat — Riwayat pesanan sukses & OTP\n"
             ."• 👤 Akun — Informasi akun & status member\n"
             ."• ❓ Bantuan — Panduan penggunaan ini\n\n"
             ."<i>Aksi pesanan (Ganti Nomor, Ulang OTP, Batalkan) dapat langsung dilakukan melalui tombol pada bubble transaksi masing-masing.</i>";
@@ -1511,29 +1511,144 @@ class TelegramBotService
         return ['label' => 'sangat lambat', 'icon' => '🔴'];
     }
 
-    protected function showHistory(TelegramBot $bot, $member, $chatId): void
-    {
-        $orders = OtpOrder::query()
-            ->where('bot_member_id', $member->id)
-            ->with('otpService')
-            ->latest()
-            ->limit(5)
-            ->get();
+    public function showHistory(
+        TelegramBot $bot,
+        $member,
+        int|string $chatId,
+        int $page = 1,
+        ?int $editMessageId = null,
+        ?string $callbackId = null
+    ): void {
+        $perPage = 5;
 
-        if ($orders->isEmpty()) {
-            $this->sendMessage($bot, $chatId, "<b>Riwayat Transaksi</b> 💰\n\nBelum ada riwayat transaksi.", $this->mainKeyboard());
+        // Hanya pesanan yang BERHASIL (yang dapat OTP)
+        $baseQuery = OtpOrder::query()
+            ->where('bot_member_id', $member->id)
+            ->where(function ($q) {
+                $q->where('status', 'completed')
+                    ->orWhereNotNull('otp_code');
+            })
+            ->whereNotNull('otp_code')
+            ->where('otp_code', '!=', '')
+            ->whereNotIn('status', ['cancelled', 'canceled']);
+
+        $total = (clone $baseQuery)->count();
+
+        if ($callbackId) {
+            try {
+                Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                    'callback_query_id' => $callbackId,
+                ]);
+            } catch (\Throwable $e) {}
+        }
+
+        if ($total === 0) {
+            $emptyText = "📋 <b>Riwayat Transaksi Sukses</b> 🎉\n\n"
+                ."<i>Belum ada pesanan yang berhasil menerima kode OTP.</i>\n\n"
+                ."Setelah pesanan Anda berhasil menerima kode OTP, riwayat pesanan akan otomatis tercatat dan dapat dipantau di sini.";
+
+            $fallbackSvc = $this->kopkenService($bot);
+            $orderCb = $bot->hasMultipleOtpProviders()
+                ? 'order_provider_select'
+                : ($fallbackSvc ? 'order_select_svc:'.$fallbackSvc->id : 'order_provider_select');
+
+            $buttons = [
+                [['text' => '📱 Order OTP Sekarang', 'callback_data' => $orderCb]],
+            ];
+            if ($editMessageId) {
+                $buttons[] = [['text' => '❌ Tutup', 'callback_data' => 'history_close']];
+            }
+
+            $this->replyOrSend(
+                $bot,
+                $chatId,
+                $editMessageId,
+                $emptyText,
+                $this->mainKeyboard(),
+                inlineKeyboard: ['inline_keyboard' => $buttons]
+            );
 
             return;
         }
 
-        $cards = [];
-        foreach ($orders as $order) {
-            $cards[] = $this->formatOrderCard($order);
+        $totalPages = max(1, (int) ceil($total / $perPage));
+        $page = max(1, min($page, $totalPages));
+
+        $orders = (clone $baseQuery)
+            ->with('otpService')
+            ->latest('id')
+            ->forPage($page, $perPage)
+            ->get();
+
+        $tz = config('app.timezone', 'Asia/Jakarta');
+
+        $lines = [
+            "📋 <b>Riwayat Transaksi Sukses</b> 🎉",
+            "<i>Daftar pesanan nomor yang berhasil menerima kode OTP.</i>\n",
+            "Total Berhasil: <b>{$total} pesanan</b> · Halaman <b>{$page} / {$totalPages}</b>",
+            "━━━━━━━━━━━━━━━━━━━━━\n",
+        ];
+
+        $startIndex = ($page - 1) * $perPage;
+        $numIcons = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣'];
+
+        foreach ($orders as $i => $order) {
+            $numIcon = $numIcons[$i] ?? ('#'.($startIndex + $i + 1));
+            $orderId = $order->provider_order_id ? substr((string) $order->provider_order_id, 0, 8) : (string) $order->id;
+            $serviceName = e($order->otpService?->name ?? 'Kopi Kenangan');
+
+            $provider = $order->provider ?: $order->otpService?->provider;
+            $providerBadge = match (strtolower((string) $provider)) {
+                'wahub' => '🌐 <i>WAHub</i>',
+                'kopken' => '🥷 <i>Ninja OTP</i>',
+                default => '⚡ <i>'.ucfirst((string) $provider).'</i>',
+            };
+
+            $when = $order->created_at ? $order->created_at->timezone($tz)->format('d/m/Y H:i') : '-';
+            $phone = $this->formatPhoneNumber($order->phone_number);
+            $phoneStr = $phone !== '' ? '<code>'.e($phone).'</code>' : '-';
+            $otp = filled($order->otp_code) ? '<code>'.e((string) $order->otp_code).'</code>' : '-';
+            $priceFmt = 'Rp '.number_format((int) $order->sell_price, 0, ',', '.');
+
+            $lines[] = "{$numIcon} <b>{$serviceName}</b> · {$providerBadge}";
+            $lines[] = "├ ID: <code>#{$orderId}</code> · 📅 <i>{$when} WIB</i>";
+            $lines[] = "├ Nomor: {$phoneStr}";
+            $lines[] = "├ Kode OTP: {$otp} ✅";
+            $lines[] = "└ Tarif: <b>{$priceFmt}</b>\n";
         }
 
-        $text = "<b>Riwayat Transaksi</b> 💰\n\n".implode("\n\n", $cards);
+        $lines[] = "━━━━━━━━━━━━━━━━━━━━━";
+        $lines[] = "💡 <i>Ketuk angka nomor atau kode OTP di atas untuk langsung menyalin.</i>";
 
-        $this->sendMessage($bot, $chatId, $text, $this->mainKeyboard());
+        // Navigation row
+        $navRow = [];
+        if ($page > 1) {
+            $navRow[] = ['text' => '⬅️ Sebelumnya', 'callback_data' => 'history_page:'.($page - 1)];
+        }
+        $navRow[] = ['text' => "📄 {$page} / {$totalPages}", 'callback_data' => 'history_noop'];
+        if ($page < $totalPages) {
+            $navRow[] = ['text' => 'Selanjutnya ➡️', 'callback_data' => 'history_page:'.($page + 1)];
+        }
+
+        $bottomRow = [
+            ['text' => '🔄 Refresh', 'callback_data' => 'history_refresh:'.$page],
+            ['text' => '❌ Tutup', 'callback_data' => 'history_close'],
+        ];
+
+        $buttons = [];
+        if ($totalPages > 1 || count($navRow) > 1) {
+            $buttons[] = $navRow;
+        }
+        $buttons[] = $bottomRow;
+
+        $this->replyOrSend(
+            $bot,
+            $chatId,
+            $editMessageId,
+            implode("\n", $lines),
+            $this->mainKeyboard(),
+            inlineKeyboard: ['inline_keyboard' => $buttons]
+        );
     }
 
     protected function showActiveOrders(TelegramBot $bot, $member, int|string $chatId): void
@@ -3821,6 +3936,46 @@ class TelegramBotService
 
         if ($data === 'active_orders') {
             $this->showActiveOrders($bot, $member, $chatId);
+
+            return;
+        }
+
+        if ($data === 'history') {
+            $this->showHistory($bot, $member, $chatId, page: 1, editMessageId: $messageId ? (int) $messageId : null, callbackId: $callbackId);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'history_page:')) {
+            $page = (int) substr($data, strlen('history_page:'));
+            $this->showHistory($bot, $member, $chatId, page: $page, editMessageId: $messageId ? (int) $messageId : null, callbackId: $callbackId);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'history_refresh:')) {
+            $page = (int) substr($data, strlen('history_refresh:'));
+            $this->showHistory($bot, $member, $chatId, page: $page, editMessageId: $messageId ? (int) $messageId : null, callbackId: $callbackId);
+
+            return;
+        }
+
+        if ($data === 'history_close') {
+            if ($messageId) {
+                $this->deleteMessage($bot, $chatId, $messageId);
+            }
+
+            return;
+        }
+
+        if ($data === 'history_noop') {
+            if ($callbackId) {
+                try {
+                    Http::asJson()->post("https://api.telegram.org/bot{$bot->token}/answerCallbackQuery", [
+                        'callback_query_id' => $callbackId,
+                    ]);
+                } catch (\Throwable $e) {}
+            }
 
             return;
         }
