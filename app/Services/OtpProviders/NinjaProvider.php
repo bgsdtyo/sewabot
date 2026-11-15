@@ -95,11 +95,41 @@ class NinjaProvider implements OtpProviderInterface
 
             $durationMinutes = (int) ($item['duration'] ?? 20);
 
+            // Ekstrak stok dari semua varian key yang mungkin dikembalikan oleh API provider
+            $stock = 0;
+            if (isset($item['available']) && is_numeric($item['available'])) {
+                $stock = (int) $item['available'];
+            } elseif (isset($item['available_count']) && is_numeric($item['available_count'])) {
+                $stock = (int) $item['available_count'];
+            } elseif (isset($item['stock'])) {
+                if (is_array($item['stock'])) {
+                    $stock = (int) ($item['stock']['available'] ?? $item['stock']['count'] ?? $item['stock']['qty'] ?? 0);
+                } else {
+                    $stock = (int) $item['stock'];
+                }
+            } elseif (isset($item['count']) && is_numeric($item['count'])) {
+                $stock = (int) $item['count'];
+            } elseif (isset($item['qty']) && is_numeric($item['qty'])) {
+                $stock = (int) $item['qty'];
+            } elseif (isset($item['quantity']) && is_numeric($item['quantity'])) {
+                $stock = (int) $item['quantity'];
+            } elseif (isset($item['available_stock']) && is_numeric($item['available_stock'])) {
+                $stock = (int) $item['available_stock'];
+            } elseif (isset($item['stock_count']) && is_numeric($item['stock_count'])) {
+                $stock = (int) $item['stock_count'];
+            } elseif (isset($item['total_stock']) && is_numeric($item['total_stock'])) {
+                $stock = (int) $item['total_stock'];
+            } elseif (isset($item['numbers_count']) && is_numeric($item['numbers_count'])) {
+                $stock = (int) $item['numbers_count'];
+            } elseif (isset($item['available_numbers']) && is_numeric($item['available_numbers'])) {
+                $stock = (int) $item['available_numbers'];
+            }
+
             $normalized[] = [
                 'id' => (int) ($item['id'] ?? 0),
                 'name' => (string) ($item['name'] ?? ''),
                 'price' => (int) ($item['price'] ?? 0),
-                'stock' => (int) ($item['available_count'] ?? $item['stock'] ?? $item['count'] ?? 0),
+                'stock' => max(0, $stock),
                 'duration_seconds' => $durationMinutes * 60,
             ];
         }

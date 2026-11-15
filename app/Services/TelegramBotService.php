@@ -4009,23 +4009,46 @@ class TelegramBotService
 
             foreach ($bot->availableOtpProviders() as $p) {
                 try {
+                    $svc = $bot->activeOtpService($p) ?? $this->kopkenService($bot, $p);
+                    $activeAuto = $svc ? $autoOrderService->getActiveForMember($bot, $member, $svc) : null;
+                    $oldQ = $activeAuto ? (int) $activeAuto->ordered_quantity : 0;
+
+                    // 1. Sinkronisasi live stock dari provider (bisa langsung mengeksekusi antrean di dalam syncServices jika terdeteksi stok)
                     $otpOrderService->syncServices($allowedNames, $bot, $p);
+
+                    // Re-fetch service & antrean setelah sync
                     $svc = $bot->activeOtpService($p) ?? $this->kopkenService($bot, $p);
                     if ($svc) {
                         $svc->refresh();
                         $activeAuto = $autoOrderService->getActiveForMember($bot, $member, $svc);
                         if ($activeAuto && $activeAuto->status === 'active' && $activeAuto->remainingQuantity() > 0) {
-                            $oldQ = (int) $activeAuto->ordered_quantity;
-                            if ((int) $svc->stock > 0) {
-                                $autoOrderService->processAutoOrdersForService($svc, (int) $svc->stock);
+                            $stockToUse = (int) ($svc->stock ?? 0);
+                            $newQAfterSync = (int) $activeAuto->ordered_quantity;
+
+                            // Jika belum dapat nomor dari syncServices dan antrean masih butuh:
+                            // Coba eksekusi jika stock > 0 ATAU lakukan live probing order 1 nomor langsung ke provider
+                            // (mengantisipasi provider yang memiliki stok di web namun API reporting delay/tidak menampilkan count)
+                            if ($stockToUse > 0) {
+                                $autoOrderService->processAutoOrdersForService($svc, $stockToUse);
                                 $activeAuto->refresh();
-                                $got = (int) $activeAuto->ordered_quantity - $oldQ;
-                                $totalGot += max(0, $got);
-                                $pLabel = $p === 'wahub' ? 'WAHub' : 'Ninja';
+                            } elseif ($newQAfterSync === $oldQ) {
+                                // Live probe 1 nomor
+                                try {
+                                    $autoOrderService->processAutoOrdersForService($svc, 1);
+                                    $activeAuto->refresh();
+                                } catch (\Throwable) {}
+                            }
+
+                            $got = (int) $activeAuto->ordered_quantity - $oldQ;
+                            $totalGot += max(0, $got);
+                            $pLabel = $p === 'wahub' ? 'WAHub' : 'Ninja';
+
+                            if ($got > 0) {
                                 $details[] = "{$pLabel}: +{$got} nomor";
+                            } elseif ((int) ($svc->stock ?? 0) > 0) {
+                                $details[] = "{$pLabel}: stok {$svc->stock}";
                             } else {
-                                $pLabel = $p === 'wahub' ? 'WAHub' : 'Ninja';
-                                $details[] = "{$pLabel}: stok 0";
+                                $details[] = "{$pLabel}: stok kosong";
                             }
                         }
                     }
@@ -4261,6 +4284,9 @@ class TelegramBotService
             }
 
             try {
+                // Simpan ordered_quantity awal sebelum sync
+                $oldOrdered = (int) $activeAuto->ordered_quantity;
+
                 // 1. Sinkronisasi stok terbaru dari provider langsung menggunakan bot ini
                 $otpOrderService = app(OtpOrderService::class);
                 $allowedNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'];
@@ -4275,12 +4301,19 @@ class TelegramBotService
                 $activeAuto->refresh();
 
                 $currentStock = (int) ($service->stock ?? 0);
-                $oldOrdered = (int) $activeAuto->ordered_quantity;
+                $newOrderedAfterSync = (int) $activeAuto->ordered_quantity;
 
-                // 2. Jika ada stok dan antrean masih butuh nomor, proses sekarang
-                if ($currentStock > 0 && $activeAuto->status === 'active' && $activeAuto->remainingQuantity() > 0) {
-                    $autoOrderService->processAutoOrdersForService($service, $currentStock);
-                    $activeAuto->refresh();
+                // 2. Jika antrean masih butuh nomor:
+                // Eksekusi stok jika ada, ATAU coba live probe 1 nomor langsung ke provider
+                // (mengantisipasi provider yang memiliki stok di web namun API reporting delay)
+                if ($activeAuto->status === 'active' && $activeAuto->remainingQuantity() > 0) {
+                    $stockToUse = $currentStock > 0 ? $currentStock : ($newOrderedAfterSync === $oldOrdered ? 1 : 0);
+                    if ($stockToUse > 0) {
+                        try {
+                            $autoOrderService->processAutoOrdersForService($service, $stockToUse);
+                            $activeAuto->refresh();
+                        } catch (\Throwable) {}
+                    }
                 }
 
                 $newOrdered = (int) $activeAuto->ordered_quantity;

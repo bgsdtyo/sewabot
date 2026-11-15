@@ -134,7 +134,7 @@ class OtpAutoOrderService
         // 2. Validasi kapasitas antrean sistem (berdasarkan ketersediaan slot modal server)
         $modalPerNumber = (int) ($service->provider_price ?? 0);
         if ($modalPerNumber > 0) {
-            $providerBalance = $this->getEffectiveProviderBalance($bot);
+            $providerBalance = $this->getEffectiveProviderBalance($bot, $service->provider);
             if ($providerBalance !== null) {
                 $totalMaxCapacity = (int) floor($providerBalance / $modalPerNumber);
                 $committedByOthers = $this->getCommittedWaitingSlots($bot, $service, excludeMember: $member);
@@ -284,7 +284,7 @@ class OtpAutoOrderService
             return 0;
         }
 
-        $lock = Cache::lock("auto_order_service_{$service->id}", 30);
+        $lock = Cache::lock("auto_order_service_{$service->id}", 10);
         if (! $lock->get()) {
             return 0;
         }
@@ -292,8 +292,18 @@ class OtpAutoOrderService
         $totalExecuted = 0;
 
         try {
+            // Ambil antrean yang terikat ke ID layanan ini, atau ke layanan aktif lain pada provider yang sama
+            // (mencegah antrean terisolasi jika ID service provider berubah saat sync)
             $autoOrders = OtpAutoOrder::query()
-                ->where('otp_service_id', $service->id)
+                ->where(function ($q) use ($service) {
+                    $q->where('otp_service_id', $service->id)
+                        ->orWhere(function ($sub) use ($service) {
+                            $sub->whereHas('otpService', function ($svcQ) use ($service) {
+                                $svcQ->where('provider', $service->provider)
+                                    ->where('is_active', true);
+                            });
+                        });
+                })
                 ->where('status', 'active')
                 ->whereColumn('ordered_quantity', '<', 'target_quantity')
                 ->with(['telegramBot', 'botMember', 'otpService'])
