@@ -50,6 +50,20 @@ class ExpireSubscriptionsCommand extends Command
             }
         }
 
+        // Pastikan seluruh bot yang tersuspend/kedaluwarsa tetap memiliki webhook aktif
+        // agar selalu dapat membalas pesan fallback expired kepada pengguna di Telegram
+        $suspendedBots = TelegramBot::query()
+            ->where('status', 'suspended')
+            ->whereNotNull('token')
+            ->whereNull('webhook_url')
+            ->get();
+
+        foreach ($suspendedBots as $sBot) {
+            if ($sBot->token) {
+                $telegramBotService->setWebhook($sBot, force: true);
+            }
+        }
+
         $this->info("Done. Expired subscriptions: {$expiredSubCount}, Suspended bots: {$suspendedBotCount}");
 
         return self::SUCCESS;

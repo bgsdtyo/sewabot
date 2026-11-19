@@ -41,11 +41,11 @@ class TelegramBotService
     {
         $bot->update([
             'status' => 'suspended',
-            'webhook_url' => null,
         ]);
 
-        if ($bot->token) {
-            $this->deleteWebhook($bot);
+        // Pertahankan webhook agar bot tetap bisa merespons pesan fallback expired saat diakses user di Telegram
+        if ($bot->token && ! $bot->webhook_url) {
+            $this->setWebhook($bot, force: true);
         }
 
         return $bot->fresh();
@@ -60,9 +60,13 @@ class TelegramBotService
         }
     }
 
-    public function setWebhook(TelegramBot $bot): bool
+    public function setWebhook(TelegramBot $bot, bool $force = false): bool
     {
-        if (! $bot->token || ! $bot->hasActiveSubscription()) {
+        if (! $bot->token) {
+            return false;
+        }
+
+        if (! $force && ! $bot->hasActiveSubscription()) {
             return false;
         }
 
@@ -125,7 +129,7 @@ class TelegramBotService
         $chatId = $message['chat']['id'] ?? $callback['message']['chat']['id'] ?? null;
 
         // If bot is suspended, inactive, or subscription has expired:
-        // inform user, ensure bot is deactivated & webhook dropped, and block operations!
+        // inform user, ensure bot status is suspended, block all operations, and fallback to expired message!
         if ($bot->status !== 'active' || ! $bot->hasActiveSubscription()) {
             if ($bot->status === 'active') {
                 $this->deactivate($bot);
@@ -137,6 +141,12 @@ class TelegramBotService
             }
 
             $isExpired = ! $bot->hasActiveSubscription();
+            $title = $isExpired ? 'Masa Sewa Bot Berakhir' : 'Layanan Bot Dinonaktifkan';
+            $reason = $isExpired
+                ? 'Bot ini tidak dapat digunakan karena masa sewa bot telah berakhir / kedaluwarsa.'
+                : 'Bot ini sedang dinonaktifkan sementara oleh pemilik bot.';
+
+            $expiredText = "⚠️ <b>{$title}</b>\n\n{$reason}\n\nSilakan hubungi pemilik bot atau login ke website dashboard untuk memperpanjang masa aktif sewa bot.";
 
             if ($callback && isset($callback['id'])) {
                 $alertText = $isExpired
@@ -152,17 +162,15 @@ class TelegramBotService
                 } catch (\Throwable $e) {
                     // ignore
                 }
-            } elseif ($chatId) {
-                $title = $isExpired ? 'Masa Sewa Bot Berakhir' : 'Layanan Bot Dinonaktifkan';
-                $reason = $isExpired
-                    ? 'Bot ini sedang dinonaktifkan karena masa aktif sewa bot telah berakhir / kedaluwarsa.'
-                    : 'Bot ini sedang dinonaktifkan sementara oleh pemilik bot.';
 
-                $this->sendMessage(
-                    $bot,
-                    $chatId,
-                    "⚠️ <b>{$title}</b>\n\n{$reason}\n\nSilakan hubungi pemilik bot atau login ke website dashboard untuk memperpanjang masa aktif sewa bot."
-                );
+                // Ganti/tutup keyboard interaktif lama dengan pesan expired
+                if (isset($callback['message']['message_id']) && $chatId) {
+                    $this->editMessage($bot, $chatId, (int) $callback['message']['message_id'], $expiredText, removeInlineKeyboard: true);
+                } elseif ($chatId) {
+                    $this->sendMessage($bot, $chatId, $expiredText);
+                }
+            } elseif ($chatId) {
+                $this->sendMessage($bot, $chatId, $expiredText);
             }
 
             return;
