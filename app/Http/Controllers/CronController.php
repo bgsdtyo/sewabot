@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\OtpAutoOrder;
 use App\Models\OtpOrder;
 use App\Models\Subscription;
 use App\Models\TelegramBot;
+use App\Services\OtpAutoOrderService;
 use App\Services\OtpOrderService;
 use App\Services\TelegramBotService;
 use Illuminate\Http\JsonResponse;
@@ -121,51 +123,114 @@ class CronController extends Controller
      */
     public function syncStock(
         Request $request,
-        \App\Services\OtpOrderService $otpOrderService
+        OtpOrderService $otpOrderService,
+        OtpAutoOrderService $autoOrderService
     ): JsonResponse {
-        $this->pollPendingOtpQuietly();
         try {
             app(TelegramBotService::class)->stripExpiredResendButtons();
         } catch (\Throwable) {
         }
 
+        $allowedNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'];
+
+        // 1. Ambil bot-bot aktif yang memiliki antrean auto order aktif (prioritas tertinggi)
+        $autoOrderBots = TelegramBot::query()
+            ->where('status', 'active')
+            ->whereIn('id', OtpAutoOrder::query()
+                ->where('status', 'active')
+                ->whereColumn('ordered_quantity', '<', 'target_quantity')
+                ->select('telegram_bot_id'))
+            ->get();
+
+        // 2. Ambil bot representatif untuk tiap provider (termasuk mode 'both')
         $activeKopkenBot = TelegramBot::query()
             ->where('status', 'active')
-            ->where('otp_provider', 'kopken')
+            ->where(function ($q) {
+                $q->whereIn('otp_provider', ['kopken', 'both'])
+                    ->orWhereNotNull('otp_api_key');
+            })
             ->whereNotNull('otp_api_key')
             ->first();
 
         $activeWahubBot = TelegramBot::query()
             ->where('status', 'active')
-            ->where('otp_provider', 'wahub')
             ->where(function ($q) {
-                $q->whereNotNull('otp_wahub_api_key')->where('otp_wahub_api_key', '!=', '')
-                    ->orWhere(function ($q2) {
-                        $q2->whereNotNull('otp_api_key')->where('otp_api_key', '!=', '');
-                    });
+                $q->whereIn('otp_provider', ['wahub', 'both'])
+                    ->orWhereNotNull('otp_wahub_api_key');
             })
+            ->whereNotNull('otp_wahub_api_key')
             ->first();
 
-        $countKopken = 0;
-        $countWahub = 0;
+        // Gabungkan semua bot yang perlu disinkronkan tanpa duplikasi
+        $botsToSync = collect([$activeKopkenBot, $activeWahubBot])
+            ->merge($autoOrderBots)
+            ->filter()
+            ->unique('id');
 
-        try {
-            $countKopken = $otpOrderService->syncServices(['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'], $activeKopkenBot, 'kopken');
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('Cron syncStock Kopken warning: '.$e->getMessage());
+        $totalSynced = 0;
+        $totalSniped = 0;
+        $syncedDetails = [];
+
+        foreach ($botsToSync as $bot) {
+            $providersToSync = $bot->availableOtpProviders();
+            foreach ($providersToSync as $provider) {
+                $syncedDetails[] = "{$bot->name} ({$provider})";
+
+                try {
+                    $count = $otpOrderService->syncServices($allowedNames, $bot, $provider);
+                    $totalSynced += $count;
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning("Cron syncStock for bot #{$bot->id} ({$provider}) warning: ".$e->getMessage());
+                }
+
+                // ── Active Sniper Probing ──────────────────────────────────────
+                // Jangan hanya menunggu data GET /services yang mungkin terkena caching / reporting delay.
+                // Jika bot memiliki antrean aktif yang masih butuh nomor, lakukan live probe order langsung!
+                try {
+                    $svc = $bot->activeOtpService($provider);
+                    if ($svc) {
+                        $hasWaitingOrders = OtpAutoOrder::query()
+                            ->where('telegram_bot_id', $bot->id)
+                            ->where(function ($q) use ($svc, $provider) {
+                                $q->where('otp_service_id', $svc->id)
+                                    ->orWhereHas('otpService', fn ($s) => $s->where('provider', $provider));
+                            })
+                            ->where('status', 'active')
+                            ->whereColumn('ordered_quantity', '<', 'target_quantity')
+                            ->exists();
+
+                        if ($hasWaitingOrders) {
+                            $stockToUse = (int) ($svc->stock ?? 0) > 0 ? (int) $svc->stock : 1;
+                            $orderedCount = $autoOrderService->processAutoOrdersForService($svc, $stockToUse);
+                            if ($orderedCount > 0) {
+                                $totalSniped += $orderedCount;
+                                \Illuminate\Support\Facades\Log::info("🎯 CRON SNIPER HIT! Berhasil memborong {$orderedCount} nomor untuk bot #{$bot->id} ({$provider})!");
+                            }
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::debug("Cron sniper probe for bot #{$bot->id} ({$provider}): ".$e->getMessage());
+                }
+                // ───────────────────────────────────────────────────────────────
+            }
         }
 
-        try {
-            $countWahub = $otpOrderService->syncServices(['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'], $activeWahubBot, 'wahub');
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('Cron syncStock WAHub warning: '.$e->getMessage());
+        // Fallback jika tidak ada bot terdaftar sama sekali
+        if ($botsToSync->isEmpty()) {
+            try {
+                $totalSynced += $otpOrderService->syncServices($allowedNames, null, 'wahub');
+            } catch (\Throwable) {}
+            try {
+                $totalSynced += $otpOrderService->syncServices($allowedNames, null, 'kopken');
+            } catch (\Throwable) {}
         }
 
         return response()->json([
             'success' => true,
-            'message' => 'Sync layanan & stok OTP provider berhasil disinkronkan.',
-            'synced_kopken' => $countKopken,
-            'synced_wahub' => $countWahub,
+            'message' => 'Sync layanan & stok OTP provider selesai.',
+            'synced_services' => $totalSynced,
+            'sniped_numbers' => $totalSniped,
+            'bots' => array_values(array_unique($syncedDetails)),
             'timestamp' => now()->timezone(config('app.timezone', 'Asia/Jakarta'))->toDateTimeString(),
         ]);
     }

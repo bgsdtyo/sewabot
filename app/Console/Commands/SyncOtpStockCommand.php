@@ -87,6 +87,36 @@ class SyncOtpStockCommand extends Command
                     } catch (\Throwable $e) {
                         Log::warning("Console syncStock for bot #{$bot->id} ({$provider}) warning: ".$e->getMessage());
                     }
+
+                    // ── Active Sniper Probing ──────────────────────────────────────
+                    // Jangan hanya menunggu data GET /services yang mungkin terkena caching / reporting delay.
+                    // Jika bot memiliki antrean aktif yang masih butuh nomor, lakukan live probe order langsung!
+                    try {
+                        $svc = $bot->activeOtpService($provider);
+                        if ($svc) {
+                            $hasWaitingOrders = OtpAutoOrder::query()
+                                ->where('telegram_bot_id', $bot->id)
+                                ->where(function ($q) use ($svc, $provider) {
+                                    $q->where('otp_service_id', $svc->id)
+                                        ->orWhereHas('otpService', fn ($s) => $s->where('provider', $provider));
+                                })
+                                ->where('status', 'active')
+                                ->whereColumn('ordered_quantity', '<', 'target_quantity')
+                                ->exists();
+
+                            if ($hasWaitingOrders) {
+                                $stockToUse = (int) ($svc->stock ?? 0) > 0 ? (int) $svc->stock : 1;
+                                $orderedCount = app(\App\Services\OtpAutoOrderService::class)->processAutoOrdersForService($svc, $stockToUse);
+                                if ($orderedCount > 0) {
+                                    $this->info("🎯 SNIPER HIT! Berhasil memborong {$orderedCount} nomor untuk bot #{$bot->id} ({$provider})!");
+                                    Log::info("🎯 SNIPER HIT! Berhasil memborong {$orderedCount} nomor untuk bot #{$bot->id} ({$provider})!");
+                                }
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        Log::debug("Sniper probe for bot #{$bot->id} ({$provider}): " . $e->getMessage());
+                    }
+                    // ───────────────────────────────────────────────────────────────
                 }
             }
 

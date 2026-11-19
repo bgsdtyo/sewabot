@@ -451,6 +451,12 @@ class OtpAutoOrderService
                             $autoOrder->update(['status' => 'completed']);
                         }
 
+                        // Jika order berhasil dan member masih butuh nomor, tapi kuota stock habis (misal saat live probing 1 nomor):
+                        // Berikan momentum sniper (coba ambil hingga 5 nomor lagi) mumpung restock sedang terbuka di provider!
+                        if ($countCreated > 0 && $availableStock <= 0 && $autoOrder->remainingQuantity() > 0) {
+                            $availableStock = min(5, $autoOrder->remainingQuantity());
+                        }
+
                         // Send summary notification to member
                         $isFinished = $autoOrder->status === 'completed';
                         $statusBadge = $isFinished ? '✅ <b>Target Selesai Tercapai!</b>' : '🟢 <b>Sedang Berjalan...</b>';
