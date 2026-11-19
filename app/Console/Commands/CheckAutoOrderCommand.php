@@ -98,10 +98,11 @@ class CheckAutoOrderCommand extends Command
                     $ao->remainingQuantity(),
                     $balanceStr.' '.($isAffordable ? '✅' : '⚠️ Kurang'),
                     $statusLabel,
-                    $ao->last_error ? substr($ao->last_error, 0, 30).'...' : '-',
+                    $ao->updated_at?->diffForHumans() ?? '-',
+                    $ao->last_error ? \Illuminate\Support\Str::limit($ao->last_error, 28) : '-',
                 ];
             }
-            $this->table(['ID', 'Member', 'Layanan', 'Target', 'Didapat', 'Sisa', 'Saldo Member', 'Status', 'Last Error'], $rows);
+            $this->table(['ID', 'Member', 'Layanan', 'Target', 'Didapat', 'Sisa', 'Saldo Member', 'Status', 'Terakhir Coba', 'Last Error'], $rows);
         }
 
         // 4. Live Stock Provider
@@ -122,7 +123,7 @@ class CheckAutoOrderCommand extends Command
                     $s->updated_at?->diffForHumans() ?? '-',
                 ];
             }
-            $this->table(['ID', 'Provider', 'Nama Layanan', 'Modal/No', 'Stok di DB', 'Terakhir Update'], $servRows);
+            $this->table(['ID', 'Provider', 'Nama Layanan', 'Modal/No', 'Stok di DB', 'Terakhir Sync'], $servRows);
         }
 
         // 5. Opsi Eksekusi Langsung (--run)

@@ -100,6 +100,9 @@ class OtpOrderService
                 ]
             );
 
+            // Selalu perbarui updated_at setiap kali sync berhasil agar timestamp live selalu akurat
+            $savedService->touch();
+
             $newStock = (int) ($item['stock'] ?? 0);
             if ($newStock > 0) {
                 // 1. Process active auto orders first (snipers get priority)
