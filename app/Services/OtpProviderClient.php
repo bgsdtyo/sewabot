@@ -11,8 +11,13 @@ use App\Services\OtpProviders\KopkenProvider;
  */
 class OtpProviderClient extends KopkenProvider
 {
-    public function forBot(TelegramBot $bot): OtpProviderInterface
+    public function forBot(TelegramBot $bot): static
     {
-        return app(OtpProviderManager::class)->forBot($bot);
+        $key = $bot->otp_api_key ?: $bot->otp_wahub_api_key;
+        if (! filled($key)) {
+            throw new \RuntimeException('API Key belum diisi di Konfigurasi Bot.');
+        }
+
+        return $this->withApiKey($key);
     }
 }

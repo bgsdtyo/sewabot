@@ -72,7 +72,7 @@ class CronController extends Controller
     public function checkProviderBalance(
         Request $request,
         TelegramBotService $telegramBotService,
-        \App\Services\OtpProviderClient $client
+        OtpProviderManager $providerManager
     ): JsonResponse {
         $this->pollPendingOtpQuietly();
         try {
