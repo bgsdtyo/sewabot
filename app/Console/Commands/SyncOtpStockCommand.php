@@ -106,10 +106,13 @@ class SyncOtpStockCommand extends Command
 
                             if ($hasWaitingOrders) {
                                 $stockToUse = (int) ($svc->stock ?? 0) > 0 ? (int) $svc->stock : 1;
+                                $this->line("   ⚡ Mencoba eksekusi auto order [{$provider}] (stok terdeteksi: {$stockToUse})...");
                                 $orderedCount = app(\App\Services\OtpAutoOrderService::class)->processAutoOrdersForService($svc, $stockToUse);
                                 if ($orderedCount > 0) {
                                     $this->info("🎯 SNIPER HIT! Berhasil memborong {$orderedCount} nomor untuk bot #{$bot->id} ({$provider})!");
                                     Log::info("🎯 SNIPER HIT! Berhasil memborong {$orderedCount} nomor untuk bot #{$bot->id} ({$provider})!");
+                                } else {
+                                    $this->line("   ℹ️ Auto order [{$provider}] selesai dievaluasi (0 nomor valid diterima dari provider).");
                                 }
                             }
                         }
