@@ -102,7 +102,8 @@ class CheckAutoOrderCommand extends Command
                     $ao->last_error ? \Illuminate\Support\Str::limit($ao->last_error, 28) : '-',
                 ];
             }
-            $this->table(['ID', 'Member', 'Layanan', 'Target', 'Didapat', 'Sisa', 'Saldo Member', 'Status', 'Terakhir Coba', 'Last Error'], $rows);
+            $this->table(['ID', 'Member', 'Layanan', 'Target', 'Didapat', 'Sisa', 'Saldo Member', 'Status', 'Aktivitas Terakhir', 'Last Error'], $rows);
+            $this->comment('   * "Aktivitas Terakhir": Waktu terakhir antrean member berhasil dapat nomor / diubah. Pengecekan stok ke provider tetap berjalan tiap detik (lihat Tabel 4).');
         }
 
         // 4. Live Stock Provider
