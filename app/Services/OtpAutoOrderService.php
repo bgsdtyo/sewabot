@@ -155,7 +155,7 @@ class OtpAutoOrderService
         }
 
         // Batalkan antrean aktif lain HANYA jika berada pada provider yang sama
-        // (misal ganti dari Kopken Reguler ke Kopken Filter pada provider yang sama).
+        // (misal ganti layanan pada provider yang sama).
         // Antrean pada provider yang berbeda (Ninja OTP vs WAHub) dibiarkan tetap aktif bersamaan.
         $otherServiceIds = OtpService::where('provider', $service->provider)
             ->where('id', '!=', $service->id)
@@ -330,7 +330,7 @@ class OtpAutoOrderService
                     continue;
                 }
 
-                // Proteksi migrasi layanan: Jika bot dikonfigurasikan khusus untuk layanan tertentu (misal Kopken Filter),
+                // Proteksi migrasi layanan: Jika bot dikonfigurasikan khusus untuk layanan tertentu,
                 // jangan eksekusi antrean layanan lama/berbeda pada bot ini (kecuali bot mode dual provider).
                 if ($bot->otp_service_id && ! $bot->isDualProvider() && (int) $bot->otp_service_id !== (int) $service->id) {
                     $autoOrder->update([

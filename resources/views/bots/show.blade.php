@@ -424,7 +424,7 @@
                                         <p class="mt-1 text-xs text-red-600 font-semibold">{{ $message }}</p>
                                     @enderror
                                     <p class="text-[11px] text-brand-500 leading-relaxed">
-                                        💡 <i>Tersedia opsi <b>Kopi Kenangan</b>, <b>Kopken Filter</b>, atau layanan lain sesuai provider aktif. Bot akan otomatis menggunakan tarif & stok dari layanan yang dipilih.</i>
+                                        💡 <i>Tersedia opsi <b>Kopi Kenangan</b> atau layanan lain sesuai provider aktif. Bot akan otomatis menggunakan tarif & stok dari layanan yang dipilih.</i>
                                     </p>
                                 </div>
                             </div>

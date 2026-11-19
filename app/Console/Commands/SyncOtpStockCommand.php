@@ -19,7 +19,7 @@ class SyncOtpStockCommand extends Command
         ignore_user_abort(true);
         @set_time_limit(120);
 
-        $allowedNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'];
+        $allowedNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'WHATSAPP', 'WA'];
 
         $hasActiveAutoOrders = OtpAutoOrder::query()
             ->where('status', 'active')

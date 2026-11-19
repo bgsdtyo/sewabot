@@ -38,10 +38,10 @@ class BotDetailController extends Controller
             try {
                 if ($telegramBot->isDualProvider()) {
                     foreach ($telegramBot->availableOtpProviders() as $p) {
-                        $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $telegramBot, $p);
+                        $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $telegramBot, $p);
                     }
                 } else {
-                    $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $telegramBot);
+                    $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $telegramBot);
                 }
                 $allServices = OtpService::sellable()
                     ->orderBy('name')
@@ -229,10 +229,10 @@ class BotDetailController extends Controller
                 try {
                     if ($freshBot->isDualProvider()) {
                         foreach ($freshBot->availableOtpProviders() as $p) {
-                            $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $freshBot, $p);
+                            $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $freshBot, $p);
                         }
                     } else {
-                        $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $freshBot);
+                        $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $freshBot);
                     }
                 } catch (\Throwable $e) {
                     Log::warning('Auto-sync services after update settings: '.$e->getMessage());
@@ -271,10 +271,10 @@ class BotDetailController extends Controller
             $totalCount = 0;
             if ($telegramBot->isDualProvider()) {
                 foreach ($telegramBot->availableOtpProviders() as $p) {
-                    $totalCount += $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $telegramBot, $p);
+                    $totalCount += $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $telegramBot, $p);
                 }
             } else {
-                $totalCount = $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER'], $telegramBot);
+                $totalCount = $otp->syncServices(['KOPKEN', 'WHATSAPP', 'WA', 'KOPI KENANGAN', 'KOPIKENANGAN'], $telegramBot);
             }
             $providerName = $telegramBot->otpProviderName();
 

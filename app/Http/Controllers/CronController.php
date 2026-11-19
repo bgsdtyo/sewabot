@@ -131,7 +131,7 @@ class CronController extends Controller
         } catch (\Throwable) {
         }
 
-        $allowedNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'];
+        $allowedNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'WHATSAPP', 'WA'];
 
         // 1. Ambil bot-bot aktif yang memiliki antrean auto order aktif (prioritas tertinggi)
         $autoOrderBots = TelegramBot::query()

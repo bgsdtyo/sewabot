@@ -54,7 +54,7 @@ class TelegramBotResource extends Resource
                 ->searchable()
                 ->preload()
                 ->nullable()
-                ->helperText('Pilih layanan spesifik yang dijual bot ini (contoh: Kopi Kenangan / Kopken Filter). Kosongkan untuk otomatis.'),
+                ->helperText('Pilih layanan spesifik yang dijual bot ini (contoh: Kopi Kenangan). Kosongkan untuk otomatis.'),
             Forms\Components\TextInput::make('otp_api_key')
                 ->label('OTP Provider API Key (Ninja OTP)')
                 ->password()

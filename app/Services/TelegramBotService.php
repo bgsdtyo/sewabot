@@ -4010,7 +4010,7 @@ class TelegramBotService
         if ($data === 'auto_order_trigger_sync_all') {
             $otpOrderService = app(OtpOrderService::class);
             $autoOrderService = app(OtpAutoOrderService::class);
-            $allowedNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'];
+            $allowedNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'WHATSAPP', 'WA'];
 
             $totalGot = 0;
             $details = [];
@@ -4297,7 +4297,7 @@ class TelegramBotService
 
                 // 1. Sinkronisasi stok terbaru dari provider langsung menggunakan bot ini
                 $otpOrderService = app(OtpOrderService::class);
-                $allowedNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'];
+                $allowedNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'WHATSAPP', 'WA'];
                 $targetProvider = $service->provider ?: $bot->activeOtpProvider();
                 if ($targetProvider === 'both') {
                     $targetProvider = 'kopken';

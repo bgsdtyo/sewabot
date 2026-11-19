@@ -24,9 +24,9 @@ class OtpOrderService
     ) {}
 
     /**
-     * Sync services specifically for Kopi Kenangan / Kopken / Kopken Filter / WhatsApp from the active provider.
+     * Sync services specifically for Kopi Kenangan / Kopken / WhatsApp from the active provider.
      */
-    public function syncServices(?array $onlyNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'KOPKEN FILTER', 'KOPI KENANGAN FILTER', 'WHATSAPP', 'WA'], ?TelegramBot $usingBot = null, ?string $providerName = null): int
+    public function syncServices(?array $onlyNames = ['KOPI KENANGAN', 'KOPKEN', 'KOPIKENANGAN', 'WHATSAPP', 'WA'], ?TelegramBot $usingBot = null, ?string $providerName = null): int
     {
         $targetProvider = $providerName ?: ($usingBot ? ($usingBot->activeOtpProvider() === 'both' ? 'kopken' : $usingBot->activeOtpProvider()) : Setting::activeOtpProvider());
 
@@ -37,10 +37,10 @@ class OtpOrderService
         $items = $client->getServices();
         Log::info("Syncing services for provider [{$targetProvider}] - items count: ".count($items), ['items' => $items]);
 
-        // Cek apakah provider memiliki layanan spesifik 'KOPI KENANGAN' / 'KOPKEN'
+        // Cek apakah provider memiliki layanan spesifik 'KOPI KENANGAN' / 'KOPKEN' (kecuali varian filter lama)
         $hasKopkenSpecific = collect($items)->contains(function ($item) {
             $n = strtoupper(trim((string) ($item['name'] ?? '')));
-            return str_contains($n, 'KOPI') || str_contains($n, 'KENANGAN') || str_contains($n, 'KOPKEN');
+            return ! str_contains($n, 'FILTER') && (str_contains($n, 'KOPI') || str_contains($n, 'KENANGAN') || str_contains($n, 'KOPKEN'));
         });
 
         $matchedProviderServiceIds = [];
@@ -49,8 +49,8 @@ class OtpOrderService
             $name = (string) ($item['name'] ?? '');
             $nameUpper = strtoupper(trim($name));
 
-            // Abaikan secara mutlak layanan non-target (Shopee, Gopay, Shopee Filter, dsb.)
-            if (str_contains($nameUpper, 'SHOPEE') || str_contains($nameUpper, 'GOPAY') || str_contains($nameUpper, 'GRAB') || str_contains($nameUpper, 'DANA') || str_contains($nameUpper, 'OVO') || str_contains($nameUpper, 'TIKTOK')) {
+            // Abaikan secara mutlak layanan non-target atau varian filter lama provider
+            if (str_contains($nameUpper, 'SHOPEE') || str_contains($nameUpper, 'GOPAY') || str_contains($nameUpper, 'GRAB') || str_contains($nameUpper, 'DANA') || str_contains($nameUpper, 'OVO') || str_contains($nameUpper, 'TIKTOK') || str_contains($nameUpper, 'FILTER')) {
                 OtpService::where('provider', $targetProvider)
                     ->where('provider_service_id', (int) $item['id'])
                     ->update(['is_active' => false, 'is_enabled' => false]);
@@ -60,7 +60,7 @@ class OtpOrderService
 
             $isMatched = false;
             if ($hasKopkenSpecific) {
-                // Hanya ambil layanan Kopi Kenangan / Kopken / Kopken Filter
+                // Hanya ambil layanan Kopi Kenangan / Kopken reguler
                 if (str_contains($nameUpper, 'KOPI') || str_contains($nameUpper, 'KENANGAN') || str_contains($nameUpper, 'KOPKEN')) {
                     $isMatched = true;
                 }
